@@ -7,6 +7,9 @@ dist/
 out/
 *.tsbuildinfo
 
+# 资产库原生绑定缓存（双 ABI：node / electron；由 scripts/prepareAssetsNative.mjs 生成）
+.native/
+
 # Electron
 *.dmg
 *.app

@@ -54,6 +54,7 @@ asarUnpack:
   - node_modules/node-pty/**
   - node_modules/sherpa-onnx/**
   - node_modules/ffmpeg-static/**
+  - node_modules/better-sqlite3/**
 
 nsis:
   oneClick: false

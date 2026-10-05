@@ -32,7 +32,7 @@ export interface NativeBindingResolution {
   detail: string
 }
 
-/** better-sqlite3 原生二进制的相对文件名（Windows 为 .node）。 */
+/** better-sqlite3 原生二进制的文件名。 */
 function bindingFileName(): string {
   return 'better_sqlite3.node'
 }
@@ -42,14 +42,43 @@ function bindingFileName(): string {
  *
  * @param opts.isPackaged Electron `app.isPackaged`
  * @param opts.resourcesPath Electron `process.resourcesPath`（打包后资源根）
+ * @param opts.appRoot 开发模式应用根（定位 `.native/` 缓存），缺省用 `process.cwd()`
+ * @param opts.electronVersion / opts.platform / opts.arch 供测试注入，缺省取运行时值
  */
 export function resolveAssetsNativeBinding(opts: {
   isPackaged: boolean
   resourcesPath?: string
+  appRoot?: string
+  electronVersion?: string
+  platform?: string
+  arch?: string
 }): NativeBindingResolution {
+  const platform = opts.platform ?? process.platform
+  const arch = opts.arch ?? process.arch
+  const electronVersion = opts.electronVersion ?? process.versions.electron
+
   if (!opts.isPackaged) {
-    // 开发 / Node 测试：better-sqlite3 自行解析 node_modules 内绑定。
-    return { nativeBinding: undefined, mode: 'default', detail: '开发模式：使用默认原生绑定解析' }
+    // 开发模式：
+    // - 运行在 Electron 下 → 需要 **Electron ABI** 绑定（`.native/electron-<ver>/<platform>-<arch>/`，
+    //   由 scripts/prepareAssetsNative.mjs 生成），否则 ABI 不匹配会崩。
+    // - 纯 Node（vitest / 脚本）→ 用 node_modules 内的 Node ABI 默认绑定。
+    if (typeof electronVersion === 'string' && electronVersion !== '') {
+      const root = opts.appRoot ?? process.cwd()
+      const candidate = join(
+        root,
+        '.native',
+        `electron-${electronVersion}`,
+        `${platform}-${arch}`,
+        bindingFileName()
+      )
+      if (!existsSync(candidate)) {
+        throw new NativeBindingUnavailableError(
+          `未找到开发模式 Electron 原生绑定：${candidate}。请先运行 scripts/prepareAssetsNative.mjs 生成 Electron ABI 绑定。`
+        )
+      }
+      return { nativeBinding: candidate, mode: 'unpacked', detail: `开发模式 Electron 绑定：${candidate}` }
+    }
+    return { nativeBinding: undefined, mode: 'default', detail: '开发模式（Node 测试）：使用默认原生绑定解析' }
   }
 
   const resourcesPath = opts.resourcesPath

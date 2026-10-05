@@ -56,7 +56,7 @@ export default defineConfig({
         },
         // 原生 / 二进制依赖必须外置。externalizeDepsPlugin 已覆盖 dependencies，
         // 这里显式再列一次，防止将来被误移到 devDependencies 导致构建悄悄回归。
-        external: ['electron', 'node-pty', 'sherpa-onnx', 'ffmpeg-static']
+        external: ['electron', 'node-pty', 'sherpa-onnx', 'ffmpeg-static', 'better-sqlite3']
       }
     }
   },
