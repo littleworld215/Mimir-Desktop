@@ -219,3 +219,63 @@ describe('normalizeAllowedRoot：Windows 盘符路径（本次修复的回归）
     expect(normalizeAllowedRoot('C:\\Users\\u', winCtx).reason).toContain('主目录')
   })
 })
+
+/**
+ * UNC 共享根收严（本次修复）：`\\server\share` 会被 `normalizePath` 折叠成 `/server/share`，
+ * 于是原有的「文件系统根」判定（`root === '/'` / `parse(root).root === root`）**认不出它**，
+ * 共享根得以被记住 —— 范围等同于把整台文件服务器交出去。
+ * 现在在归一化**之前**按原始前缀判定，并只拦「服务器 + 共享名」两层，不误伤深层子目录。
+ */
+describe('normalizeAllowedRoot：UNC 共享根视同文件系统根（本次收严的回归）', () => {
+  const ctx = { home: '/home/u', isControlPlane }
+
+  it('UNC 共享根 //server/share 被拒（范围等同文件系统根）', () => {
+    const r = normalizeAllowedRoot('//server/share', ctx)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('网络共享根目录')
+  })
+
+  it('退化的 UNC（只有服务器名）//server 也被拒', () => {
+    expect(normalizeAllowedRoot('//server', ctx).ok).toBe(false)
+    expect(normalizeAllowedRoot('//server/', ctx).ok).toBe(false)
+  })
+
+  it('反斜杠写法 \\\\server\\share 同样被拒（不因分隔符写法不同而漏网）', () => {
+    // 跨平台只断言「被拒」：POSIX 上反斜杠本就不是绝对路径分隔符，会先被绝对性判定拦下。
+    expect(normalizeAllowedRoot('\\\\server\\share', ctx).ok).toBe(false)
+  })
+
+  it('UNC 深层子目录仍可记住（不误伤网络盘上的实验数据目录）', () => {
+    expect(normalizeAllowedRoot('//server/share/lab/data', ctx)).toEqual({
+      ok: true,
+      root: '/server/share/lab/data'
+    })
+    // 仅一层子目录也够具体，同样放行。
+    expect(normalizeAllowedRoot('//server/share/lab', ctx)).toEqual({
+      ok: true,
+      root: '/server/share/lab'
+    })
+  })
+
+  it('收严后既有拒绝项不受影响：/ 与相对路径仍被拒', () => {
+    expect(normalizeAllowedRoot('/', ctx).ok).toBe(false)
+    expect(normalizeAllowedRoot('/', ctx).reason).toContain('整个文件系统')
+    expect(normalizeAllowedRoot('work/proj', ctx).ok).toBe(false)
+    expect(normalizeAllowedRoot('work/proj', ctx).reason).toContain('绝对路径')
+  })
+
+  it.runIf(process.platform === 'win32')('Windows 上 UNC 深层子目录仍可记住', () => {
+    const winCtx = { home: 'C:\\Users\\u', isControlPlane: () => false }
+    expect(normalizeAllowedRoot('\\\\server\\share\\lab\\data', winCtx)).toEqual({
+      ok: true,
+      root: '/server/share/lab/data'
+    })
+  })
+
+  it.runIf(process.platform === 'win32')('Windows 上 UNC 共享根按「网络共享根」拒绝（非「绝对路径」误报）', () => {
+    const winCtx = { home: 'C:\\Users\\u', isControlPlane: () => false }
+    const r = normalizeAllowedRoot('\\\\server\\share', winCtx)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('网络共享根目录')
+  })
+})

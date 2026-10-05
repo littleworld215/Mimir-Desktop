@@ -185,10 +185,29 @@ export interface RootValidation {
 }
 
 /**
+ * 判断原始输入是否是 **UNC 共享根**（形如 `\\server\share` 或 `//server/share`）。
+ *
+ * ⚠️ 必须在 `normalizePath` **之前**用原始输入判定：归一化会把 `\\server\share` 折叠成
+ * `/server/share`，届时就分不清它到底是网络共享根、还是本机 `/server` 下的一个普通子目录了。
+ * 共享根等于「把整台文件服务器交出去」，范围与文件系统根同级，必须视同文件系统根拒绝；
+ * 更深层子目录（`\\server\share\lab\data`）仍可正常记住。
+ *
+ * @param raw 未经规范化的原始路径字符串。
+ * @returns `true` 表示是「服务器 + 共享名」两层的 UNC 根（含只有服务器名的退化形式）。
+ */
+function isUncShareRoot(raw: string): boolean {
+  // UNC 前缀：`\\` 或 `//`（Windows 上 `\\?\UNC\…` 走不到这里，会被绝对性判定先拦下）。
+  if (!/^[/\\]{2}/.test(raw)) return false
+  const parts = raw.split(/[/\\]+/).filter((seg) => seg !== '')
+  return parts.length <= 2
+}
+
+/**
  * 校验一个「要记住的目录」是否可以进允许列表。
  *
  * 拒绝以下情况（都是会让权限模型失去意义的输入）：
  * - 空值 / 根目录 `/`（等于全权，应当走 danger-full-access 档而不是偷偷记住）；
+ * - Windows 盘符根 `C:\` 与 UNC 共享根 `\\server\share`（同属「文件系统根」级别）；
  * - 用户主目录本身（范围过大，等于把整个家目录交出去）；
  * - 落在控制平面内或包含控制平面的路径。
  *
@@ -205,6 +224,14 @@ export function normalizeAllowedRoot(
   // 此前用 `root.startsWith('/')`，会把 Windows 盘符路径（归一化后为 `C:/…`）误判为**相对路径**，
   // 于是「允许并记住」在 Windows 上整体失效（fail-closed 到「无法记住」，功能不可用）。
   if (!isAbsolute(trimmed)) return { ok: false, reason: '请提供绝对路径。' }
+  // 拒绝 UNC 共享根（判定必须在归一化之前，见 `isUncShareRoot` 注释）。
+  // 只拦「服务器 + 共享名」两层，深层子目录仍可记住——不误伤正常的网络盘实验数据目录。
+  if (isUncShareRoot(trimmed)) {
+    return {
+      ok: false,
+      reason: '不能把网络共享根目录加进允许列表（范围过大）。请选择更具体的子目录。'
+    }
+  }
   const root = normalizePath(trimmed)
   // 拒绝「文件系统根」：POSIX `/`，以及 Windows 盘符根 `C:\`（归一化后为 `C:`，parse().root 等于自身）。
   // 这是**安全边界**：把根写进允许列表等于悄悄获得全权，应走 danger-full-access 档而不是「记忆」。
