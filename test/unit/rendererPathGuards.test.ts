@@ -5,7 +5,7 @@
  * 同前缀兄弟目录、`..`、软链 / junction 指向根外。本测试把它们钉死。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isPathWithin, realpathOrNearest } from '../../electron/ipc/pathGuards'
@@ -117,6 +117,14 @@ describe('fail-closed —— 失效链接不得被当作「不存在」放行', 
       expect(() => isPathWithin(broken, space)).toThrow()
       expect(() => isPathWithin(join(broken, 'x.txt'), space)).toThrow()
     })
+  })
+
+  it.runIf(process.platform === 'win32')('不存在的盘符根 → 抛错（不得声称包含关系）', () => {
+    // 找一个本机确实不存在的盘符；若都被占用则跳过（避免误报）
+    const letters = ['Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    const missing = letters.find((l) => !existsSync(`${l}:\\`))
+    if (missing === undefined) return
+    expect(() => isPathWithin(`${missing}:/nope/x`, `${missing}:/nope`)).toThrow()
   })
 
   it('失效链接下的 realpathOrNearest 也抛错', () => {

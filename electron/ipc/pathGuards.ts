@@ -73,8 +73,9 @@ export function realpathOrNearest(target: string): string {
 
     const parent = dirname(current)
     if (parent === current) {
-      // 已到文件系统根仍不存在（实践中根总是存在）；退回绝对路径即可。
-      return abs
+      // 连文件系统根都不存在（例如不存在的盘符 `Z:\` / UNC 根）：无法确认实体位置，
+      // 必须 fail-closed 抛错，**不得**退回字面路径去声称包含关系（QA 复验发现的边界）。
+      throw new PathCanonicalizationError(`路径所在的根不存在，无法确认实体位置：${abs}`)
     }
     tail.unshift(basename(current))
     current = parent
