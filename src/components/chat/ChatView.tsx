@@ -943,7 +943,7 @@ export function ChatView({ rightSidebarCollapsed, onToggleRightSidebar, sidebarC
               const leaf = hits[hits.length - 1]
               if (leaf) {
                 const chain: string[] = []
-                let cur: HTMLElement | null = leaf
+                let cur: Element | null = leaf ?? null
                 while (cur && cur !== document.body) {
                   const cs = getComputedStyle(cur)
                   const r = cur.getBoundingClientRect()
@@ -1037,7 +1037,7 @@ export function ChatView({ rightSidebarCollapsed, onToggleRightSidebar, sidebarC
               inChars += evt.delta.length
               // 【临时诊断】记录 delta 到达时刻，供 E2E 取证渐进渲染时序。
               {
-                const w = window as unknown as { __mimirEvt?: Array<{ t: number; type: string; len: number }> }
+                const w = window as unknown as { __mimirEvt?: Array<{ t: number; type: string; len: number }>; __mimirT0?: number }
                 if (!w.__mimirEvt) w.__mimirEvt = []
                 if (!w.__mimirT0) (w as unknown as { __mimirT0?: number }).__mimirT0 = Date.now()
                 w.__mimirEvt.push({ t: Date.now() - ((w as unknown as { __mimirT0: number }).__mimirT0), type: 'text-delta', len: evt.delta.length })
