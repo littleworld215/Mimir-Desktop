@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
@@ -7,6 +8,11 @@ import react from '@vitejs/plugin-react'
  * 测试目标：electron/ 下的纯 TS 模块（agent 装配、工具契约、网关探测、无头冒烟）。
  * 这些模块依赖 Electron 运行时（app.getPath）与 electron-store；测试里用别名把它们
  * 替换成桩实现（test/stubs/*），从而无需启动 Electron 即可跑。
+ *
+ * 注意：所有 alias 的 replacement 必须用 `fileURLToPath(new URL(...))`，
+ * **不能**用 `new URL(...).pathname`。后者在 Windows 中文路径下会返回
+ * 「百分号编码 + 前置斜杠」的非法路径（如 `/C:/Users/%E5%B8%B8.../store.ts`），
+ * 导致所有依赖别名的 suite 报 `Cannot find module '../../electron/library/store'`。
  */
 export default defineConfig({
   // 与 electron.vite.config.ts 用同一个 React 插件：渲染层用例需要它做 JSX 转换
@@ -33,10 +39,9 @@ export default defineConfig({
     alias: [
       // 渲染层别名：与 tsconfig.web.json 的 `@/* -> src/*` 对齐。
       // 渲染层组件内部用 `@/lib/utils` 之类的路径导入，缺了这条渲染层用例无法加载。
-      // 用函数式 replacement（正则捕获组需要手工拼接，静态字符串里的 $1 不会被替换）。
       {
         find: /^@\//,
-        replacement: `${new URL('./src/', import.meta.url).pathname}`
+        replacement: fileURLToPath(new URL('./src/', import.meta.url))
       },
       // 让 electron/library/store 在测试环境走内存桩。
       //
@@ -45,20 +50,20 @@ export default defineConfig({
       // （`test/unit/x.test.ts` 写 `../../electron/library/store`），漏掉就会命中
       // **真实 store**（写 ~/.mimir 与磁盘），与测试里 seed 的内存桩各写各的，
       // 表现为「setStoreValue 之后立刻 getStoreValue 得到 undefined」。
-      { find: /^\.\/store$/, replacement: new URL('./test/stubs/store.ts', import.meta.url).pathname },
-      { find: /^\.\.\/library\/store$/, replacement: new URL('./test/stubs/store.ts', import.meta.url).pathname },
-      { find: /^\.\.\/\.\.\/library\/store$/, replacement: new URL('./test/stubs/store.ts', import.meta.url).pathname },
+      { find: /^\.\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
+      { find: /^\.\.\/library\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
+      { find: /^\.\.\/\.\.\/library\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
       // 测试自身从 test/unit 视角导入 electron 侧 store 的写法
-      { find: /^\.\.\/\.\.\/electron\/library\/store$/, replacement: new URL('./test/stubs/store.ts', import.meta.url).pathname },
+      { find: /^\.\.\/\.\.\/electron\/library\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
       // **test/setup/ 视角**（如 resetState.ts）要纳入：漏掉它的后果非常隐蔽——
       // resetState 会加载**真实 store**（真写磁盘），而测试用的内存 stub 从未被清空，
       // 上一用例写在 `settings` 里的权限策略便残留到下一个测试文件，
       // 表现为「单独跑绿、全量跑红」（approvalFlow 的默认档用例即此症状）。
-      { find: /^\.\.\/stubs\/store$/, replacement: new URL('./test/stubs/store.ts', import.meta.url).pathname },
-      { find: /^electron$/, replacement: new URL('./test/stubs/electron.ts', import.meta.url).pathname },
+      { find: /^\.\.\/stubs\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
+      { find: /^electron$/, replacement: fileURLToPath(new URL('./test/stubs/electron.ts', import.meta.url)) },
       {
         find: /^electron-store$/,
-        replacement: new URL('./test/stubs/electron-store.ts', import.meta.url).pathname
+        replacement: fileURLToPath(new URL('./test/stubs/electron-store.ts', import.meta.url))
       }
     ]
   }

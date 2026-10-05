@@ -70,12 +70,22 @@ export interface WriteCondition {
   expectedCurrentVersionId?: number | null
 }
 
-/** 变量配置（PromptDock，与来源 shared/src/template-config.ts 语义一致，I4 才编辑 UI）。 */
+/**
+ * 变量输入类型（与来源 shared/src/template-config.ts 的 `VariableInputType` 对齐）。
+ * 注意：来源用 `single` / `multi`，**没有** `select` / `multiselect`。
+ */
+export type VariableInputType = 'text' | 'textarea' | 'single' | 'multi'
+
+/**
+ * 变量配置（PromptDock，与来源 shared/src/template-config.ts 语义一致，I4 才编辑 UI）。
+ *
+ * 与来源对齐：`type` **必填**；仅 `type` / `options` / `separator` 三个键；
+ * **没有** `defaultValue`（来源已移除）。
+ */
 export interface TemplateConfigVariable {
-  type?: 'text' | 'textarea' | 'select' | 'multiselect'
+  type: VariableInputType
   options?: string[]
   separator?: string
-  defaultValue?: string
 }
 
 export interface TemplateConfig {

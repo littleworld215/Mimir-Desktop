@@ -16,7 +16,7 @@ import {
   ASSET_SOURCE_JSON_MAX_BYTES,
   TAG_NAME_MAX
 } from '../../shared/assetsContracts'
-import type { StorageType, TemplateConfig } from '../../shared/assetsContracts'
+import type { StorageType, TemplateConfig, VariableInputType } from '../../shared/assetsContracts'
 
 export class AssetsValidationError extends Error {
   constructor(message: string) {
@@ -82,11 +82,30 @@ export function assertFileBytes(bytes: number): void {
   }
 }
 
-/** 正 safe integer id。 */
+/**
+ * 正 safe integer id。
+ *
+ * 只接受两种形态，**绝不**做任意类型转换：
+ * - `number`：必须为 safe integer 且 > 0；
+ * - `string`：必须是纯十进制整数串（`/^\d+$/`）且转换后为 safe integer 且 > 0。
+ *
+ * 为什么不复用 `Number(input)`：`Number(true) === 1`、`Number([1]) === 1`、
+ * `Number('') === 0`，会把 `true` / `[1]` 这类非法 IPC 参数「凑巧」转成合法 id，
+ * 命中真实资产。boolean / array / object 等一律拒绝。
+ */
 export function assertPositiveId(input: unknown, label = 'id'): number {
-  const n = typeof input === 'number' ? input : Number(input)
-  if (!Number.isSafeInteger(n) || n <= 0) throw new AssetsValidationError(`${label} 非法`)
-  return n
+  if (typeof input === 'number') {
+    if (!Number.isSafeInteger(input) || input <= 0) throw new AssetsValidationError(`${label} 非法`)
+    return input
+  }
+  if (typeof input === 'string') {
+    // 仅接受十进制整数串：拒绝 '1.5' / '1e3' / '-1' / '' / ' 1 ' 等。
+    if (!/^\d+$/.test(input)) throw new AssetsValidationError(`${label} 非法`)
+    const n = Number(input)
+    if (!Number.isSafeInteger(n) || n <= 0) throw new AssetsValidationError(`${label} 非法`)
+    return n
+  }
+  throw new AssetsValidationError(`${label} 非法`)
 }
 
 export function assertStorageType(input: unknown): StorageType {
@@ -129,51 +148,85 @@ export function assertSourceObject(input: unknown): string {
   return json
 }
 
-/** 变量配置：形状校验（沿用来源限制：版本、变量名、类型、候选数、长度、危险键）。 */
+/**
+ * 变量配置：与来源 `shared/src/template-config.ts` 的 `templateConfigError` 实现**同一套限制**。
+ *
+ * 限制清单（逐条对齐来源）：
+ * - 顶层键仅 `version | variables`；`version === 1`；`variables` 为对象（非数组）。
+ * - 变量数 ≤ 100。
+ * - 变量名：非空、`name === name.trim()`、≤ 64 字、不含 `[{}:]`、
+ *   非 `__proto__ / constructor / prototype`。
+ * - 变量对象键仅 `type | options | separator`；`type` ∈ text/textarea/single/multi（**必填**）。
+ * - `options`：数组、≤ 100 项、每项为非空 string 且 ≤ 500 字、**无重复**。
+ * - `type` 为 `single | multi` 时 `options` **必须非空**。
+ * - `separator`：string 且 ≤ 100 字。
+ * - 整个配置 JSON ≤ 64000 字符。
+ */
 export function assertTemplateConfig(input: unknown): TemplateConfig {
   const empty: TemplateConfig = { version: 1, variables: {} }
   if (input === undefined || input === null) return empty
   if (typeof input !== 'object' || Array.isArray(input)) {
-    throw new AssetsValidationError('templateConfig 必须是对象')
+    throw new AssetsValidationError('模板配置必须为对象')
   }
-  const cfg = input as { version?: unknown; variables?: unknown }
-  if (cfg.version !== 1) throw new AssetsValidationError('templateConfig.version 仅支持 1')
-  if (cfg.variables === undefined || cfg.variables === null) return empty
-  if (typeof cfg.variables !== 'object' || Array.isArray(cfg.variables)) {
-    throw new AssetsValidationError('templateConfig.variables 必须是对象')
+  const cfg = input as Record<string, unknown>
+  // 顶层键仅 version | variables；version 必须为 1；variables 必须为对象。
+  if (
+    cfg.version !== 1 ||
+    !cfg.variables ||
+    typeof cfg.variables !== 'object' ||
+    Array.isArray(cfg.variables) ||
+    Object.keys(cfg).some((k) => !['version', 'variables'].includes(k))
+  ) {
+    throw new AssetsValidationError('模板配置版本或变量映射无效')
   }
-  const variables: TemplateConfig['variables'] = {}
   const entries = Object.entries(cfg.variables as Record<string, unknown>)
-  if (entries.length > 50) throw new AssetsValidationError('变量数量过多（上限 50）')
+  if (entries.length > 100) throw new AssetsValidationError('模板变量配置最多 100 项')
+
+  const variables: TemplateConfig['variables'] = {}
   for (const [name, raw] of entries) {
-    if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
-      throw new AssetsValidationError(`变量名非法：${name}`)
+    if (
+      name.trim() === '' ||
+      name !== name.trim() ||
+      name.length > 64 ||
+      /[{}:]/.test(name) ||
+      ['__proto__', 'constructor', 'prototype'].includes(name)
+    ) {
+      throw new AssetsValidationError('变量配置名称无效')
     }
-    if (name.trim() === '' || name.length > 60) throw new AssetsValidationError('变量名非法或过长')
-    if (raw === undefined || raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      throw new AssetsValidationError(`变量 ${name} 的配置必须是对象`)
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new AssetsValidationError('变量配置必须为对象')
     }
-    const v = raw as { type?: unknown; options?: unknown; separator?: unknown; defaultValue?: unknown }
-    if (v.type !== undefined && !['text', 'textarea', 'select', 'multiselect'].includes(String(v.type))) {
-      throw new AssetsValidationError(`变量 ${name} 的 type 非法`)
+    const v = raw as Record<string, unknown>
+    // type 必填且受限；变量对象只允许 type / options / separator 三个键。
+    if (
+      !['text', 'textarea', 'single', 'multi'].includes(String(v.type)) ||
+      Object.keys(v).some((k) => !['type', 'options', 'separator'].includes(k))
+    ) {
+      throw new AssetsValidationError('变量输入类型无效')
     }
     if (v.options !== undefined) {
-      if (!Array.isArray(v.options) || v.options.length > 50 || v.options.some((o) => typeof o !== 'string')) {
-        throw new AssetsValidationError(`变量 ${name} 的 options 非法（上限 50 个字符串）`)
+      if (
+        !Array.isArray(v.options) ||
+        v.options.length > 100 ||
+        v.options.some((o) => typeof o !== 'string' || o.length === 0 || o.length > 500) ||
+        new Set(v.options).size !== v.options.length
+      ) {
+        throw new AssetsValidationError('候选值需为不重复的非空文本，最多 100 项')
       }
     }
-    if (v.separator !== undefined && (typeof v.separator !== 'string' || v.separator.length > 8)) {
-      throw new AssetsValidationError(`变量 ${name} 的 separator 非法`)
+    if (['single', 'multi'].includes(String(v.type)) && (!Array.isArray(v.options) || v.options.length === 0)) {
+      throw new AssetsValidationError('选择型变量需要候选值')
     }
-    if (v.defaultValue !== undefined && typeof v.defaultValue !== 'string') {
-      throw new AssetsValidationError(`变量 ${name} 的 defaultValue 必须是字符串`)
+    if (v.separator !== undefined && (typeof v.separator !== 'string' || v.separator.length > 100)) {
+      throw new AssetsValidationError('连接符需为最多 100 字的文本')
     }
     variables[name] = {
-      ...(v.type !== undefined ? { type: v.type as TemplateConfig['variables'][string]['type'] } : {}),
+      type: v.type as VariableInputType,
       ...(v.options !== undefined ? { options: v.options as string[] } : {}),
-      ...(v.separator !== undefined ? { separator: v.separator as string } : {}),
-      ...(v.defaultValue !== undefined ? { defaultValue: v.defaultValue as string } : {})
+      ...(v.separator !== undefined ? { separator: v.separator as string } : {})
     }
   }
+  // 整个配置 JSON ≤ 64000 字符（对来源原始输入取长度，与来源一致）。
+  if (JSON.stringify(input).length > 64000) throw new AssetsValidationError('模板配置过大')
   return { version: 1, variables }
 }

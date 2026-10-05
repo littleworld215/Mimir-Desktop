@@ -12,7 +12,16 @@
 
 export const ASSETS_SCHEMA_VERSION = 1
 
-/** 预置分类（来源 15 个分类结构，图标改为目标 lucide key）。 */
+/**
+ * 预置分类（与来源 `server/src/db/seed.ts` 的 CATEGORIES / AI_TREE / inbox 语义对齐，共 15 项）。
+ *
+ * 对齐要求：`code` / `name` / `defaultStorageType` / `parentCode` **必须与来源一致**；
+ * `icon` 用目标 lucide key（来源是 Element Plus 名，不照搬）。
+ * - 10 个顶层：literature-note / code-template / experiment-paradigm / workflow-spec /
+ *   rule / skill / prompt / glossary / writing-material / experience；
+ * - AI 子树（parent 链）：ai-collab → domain-nlp → task-polish → scene-pre-submit；
+ * - inbox 未分类（parentCode null，defaultStorageType=file）。
+ */
 export interface BuiltinCategory {
   code: string
   name: string
@@ -23,21 +32,21 @@ export interface BuiltinCategory {
 }
 
 export const BUILTIN_CATEGORIES: readonly BuiltinCategory[] = [
-  { code: 'inbox', name: '未分类', parentCode: null, icon: 'inbox', defaultStorageType: 'inline_text', sortOrder: -1 },
+  { code: 'inbox', name: '未分类', parentCode: null, icon: 'inbox', defaultStorageType: 'file', sortOrder: -1 },
   { code: 'literature-note', name: '文献笔记', parentCode: null, icon: 'book-open', defaultStorageType: 'inline_text', sortOrder: 1 },
-  { code: 'code-template', name: '代码模板', parentCode: null, icon: 'code', defaultStorageType: 'inline_text', sortOrder: 2 },
-  { code: 'experiment-log', name: '实验记录范式', parentCode: null, icon: 'flask-conical', defaultStorageType: 'inline_text', sortOrder: 3 },
+  { code: 'code-template', name: '代码模板', parentCode: null, icon: 'code', defaultStorageType: 'file', sortOrder: 2 },
+  { code: 'experiment-paradigm', name: '实验记录范式', parentCode: null, icon: 'flask-conical', defaultStorageType: 'file', sortOrder: 3 },
   { code: 'workflow-spec', name: '工作流规范', parentCode: null, icon: 'workflow', defaultStorageType: 'inline_text', sortOrder: 4 },
-  { code: 'rule', name: '规则与约束', parentCode: null, icon: 'shield-check', defaultStorageType: 'inline_text', sortOrder: 5 },
-  { code: 'prompt', name: 'Prompt 模板', parentCode: null, icon: 'wand-sparkles', defaultStorageType: 'inline_text', sortOrder: 6 },
-  { code: 'glossary', name: '专业词汇表', parentCode: null, icon: 'languages', defaultStorageType: 'inline_text', sortOrder: 7 },
-  { code: 'writing-material', name: '写作素材', parentCode: null, icon: 'pen-line', defaultStorageType: 'inline_text', sortOrder: 8 },
-  { code: 'experience', name: '经验贴', parentCode: null, icon: 'lightbulb', defaultStorageType: 'inline_text', sortOrder: 9 },
-  { code: 'ai-collab', name: 'AI 协作', parentCode: null, icon: 'sparkles', defaultStorageType: 'inline_text', sortOrder: 10 },
-  { code: 'ai-collab-nlp', name: '领域：NLP', parentCode: 'ai-collab', icon: null, defaultStorageType: null, sortOrder: 11 },
-  { code: 'ai-collab-polish', name: '任务类型：论文润色', parentCode: 'ai-collab-nlp', icon: null, defaultStorageType: null, sortOrder: 12 },
-  { code: 'ai-collab-submission', name: '场景：投稿前语言打磨', parentCode: 'ai-collab-polish', icon: null, defaultStorageType: null, sortOrder: 13 },
-  { code: 'reference', name: '参考资料', parentCode: null, icon: 'library', defaultStorageType: 'external_link', sortOrder: 14 }
+  { code: 'rule', name: '规则约束', parentCode: null, icon: 'shield-check', defaultStorageType: 'inline_text', sortOrder: 5 },
+  { code: 'skill', name: 'Skill', parentCode: null, icon: 'zap', defaultStorageType: 'inline_text', sortOrder: 6 },
+  { code: 'prompt', name: 'Prompt 模板', parentCode: null, icon: 'wand-sparkles', defaultStorageType: 'inline_text', sortOrder: 7 },
+  { code: 'glossary', name: '专业词汇表', parentCode: null, icon: 'languages', defaultStorageType: 'inline_text', sortOrder: 8 },
+  { code: 'writing-material', name: '写作素材', parentCode: null, icon: 'pen-line', defaultStorageType: 'inline_text', sortOrder: 9 },
+  { code: 'experience', name: '经验贴', parentCode: null, icon: 'lightbulb', defaultStorageType: 'inline_text', sortOrder: 10 },
+  { code: 'ai-collab', name: 'AI 协作', parentCode: null, icon: 'sparkles', defaultStorageType: 'inline_text', sortOrder: 11 },
+  { code: 'domain-nlp', name: '领域：NLP', parentCode: 'ai-collab', icon: null, defaultStorageType: 'inline_text', sortOrder: 12 },
+  { code: 'task-polish', name: '任务类型：论文润色', parentCode: 'domain-nlp', icon: null, defaultStorageType: 'inline_text', sortOrder: 13 },
+  { code: 'scene-pre-submit', name: '场景：投稿前语言打磨', parentCode: 'task-polish', icon: null, defaultStorageType: 'inline_text', sortOrder: 14 }
 ]
 
 /**

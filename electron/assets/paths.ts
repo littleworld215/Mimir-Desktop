@@ -15,7 +15,8 @@
  * - 目录由可信空间记录推导（`spaceRoot()`），不按 renderer 路径索引。
  */
 
-import { join, sep } from 'path'
+import { basename, dirname, join, sep } from 'node:path'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 
 /** 资产库在科研空间内的子目录名。 */
 export const ASSETS_SUBDIR = '.mimir/assets'
@@ -49,11 +50,24 @@ export function assetsLayout(spaceRootDir: string): AssetsLayout {
 }
 
 /**
- * 清洗文件名，得到可安全用于磁盘的文件名片段（去掉路径分隔符与控制字符）。
- * 只影响磁盘存储名；显示名仍由 DB 的 `file_name` 保留。
+ * 清洗文件名，得到可安全用于磁盘的文件名片段。
+ *
+ * Windows 上 `< > : " / \ | ? *` 及控制字符在文件名中非法（写入失败或产生路径歧义），
+ * 结尾的点与空格同样非法（会被静默截断或写入失败）。这里统一清洗：
+ * - `< > : " / \ | ? *` → 下划线；
+ * - 控制字符（`\u0000-\u001f`、`\u007f`）→ 移除（不可见，替换成下划线反而制造噪音）；
+ * - 去掉结尾的点与空格，并 trim 首尾空白；
+ * - 清洗后为空 / `.` / `..` → `file`；
+ * - 保留长度上限（≤120，尽量保留扩展名）。
+ *
+ * 只影响磁盘存储名；**显示名**仍由 DB 的 `file_name` 保留（原始名）。
  */
 export function safeFileName(input: string): string {
-  const base = input.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  const base = input
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[. ]+$/g, '')
+    .trim()
   const cleaned = base === '' || base === '.' || base === '..' ? 'file' : base
   // 限制长度，保留扩展名
   if (cleaned.length <= 120) return cleaned
@@ -82,19 +96,63 @@ export function newBlobId(now: Date = new Date()): string {
 }
 
 /**
+ * 解析「最近已存在祖先」的真实路径：对尚不存在的目标（写入前）取最近已存在祖先的
+ * `realpathSync`，再把不存在的尾部拼回。用于在目标尚不存在时仍能做 realpath 级校验。
+ */
+function realpathOrNearest(target: string): string {
+  let current = target
+  const tail: string[] = []
+  for (;;) {
+    try {
+      const real = realpathSync(current)
+      return tail.length === 0 ? real : join(real, ...tail)
+    } catch {
+      const parent = dirname(current)
+      // 到达文件系统根仍无法 realpath：退回原路径（不再上溯）。
+      if (parent === current) return tail.length === 0 ? current : join(current, ...tail)
+      tail.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+/**
  * 把 DB 里存的**相对资产库根**路径（形如 `files/<assetId>/<blob>-<name>`）解析为绝对路径，
- * 并断言结果仍在 `files/` 之下（防 DB 被篡改后越界读取）。
+ * 并断言结果仍在**可信 `files` 根**之下。
  *
- * @throws 越界或含 `..` 时抛错
+ * 与旧实现（仅字符串前缀检查）的关键差别：旧实现无法识别 `files/` 内的 junction / symlink
+ * 指向库外的情况——字符串前缀看起来仍在 files 下，实际 realpath 已越界。这里改为：
+ * 1. 先做字符串层面的拒绝（绝对路径 / 盘符 / `..` / 空段 / `.`）；
+ * 2. 再对**可信 files 根**与**解析后的目标**分别取 realpath（目标不存在时取最近已存在祖先），
+ *    断言真实目标仍位于真实 files 根之下（且不是 files 根目录本身）。
+ *
+ * 必须拒绝：绝对路径、含 `..`、目录本身、以及 realpath 后越出 files 根的 junction/symlink。
+ *
+ * @throws 越界 / 非法路径时抛错
  */
 export function resolveWithinFiles(layout: AssetsLayout, relPath: string): string {
-  const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '')
-  if (normalized === '' || normalized.split('/').some((seg) => seg === '' || seg === '..')) {
+  if (typeof relPath !== 'string') throw new Error('非法的资产文件相对路径')
+  const normalized = relPath.replace(/\\/g, '/')
+  // 绝对路径（POSIX 前导斜杠 / Windows 盘符 / UNC）一律拒绝。
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
+    throw new Error('非法的资产文件相对路径')
+  }
+  const segments = normalized.split('/')
+  if (segments.some((seg) => seg === '' || seg === '.' || seg === '..')) {
     throw new Error('非法的资产文件相对路径')
   }
   const abs = join(layout.root, normalized)
-  const prefix = layout.filesDir.endsWith(sep) ? layout.filesDir : `${layout.filesDir}${sep}`
-  if (abs !== layout.filesDir && !abs.startsWith(prefix)) {
+
+  // realpath 级校验：字符串前缀不足以防御 files 内的 junction/symlink 越界。
+  const filesReal = realpathOrNearest(layout.filesDir)
+  const absReal = realpathOrNearest(abs)
+  const prefix = filesReal.endsWith(sep) ? filesReal : `${filesReal}${sep}`
+  // 必须严格位于 files 根**之下**（等于 files 根 = 目录本身，同样拒绝）。
+  if (absReal === filesReal || !absReal.startsWith(prefix)) {
+    throw new Error('非法的资产文件相对路径')
+  }
+  // 目标已存在且是目录：拒绝（本函数只解析到文件）。
+  if (existsSync(abs) && statSync(abs).isDirectory()) {
     throw new Error('非法的资产文件相对路径')
   }
   return abs
