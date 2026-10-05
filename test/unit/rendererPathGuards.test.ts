@@ -101,3 +101,33 @@ describe('realpathOrNearest', () => {
     })
   })
 })
+
+describe('fail-closed —— 失效链接不得被当作「不存在」放行', () => {
+  it('指向库外不存在目标的失效链接：isPathWithin 抛错（而非按字面路径放行）', () => {
+    withTempDir((dir) => {
+      const space = join(dir, 'space')
+      mkdirSync(space, { recursive: true })
+      const broken = join(space, 'broken')
+      try {
+        symlinkSync(join(dir, 'outside', 'missing'), broken, 'junction')
+      } catch {
+        return // 平台不支持创建链接，跳过
+      }
+      // 修复前：catch 吞掉 realpath 异常 → 退回字面路径 → 误判为「在 space 内」= true
+      expect(() => isPathWithin(broken, space)).toThrow()
+      expect(() => isPathWithin(join(broken, 'x.txt'), space)).toThrow()
+    })
+  })
+
+  it('失效链接下的 realpathOrNearest 也抛错', () => {
+    withTempDir((dir) => {
+      const broken = join(dir, 'broken')
+      try {
+        symlinkSync(join(dir, 'nope'), broken, 'junction')
+      } catch {
+        return
+      }
+      expect(() => realpathOrNearest(broken)).toThrow()
+    })
+  })
+})

@@ -427,7 +427,8 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   })
 
   ipcMain.handle('fs:writeFile', async (_event, path: string, content: string) => {
-    const target = assertRendererFilePath(path)
+    // 写入必须走 'write' 口径：此前缺省为 'read'，会按「读」授权放行写入（越权写）。
+    const target = assertRendererFilePath(path, 'write')
     const dir = dirname(target)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     return writeFile(target, content, 'utf-8')

@@ -173,6 +173,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
+  // 未拿到单实例锁的第二个实例不得经 activate 旁路创建窗口（并因此初始化资源）。
+  if (!singleInstanceLock) return
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
   }

@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isManagedAssetPath, managedAssetRoot } from '../../../electron/assets/managedPaths'
 
@@ -73,6 +73,36 @@ describe('isManagedAssetPath —— 非托管路径不得误伤', () => {
   it('空间外路径不受影响', () => {
     withSpace((space) => {
       expect(isManagedAssetPath(join(space, '..', 'elsewhere', 'x.txt'), space)).toBe(false)
+    })
+  })
+})
+
+describe('isManagedAssetPath —— 磁盘实体（别名不得绕过）', () => {
+  it('指向托管目录的 junction 别名被判为托管（QA 复验发现的绕过点）', () => {
+    withSpace((space) => {
+      const realManaged = managedAssetRoot(space)
+      mkdirSync(join(realManaged, 'files'), { recursive: true })
+      const alias = join(space, 'alias')
+      try {
+        symlinkSync(realManaged, alias, 'junction')
+      } catch {
+        return // 平台不支持创建链接，跳过
+      }
+      // 修复前：只做字面前缀 → alias 不在 <space>/.mimir/assets 字面前缀内 → false（可绕过）
+      expect(isManagedAssetPath(alias, space)).toBe(true)
+      expect(isManagedAssetPath(join(alias, 'assets.db'), space)).toBe(true)
+    })
+  })
+
+  it('规范化失败（失效链接）时按托管处理（fail-closed）', () => {
+    withSpace((space) => {
+      const broken = join(space, 'broken')
+      try {
+        symlinkSync(join(space, 'no-such-target'), broken, 'junction')
+      } catch {
+        return
+      }
+      expect(isManagedAssetPath(broken, space)).toBe(true)
     })
   })
 })
