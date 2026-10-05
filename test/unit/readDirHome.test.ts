@@ -63,7 +63,9 @@ describe('read_dir 路径展开', () => {
 
   it('绝对路径原样解析，不受影响', async () => {
     await readDirTool.invoke({ dir: '/tmp/some-dir' })
-    expect(listedPath()).toBe('/tmp/some-dir')
+    // 平台无关：工具内部用 resolve() 解析，Windows 下 /tmp/some-dir 会解析为 <当前盘符>:\tmp\some-dir。
+    // 用 resolve(...) 表达同一期望（绝对路径不被拼到 cwd 之后），而非硬编码 POSIX 形式。
+    expect(listedPath()).toBe(resolve('/tmp/some-dir'))
   })
 
   it('相对路径仍按 cwd 解析（既有语义不回归）', async () => {

@@ -12,6 +12,7 @@
  * 断言一律是「返回了可读的拒绝原因」+「底层磁盘/基类一次都没被调用」。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { resolve } from 'node:path'
 
 const h = vi.hoisted(() => ({
   /** 基类（deepagents FilesystemBackend）替身：被调用即代表「真的要碰磁盘了」。 */
@@ -242,7 +243,8 @@ describe('read_dir：deny 必须拒绝而不是放行', () => {
     h.fsp.readdir.mockResolvedValue([{ name: 'a.md', isDirectory: () => false, isFile: () => true }])
     const out = String(await readDirTool.invoke({ dir: '/space/dir' }))
     expect(out).toContain('a.md')
-    expect(h.fsp.readdir.mock.calls[0]?.[0]).toBe('/space/dir')
+    // 平台无关：read_dir 内部用 resolve() 解析路径，Windows 下会变成 <盘符>:\space\dir。
+    expect(h.fsp.readdir.mock.calls[0]?.[0]).toBe(resolve('/space/dir'))
   })
 })
 

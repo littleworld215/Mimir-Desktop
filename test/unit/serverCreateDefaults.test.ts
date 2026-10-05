@@ -13,6 +13,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { homedir } from 'os'
+import { join } from 'node:path'
 
 /** 捕获落库记录的内存实现，替换 serversService 以避免触碰真实配置文件。 */
 const stored: Array<Record<string, unknown>> = []
@@ -70,7 +71,8 @@ describe('server 工具 create：能建就直接建，不因可选字段追问',
   it('keyPath 写 ~/.ssh/id_rsa：落库前已展开为真实主目录（避免探测时才发现读不到私钥）', async () => {
     await serverTool.invoke({ action: 'create', host: '119.3.210.1', keyPath: '~/.ssh/id_rsa' })
 
-    expect(stored[0]?.keyPath).toBe(`${homedir()}/.ssh/id_rsa`)
+    // 平台无关：~ 展开为真实主目录 + .ssh/id_rsa（Windows 用 \ 分隔，POSIX 用 /）。
+    expect(stored[0]?.keyPath).toBe(join(homedir(), '.ssh', 'id_rsa'))
     // 绝不能把 ~ 原样落库
     expect(String(stored[0]?.keyPath)).not.toContain('~')
   })
@@ -94,7 +96,7 @@ describe('server 工具 update：keyPath 的 ~ 展开与清空语义', () => {
     await serverTool.invoke({ action: 'create', host: '1.2.3.4' })
     await serverTool.invoke({ action: 'update', serverId: 'srv-1', keyPath: '~/.ssh/id_ed25519' })
 
-    expect(stored[0]?.keyPath).toBe(`${homedir()}/.ssh/id_ed25519`)
+    expect(stored[0]?.keyPath).toBe(join(homedir(), '.ssh', 'id_ed25519'))
   })
 
   it('update 传空串：是「清空」语义，不能被展开逻辑吃掉', async () => {
