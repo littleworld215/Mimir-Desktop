@@ -48,6 +48,26 @@ let mainWindow: BrowserWindow | null = null
 /** 供 IPC 层读取当前窗口的可变引用：窗口重建/关闭后始终指向最新实例。 */
 const windowRef: { current: BrowserWindow | null } = { current: null }
 
+/**
+ * **单实例保护**（I0-03 / 见整合计划 §2.4）。
+ *
+ * 两个应用实例同时运行会各自打开资产库 SQLite 写连接，属数据安全红线（WAL 与文件锁并发写
+ * 可能损坏库）。因此：拿不到锁的第二个实例直接退出，并让已有实例把窗口带到前台。
+ * 单实例只解决**同一台机器**的并发；跨设备同步目录的并发写仍由「单写者」纪律约束。
+ */
+const singleInstanceLock = app.requestSingleInstanceLock()
+if (!singleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = mainWindow
+    if (win !== null && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+}
+
 /** 从全局设置（~/.mimir/store.json 的 settings，见 library/store.ts）取出当前选中模型并初始化 Agent。 */
 async function initAgentFromSettings(): Promise<void> {
   const settings = getStoreValue<Record<string, unknown>>('settings') ?? {}
@@ -159,6 +179,9 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(async () => {
+  // 未拿到单实例锁的第二个实例：不初始化任何资源（尤其是资产库连接），直接退出。
+  if (!singleInstanceLock) return
+
   // 注册 mimir-pdf:// 自定义协议：供文献库 iframe 内嵌阅读本地 PDF
   protocol.handle('mimir-pdf', (request) => {
     const url = new URL(request.url)

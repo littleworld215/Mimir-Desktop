@@ -26,8 +26,19 @@ import { readFile } from 'fs/promises'
 import { dirname, isAbsolute, resolve } from 'path'
 import { requireUserApprovalDetailed } from './approval'
 import { controlPlaneRejectMessage, isControlPlanePath } from './controlPlane'
+import { spaceRoot } from '../library/store'
+import { isManagedAssetPath, MANAGED_ASSET_REJECT_MESSAGE } from '../assets/managedPaths'
 import { canonicalize, evaluate, recordResolution, rememberRoot } from './permissionService'
 import type { PermissionAction } from './permissions'
+
+/** 取当前科研空间根；store 未就绪等情况下返回空串（由调用方按「非托管路径」处理）。 */
+function safeSpaceRootDir(): string {
+  try {
+    return spaceRoot()
+  } catch {
+    return ''
+  }
+}
 
 /** 判定 + 必要时的批准卡。 */
 export interface AuthorizeOptions {
@@ -62,6 +73,12 @@ export async function authorize(opts: AuthorizeOptions): Promise<{ ok: boolean; 
 
   // 控制平面单独给更具体的文案（说明原因 + 正确操作路径），优先于通用判定
   if (isControlPlanePath(target)) return { ok: false, message: controlPlaneRejectMessage(target) }
+
+  // 资产库托管数据（数据库 / 版本 blob / 暂存 / 备份）与档位、允许列表无关地硬拒绝：
+  // 直接改写会绕过 append-only 版本语义、甚至损坏库文件；资产读写一律走资产服务。
+  if (isManagedAssetPath(target, safeSpaceRootDir())) {
+    return { ok: false, message: MANAGED_ASSET_REJECT_MESSAGE }
+  }
 
   const decision = evaluate(target, action)
   if (decision === 'allow') return { ok: true, message: '' }
@@ -105,7 +122,9 @@ export async function authorize(opts: AuthorizeOptions): Promise<{ ok: boolean; 
  */
 function withoutControlPlane<T extends { path: string }>(items: T[] | undefined): T[] | undefined {
   if (items === undefined) return undefined
-  return items.filter((item) => !isControlPlanePath(item.path))
+  // 除控制平面外，也剔除资产库托管数据：放行一个大范围父目录不应等于放行库文件 / 版本 blob。
+  const root = safeSpaceRootDir()
+  return items.filter((item) => !isControlPlanePath(item.path) && !isManagedAssetPath(item.path, root))
 }
 
 /**

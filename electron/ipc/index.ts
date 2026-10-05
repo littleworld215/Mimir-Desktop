@@ -6,6 +6,8 @@ import { join, basename, extname, dirname, relative, resolve } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { agentService } from '../agent/agentService'
 import { isControlPlanePath } from '../agent/controlPlane'
+import { isPathWithin } from './pathGuards'
+import { isManagedAssetPath, MANAGED_ASSET_REJECT_MESSAGE } from '../assets/managedPaths'
 import { isSafeExternalUrl } from '../safeUrl'
 import { startBridge, stopBridge, isBridgeRunning, getBridgePort, getConfirmToken } from '../plugins/bridge'
 import { setApprovalSender, settleApproval } from '../agent/approval'
@@ -88,17 +90,9 @@ function safeSpaceRoot(): string {
 }
 
 /**
- * `target` 是否等于 `root` 或位于 `root` 之下。
- *
- * 口径与 Agent 侧 `electron/agent/permissions.ts` 的 `isInside` 一致（该函数未导出，
- * 这里按同样规则实现，避免 IPC 与 Agent 两条通道出现不同的边界判定）。
+ * 路径包含判定统一走 `./pathGuards`（`path.relative` + realpath 语义，见该文件说明）。
+ * 不再在此手拼 `'/'` 前缀——那在 Windows / 软链 / 同前缀兄弟目录（`/a/b` vs `/a/bc`）下都会误判。
  */
-function isWithin(target: string, root: string): boolean {
-  if (root === '') return false
-  const t = resolve(target)
-  const r = resolve(root)
-  return t === r || t.startsWith(r.endsWith('/') ? r : `${r}/`)
-}
 
 /** 控制平面拒绝文案（settings / 能力域 / 技能 / 桥接凭据；与 Agent 侧同一条硬约束）。 */
 const CONTROL_PLANE_REJECTED = '已拒绝：该路径属于 Mimir 的配置/能力控制平面，不允许经此通道访问。'
@@ -119,9 +113,11 @@ function assertRendererPath(input: unknown, mode: 'read' | 'write' = 'read'): st
   if (typeof input !== 'string' || input.trim() === '') throw new Error('无效路径')
   const target = resolve(input)
   if (isControlPlanePath(target)) throw new Error(CONTROL_PLANE_REJECTED)
-  if (isWithin(target, safeSpaceRoot())) return target
+  // 资产库托管数据（数据库 / 版本 blob / 暂存 / 备份）不接受通用文件通道读写。
+  if (isManagedAssetPath(target, safeSpaceRoot())) throw new Error(MANAGED_ASSET_REJECT_MESSAGE)
+  if (isPathWithin(target, safeSpaceRoot())) return target
   for (const picked of pickedPaths) {
-    if (isWithin(target, picked)) return target
+    if (isPathWithin(target, picked)) return target
   }
   throw new Error(
     mode === 'write'
@@ -133,7 +129,7 @@ function assertRendererPath(input: unknown, mode: 'read' | 'write' = 'read'): st
 /**
  * 校验渲染层**文件**通道的目标路径（`fs:readFile` / `fs:readImageDataUrl` / `fs:writeFile`）。
  *
- * 在 {@link assertRendererPath} 的同一套基元（控制平面 / {@link isWithin}）之上再收紧一层：
+ * 在 {@link assertRendererPath} 的同一套基元（控制平面 / {@link isPathWithin}）之上再收紧一层：
  * - 读：只放行「用户经原生对话框显式选择过的**这个文件自身**」，或**用户已保存进设置的
  *   工作台背景图**（跨重启仍然有效，否则重启后背景图读取会被误拒）—— 读通道比目录通道
  *   更敏感：它能把任意文本读进上下文，因此不放行「选中目录下的任意子文件」；
@@ -146,11 +142,12 @@ function assertRendererFilePath(input: unknown, mode: 'read' | 'write' = 'read')
   if (typeof input !== 'string' || input.trim() === '') throw new Error('无效路径')
   const target = resolve(input)
   if (isControlPlanePath(target)) throw new Error(CONTROL_PLANE_REJECTED)
+  if (isManagedAssetPath(target, safeSpaceRoot())) throw new Error(MANAGED_ASSET_REJECT_MESSAGE)
   if (mode === 'read') {
     if (pickedPaths.has(target) || target === resolveWallpaperPath()) return target
     throw new Error('已拒绝：仅允许读取你在文件对话框中主动选择的文件。')
   }
-  if (!isWithin(target, safeSpaceRoot())) {
+  if (!isPathWithin(target, safeSpaceRoot())) {
     throw new Error('已拒绝：写入目标必须位于当前科研空间内。')
   }
   return target
