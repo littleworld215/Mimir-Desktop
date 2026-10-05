@@ -63,9 +63,13 @@ export function extractArtifacts(input: unknown): ArtifactRef[] {
       const afterHint = stripWrapping(line.replace(/^.*?(路径[:：]|保存到|已保存到|输出到|已输出到|生成到|已生成到|写入到|已写入|文件[:：])/, ''))
       if (afterHint !== '') candidates.push(afterHint)
     }
-    // 兜底：行内出现的绝对路径片段（含空格时以「扩展名后」为界）
-    for (const m of line.matchAll(/(\/[^\s"'`）)，,；;]+?\.[A-Za-z0-9]{1,8})/g)) {
-      candidates.push(m[1])
+    // 兜底：行内出现的绝对路径片段（POSIX `/…` 与 Windows 盘符 `C:\…` / `C:/…`；含空格时以「扩展名后」为界）。
+    // 注意：对象经 JSON.stringify 后 Windows 路径的反斜杠会被转义成 `\\`，故对候选做一次反转义，
+    // 再交给 isAbsolute / existsSync 判定——保持「像路径且真实存在」的原判定意图，不放宽为「含点号即产物」。
+    for (const m of line.matchAll(
+      /([A-Za-z]:[\\/][^\s"'`）)，,；;]+?\.[A-Za-z0-9]{1,8}|\/[^\s"'`）)，,；;]+?\.[A-Za-z0-9]{1,8})/g
+    )) {
+      candidates.push(m[1].replace(/\\\\/g, '\\'))
     }
 
     for (const candidateRaw of candidates) {

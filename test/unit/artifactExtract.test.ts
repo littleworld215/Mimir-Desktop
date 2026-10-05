@@ -79,6 +79,14 @@ describe('artifactExtract：从工具返回识别产物', () => {
     expect(out.map((a) => a.path)).toEqual([pptxPath])
   })
 
+  it('对象返回里的非路径文本不误报（含点号不是产物）', () => {
+    expect(extractArtifacts({ ok: true, title: 'report.pptx' })).toEqual([])
+  })
+
+  it('对象返回里的相对路径不误报（磁盘上不存在即不算产物）', () => {
+    expect(extractArtifacts({ ok: true, path: 'output/report.pptx' })).toEqual([])
+  })
+
   it('空输入返回空数组，不抛错', () => {
     expect(extractArtifacts(undefined)).toEqual([])
     expect(extractArtifacts('')).toEqual([])

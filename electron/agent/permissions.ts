@@ -20,6 +20,9 @@
  * 批准策略（on-request / never）」；此处沿用其档位语义，只是把「工作区」落到本产品的科研空间。
  */
 
+// 仅用 `node:path` 的纯字符串函数（isAbsolute / parse）——不读文件系统，保持本模块的纯判定性质。
+import { isAbsolute, parse } from 'node:path'
+
 /** 沙箱等级：决定「允许动哪里」。 */
 export type SandboxLevel = 'read-only' | 'workspace-write' | 'danger-full-access'
 
@@ -198,9 +201,16 @@ export function normalizeAllowedRoot(
 ): RootValidation {
   const trimmed = (raw ?? '').trim()
   if (trimmed === '') return { ok: false, reason: '路径为空。' }
+  // 绝对性判定改用 `path.isAbsolute`（跨平台：POSIX `/…` 与 Windows 盘符 `C:\…` 均为绝对）。
+  // 此前用 `root.startsWith('/')`，会把 Windows 盘符路径（归一化后为 `C:/…`）误判为**相对路径**，
+  // 于是「允许并记住」在 Windows 上整体失效（fail-closed 到「无法记住」，功能不可用）。
+  if (!isAbsolute(trimmed)) return { ok: false, reason: '请提供绝对路径。' }
   const root = normalizePath(trimmed)
-  if (!root.startsWith('/')) return { ok: false, reason: '请提供绝对路径。' }
-  if (root === '/') return { ok: false, reason: '不能把整个文件系统加进允许列表。' }
+  // 拒绝「文件系统根」：POSIX `/`，以及 Windows 盘符根 `C:\`（归一化后为 `C:`，parse().root 等于自身）。
+  // 这是**安全边界**：把根写进允许列表等于悄悄获得全权，应走 danger-full-access 档而不是「记忆」。
+  if (root === '/' || parse(root).root === root) {
+    return { ok: false, reason: '不能把整个文件系统加进允许列表。' }
+  }
   const home = normalizePath(ctx.home)
   if (home !== '' && root === home) {
     return { ok: false, reason: '不能把用户主目录本身加进允许列表（范围过大）。请选择更具体的子目录。' }

@@ -181,4 +181,41 @@ describe('normalizeAllowedRoot：拒绝危险输入', () => {
     expect(normalizeAllowedRoot('/work/proj/', ctx)).toEqual({ ok: true, root: '/work/proj' })
     expect(normalizeAllowedRoot('/home/u/papers', ctx)).toEqual({ ok: true, root: '/home/u/papers' })
   })
+
+  it('Windows 盘符根写法 C:\\ 与 POSIX 根 / 一样被拒（不放行整盘）', () => {
+    const winCtx = { home: 'C:\\Users\\u', isControlPlane: () => false }
+    // 跨平台只断言「被拒」：Windows 上按文件系统根拒，POSIX 上 C:\ 本就不是绝对路径同样被拒。
+    expect(normalizeAllowedRoot('C:\\', winCtx).ok).toBe(false)
+    expect(normalizeAllowedRoot('/', winCtx).ok).toBe(false)
+  })
+})
+
+/**
+ * Windows 盘符路径只在 win32 上是「绝对路径」，故这组断言仅在 Windows 上运行。
+ * 覆盖的是本次修复的语义：`isAbsolute`（而非 `startsWith('/')`）判定绝对性，
+ * 使盘符路径不再被误判为相对路径；同时盘符根仍按「文件系统根」拒绝。
+ */
+describe('normalizeAllowedRoot：Windows 盘符路径（本次修复的回归）', () => {
+  const winCtx = { home: 'C:\\Users\\u', isControlPlane: (p: string) => p.startsWith('C:/Users/u/.mimir') }
+
+  it.runIf(process.platform === 'win32')('盘符绝对路径可被记住（此前被误判为相对 → 功能整体失效）', () => {
+    expect(normalizeAllowedRoot('C:\\work\\proj', winCtx)).toEqual({ ok: true, root: 'C:/work/proj' })
+    expect(normalizeAllowedRoot('C:\\work\\proj\\', winCtx)).toEqual({ ok: true, root: 'C:/work/proj' })
+  })
+
+  it.runIf(process.platform === 'win32')('盘符根 C:\\ 视为文件系统根被拒（不能把整盘放行）', () => {
+    expect(normalizeAllowedRoot('C:\\', winCtx).ok).toBe(false)
+    expect(normalizeAllowedRoot('C:\\', winCtx).reason).toContain('整个文件系统')
+    expect(normalizeAllowedRoot('C:/', winCtx).ok).toBe(false)
+  })
+
+  it.runIf(process.platform === 'win32')('盘符相对写法 C:work 仍按相对路径拒绝', () => {
+    expect(normalizeAllowedRoot('C:work', winCtx).ok).toBe(false)
+    expect(normalizeAllowedRoot('C:work', winCtx).reason).toContain('绝对路径')
+  })
+
+  it.runIf(process.platform === 'win32')('盘符路径落在主目录本身时仍被拒（范围过大）', () => {
+    expect(normalizeAllowedRoot('C:\\Users\\u', winCtx).ok).toBe(false)
+    expect(normalizeAllowedRoot('C:\\Users\\u', winCtx).reason).toContain('主目录')
+  })
 })
