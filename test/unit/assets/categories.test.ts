@@ -220,6 +220,29 @@ describe('未知参数与子树保护', () => {
   })
 })
 
+describe('code沿用trim语义', () => {
+  it('带空白父code创建与移动成功，规范目标更新/影响/删除一致', () => {
+    const a=createCategory(ctx,{code:'trim-a',name:'A',parentCode:' inbox '})
+    expect(a.parentCode).toBe('inbox')
+    const b=createCategory(ctx,{code:'trim-b',name:'B'})
+    const moved=updateCategory(ctx,' trim-a ',a.revision,{parentCode:' trim-b '})
+    expect(moved.parentCode).toBe('trim-b')
+    expect(categoryImpact(ctx,' trim-b ')).toEqual(categoryImpact(ctx,'trim-b'))
+    const noop=updateCategory(ctx,' trim-a ',moved.revision,{parentCode:' trim-b '})
+    expect(noop.revision).toBe(moved.revision)
+    expect(removeCategory(ctx,' trim-a ',noop.revision)).toBe('trim-a')
+    expect(removeCategory(ctx,' trim-b ',b.revision)).toBe('trim-b')
+  })
+  it('规范化目标冲突与循环检查零修改', () => {
+    const a=createCategory(ctx,{code:'trim-root',name:'Root'})
+    createCategory(ctx,{code:'trim-child',name:'Child',parentCode:' trim-root '})
+    const before=listCategories(ctx)
+    expectCode(()=>updateCategory(ctx,' trim-root ',a.revision+1,{name:'Changed'}),'REVISION_CONFLICT')
+    expectCode(()=>updateCategory(ctx,' trim-root ',a.revision,{parentCode:' trim-child '}),'CYCLE')
+    expect(listCategories(ctx)).toEqual(before)
+  })
+})
+
 describe('派生 code 的稳定性', () => {
   it('同一名称派生同一 code，第二次创建报 DUPLICATE_CODE', () => {
     expect(createCategory(ctx, { name: 'Stable Name' }).code).toBe('stable-name')

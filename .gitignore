@@ -10,6 +10,9 @@ out/
 # 资产库原生绑定缓存（双 ABI：node / electron；由 scripts/prepareAssetsNative.mjs 生成）
 .native/
 
+# 验证证据（三件套原始日志与退出码元数据）：只在本地留档，不进提交
+outputs/
+
 # Electron
 *.dmg
 *.app

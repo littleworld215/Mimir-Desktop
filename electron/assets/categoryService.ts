@@ -40,14 +40,14 @@ function validateInput(input: unknown, creating: boolean): CategoryCreate | Cate
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new AssetsStoreError('BAD_REQUEST', '分类参数必须是对象。')
   }
-  const value = input as Record<string, unknown>
+  const value = { ...input } as Record<string, unknown>
   const keys = ['name', 'icon', 'defaultStorageType', 'description', 'parentCode', 'sortOrder']
   if (creating) keys.push('code')
   if (Object.keys(value).some(key => !keys.includes(key))) throw new AssetsStoreError('BAD_REQUEST', '分类参数含未知字段。')
   try {
     if (creating || value.name !== undefined) assertAssetName(value.name)
     if (value.code !== undefined) assertAssetCode(value.code)
-    if (value.parentCode !== undefined && value.parentCode !== null) assertAssetCode(value.parentCode)
+    if (value.parentCode !== undefined && value.parentCode !== null) value.parentCode = assertAssetCode(value.parentCode)
   } catch {
     throw new AssetsStoreError('BAD_REQUEST', '分类名称或标识非法。')
   }
@@ -121,6 +121,7 @@ export function updateCategory(
   payload: unknown
 ): AssetCategory {
   validateCodeRevision(code, expectedRevision, true)
+  code = assertAssetCode(code)
   const patch = validateInput(payload, false) as CategoryPatch
   return ctx.write((session) => {
     const current = selectCategory(session, code)
@@ -167,6 +168,7 @@ export function updateCategory(
 /** 影响面：资产数（**含归档**）、子分类数、是否内置。 */
 export function categoryImpact(ctx: AssetsContext, code: string): CategoryImpact {
   validateCodeRevision(code)
+  code = assertAssetCode(code)
   return ctx.write((session) => {
     const row = selectCategory(session, code)
     if (row === undefined) throw new AssetsStoreError('NOT_FOUND', `分类不存在：${code}`)
@@ -183,6 +185,7 @@ export function categoryImpact(ctx: AssetsContext, code: string): CategoryImpact
 /** 删除分类（受内置 / 子分类 / 资产占用三重保护）。 */
 export function removeCategory(ctx: AssetsContext, code: string, expectedRevision: number): string {
   validateCodeRevision(code, expectedRevision, true)
+  code = assertAssetCode(code)
   return ctx.write((session) => {
     const row = selectCategory(session, code)
     if (row === undefined) throw new AssetsStoreError('NOT_FOUND', `分类不存在：${code}`)
