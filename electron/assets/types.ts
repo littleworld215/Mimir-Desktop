@@ -5,9 +5,13 @@ import type { AssetsLayout } from './paths'
 export type DatabaseFactory = (path: string, options: Database.Options) => Database.Database
 export type Clock = () => Date
 
-/** 可跨 IPC 映射的资产存储错误。 */
+/** 可跨 IPC 映射的资产存储错误（`details` 与 `AssetsResult` 的失败分支同形）。 */
 export class AssetsStoreError extends Error {
-  constructor(readonly code: AssetsErrorCode, message: string) {
+  constructor(
+    readonly code: AssetsErrorCode,
+    message: string,
+    readonly details?: { currentRevision?: number; currentVersionId?: number | null }
+  ) {
     super(message)
     this.name = 'AssetsStoreError'
   }

@@ -22,12 +22,22 @@ import { assetsStoreManager } from '../assets/store'
 import { AssetsStoreError } from '../assets/types'
 import log from '../logger'
 
-type Failure = { ok: false; code: AssetsErrorCode; message: string }
+type Failure = {
+  ok: false
+  code: AssetsErrorCode
+  message: string
+  details?: { currentRevision?: number; currentVersionId?: number | null }
+}
 
-/** 业务错误回传 code；未知异常兜底为 WRITE_FAILED 并落日志（不外泄细节）。 */
+/** 业务错误回传 code（含冲突上下文）；未知异常兜底为 WRITE_FAILED 并落日志（不外泄细节）。 */
 function failure(error: unknown): Failure {
   if (error instanceof AssetsStoreError) {
-    return { ok: false, code: error.code, message: error.message }
+    return {
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details === undefined ? {} : { details: error.details })
+    }
   }
   log.error('[assets] 未预期的错误：', error)
   return {
