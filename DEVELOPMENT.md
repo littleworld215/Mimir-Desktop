@@ -634,13 +634,17 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 
 ## 科研资产整合进度（2026-10-07，个人分支）
 
+- **当前：I0/I1/I2 Windows x64 Codex阶段验收通过。** I2-04增加AssetFilters/SearchExcerpt/AssetReferences/ReferenceGraph，复用固定32方法和代次预览，保留原三栏/三形态/版本/分类标签治理。搜索300ms防抖与IME守卫，组合筛选重置页码；冲突保留关联目标，同源重载不卸载选择；图键盘可操作、双向箭头分离、归档标识与部分关系提示。
+- 最终typecheck/test/build exit0，867通过/9既有跳过（876项、70文件），新增DOM11/11；开发/打包Electron10/10、0重试（含旧schema1迁移/第二实例/重启），原生Node→打包Electron→Node各7/7，23725项包内污染/绑定/当前构建审计PASS。新上下文只读Codex复核两minor失败回归后修复，无P1/P2，不冒充外部QA；证据见来源docs/verification-integration-i2-ui-20261007.md。以下保留主题历史，下一步I3导入导出；用户真实使用、其他平台安装器另登记。
+
+
 - 当前I2-01：schema2加入asset_reference和当前版本五字段FTS5 trigram；旧schema1在完整性/已知旧DDL/外键预检后生成不可覆盖schema-1快照，同一事务升级并回填，不reseed旧分类、不改旧历史。asset元信息/current pointer/delete触发器与业务写入同事务；旧正文不参与当前检索。FTS/关系结构损坏拒写，不静默重建。
 - 本批三闸门exit0，全量823通过/9既有跳过；新增11项真实SQLite迁移/事务/关系基础测试，含回填失败与未checkpoint WAL一致快照；Codex只读终复核无新P1/P2。详细计划和运行证据在来源docs/INTEGRATION-PLAN-I2.md、verification-integration-i2-schema-20261007.md。
 - I2-02已提供查询服务：沿用assets:list/共享门面；q按Unicode码点限长、短词转义LIKE、长词FTS字面短语，范围all/title/body/source/organization。count和分页复用AND筛选，稳定updated/name/relevance排序，评分FTS posting list避免关联重复扫描；只为本页生成最多180码点纯文本片段，matches按UTF-16偏移。旧28方法与默认列表保留。
 - I2-02交付闸门exit0：840通过/9既有跳过（849项、68文件），类型检查/生产构建通过；真实开发Electron回归5/5、0重试（旧I1、旧库迁移与查询IPC）。新上下文只读Codex复核发现稀疏ID孔位，亲见RED后修复，修复后定向40/40；未冒充外部独立QA。
 - I2-03参见服务已接线：references/addReference/removeReference/referenceGraph，旧28+新4=32固定方法。关系校验和源revision/updatedAt同事务，幂等不改时间/版本；归档源拒写、归档目标保留。有限图双向BFS、默认深度2可选1–3、200节点1000边；每层最多剩余边预算+1，图可截断且不出悬空边。读写继续使用scope/epoch守卫。
 - I2-03定向44/44，全量856通过/9既有跳过（865项、69文件），三闸门exit0，只读Codex复核无P1/P2。`20-assets-references.spec.ts`验证真实参见IPC，证据在来源docs/verification-integration-i2-references-20261007.md。
-- I2-04搜索/关系界面与阶段终验仍待；图truncated必须显示部分关系提示。`19-assets-search.spec.ts`验证真实IPC，不代表搜索UI完成。`18-assets-migration.spec.ts`使用合成schema1旧库，普通E2E跑开发路径，显式MIMIR_E2E_PACKAGED额外跑打包升级。来源真实data与用户space不自动导入。查询证据见来源docs/verification-integration-i2-search-20261007.md。
+- 历史（I2-03交付时）：I2-04搜索/关系界面与阶段终验仍待；当前已完成，见本节最新记录。图truncated必须显示部分关系提示。`19-assets-search.spec.ts`验证真实IPC，不代表搜索UI完成。`18-assets-migration.spec.ts`使用合成schema1旧库，普通E2E跑开发路径，显式MIMIR_E2E_PACKAGED额外跑打包升级。来源真实data与用户space不自动导入。查询证据见来源docs/verification-integration-i2-search-20261007.md。
 
 - 最新：I0/I1 Windows x64 Codex阶段验收通过。三闸门exit0，全量812通过/9既有跳过；开发/打包Electron4/4，真实第二实例、同空间重启及包内污染检查通过。完整矩阵在来源docs/verification-integration-package-20261007.md；以下前批记录保留为历史。下一步I2，非资产打包全流程/其他平台安装器/用户真实使用未验收。
 - 打包前执行 `pnpm assets:native` 准备本机精确Electron缓存。builder不重写Node测试绑定，afterPack只替换产物绑定；缓存缺失、版本/平台/架构不匹配就失败。跨平台/交叉架构需自行准备对应缓存，universal尚不支持。其他原生依赖保留准备好的二进制。

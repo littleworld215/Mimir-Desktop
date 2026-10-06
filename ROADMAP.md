@@ -31,7 +31,7 @@ Mimir-Desktop 已实现的核心能力（见 [README.md](./README.md)）：
 
 ## 科研资产整合（个人 fork）
 
-整合任务来源为来源仓库 docs/MIGRATION-Mimir-Desktop.md。I0/I1 已通过 Windows x64 Codex阶段验收，A01–A19矩阵见来源docs/verification-integration-package-20261007.md；开发/打包Electron4/4、打包绑定与包内污染、真实第二实例及同空间重启均通过。下一步先做 I2 检索/参见关系详细计划，再实施。I3 导入导出、I4 取用与变量、I5 AI、I6 备份恢复、自检、I7 UI 打磨仍待实施。其他平台安装器/非资产打包全流程及用户真实使用未验收。来源功能冻结，只推自有origin。
+整合任务来源为来源仓库 docs/MIGRATION-Mimir-Desktop.md。I0/I1 已通过 Windows x64 Codex阶段验收，A01–A19矩阵见来源docs/verification-integration-package-20261007.md；开发/打包Electron4/4、打包绑定与包内污染、真实第二实例及同空间重启均通过。I2现已完成Windows x64 Codex阶段验收：867通过/9既有跳过、三闸门exit0、开发/打包Electron10/10、原生各7/7、23725项归档审计PASS；矩阵见来源docs/verification-integration-i2-ui-20261007.md。下一步I3导入导出。I3 导入导出、I4 取用与变量、I5 AI、I6 备份恢复、自检、I7 UI 打磨仍待实施。其他平台安装器/非资产打包全流程及用户真实使用未验收。来源功能冻结，只推自有origin。
 
 ## 已识别的待办
 
@@ -73,7 +73,7 @@ Mimir-Desktop 已实现的核心能力（见 [README.md](./README.md)）：
 
 ## 如何参与
 
-科研资产I2进度：I2-01结构、I2-02查询/安全片段与I2-03参见服务/有限关系图已验证；固定32方法保留旧28，条件写、归档规则、双侧级联与真实IPC已覆盖。下一主题I2-04搜索/关系界面和阶段终验；I2整体未完成。来源docs/INTEGRATION-PLAN-I2.md为详细执行依据。
+科研资产I2-01～04完成：结构/查询/参见及搜索关系界面，固定32方法保留旧28；Windows x64阶段终验已通过，用户真实使用另登记。下一阶段I3导入导出，按来源docs/MIGRATION-Mimir-Desktop.md推进。混合图节点/边预算压力回归与极高连接度参见分页优化保留为后续候选。
 
 - 想修 Bug 或加功能：见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 - 想了解架构与设计决策：见 [DEVELOPMENT.md](./DEVELOPMENT.md)。
