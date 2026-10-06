@@ -232,6 +232,18 @@ export interface VersionDiff {
   fromVersion: number
   toVersion: number
   lines: VersionDiffLine[]
+  /** 超过计算预算线性替换，超过行对象预算返回完整原文；字段可选以兼容旧调用。 */
+  mode?: 'lcs' | 'replacement' | 'originals'
+  beforeText?: string
+  afterText?: string
+  files?: { from: VersionFileMetadata; to: VersionFileMetadata }
+}
+
+export interface VersionFileMetadata {
+  fileName: string | null
+  /** 缺失、非法或不可读时为 null，不伪造 0 字节。 */
+  fileBytes: number | null
+  available: boolean
 }
 
 export interface CategoryCreate {

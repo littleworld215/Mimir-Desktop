@@ -214,6 +214,35 @@ it('缺失历史 blob 回滚零变化，fileAvailable 只派生不删历史', as
   expect(getAsset(ctx, f.id)).toEqual(before)
   expect(getVersion(ctx, f.id, a.currentVersionId!).version).toEqual(oldVersion)
 })
+
+it('文件版本比较给出名称、大小与可用性；缺失文件仍保留历史元信息', async () => {
+  const f = fileAsset()
+  const a = await importFile(ctx, f.id, { expectedRevision: 1 }, srcFile('old.bin', 'old'))
+  const b = await importFile(ctx, f.id, { expectedRevision: a.revision }, srcFile('new.bin', 'updated'))
+  const before = getAsset(ctx, f.id)
+  expect(diffVersions(ctx, f.id, a.currentVersionId!, b.currentVersionId!).diff).toMatchObject({
+    kind: 'file', lines: [], files: {
+      from: { fileName: 'old.bin', fileBytes: 3, available: true },
+      to: { fileName: 'new.bin', fileBytes: 7, available: true }
+    }
+  })
+  fs.unlinkSync(resolveWithinFiles(ctx.layout, getVersion(ctx, f.id, a.currentVersionId!).version.filePath!))
+  expect(diffVersions(ctx, f.id, a.currentVersionId!, b.currentVersionId!).diff).toMatchObject({
+    files: { from: { fileName: 'old.bin', fileBytes: null, available: false }, to: { available: true } }
+  })
+  expect(getAsset(ctx, f.id)).toEqual(before)
+})
+
+it('真实 SQLite 大正文比较通过服务返回完整两侧原文，历史不变', () => {
+  const before = Array.from({ length: 20000 }, (_, i) => `old-${i}`).join('\n')
+  const after = Array.from({ length: 20000 }, (_, i) => `new-${i}`).join('\n')
+  const a = createAsset(ctx, { name: 'Large', category: 'inbox', storageType: 'inline_text', content: before })
+  const b = updateAsset(ctx, a.id, { expectedRevision: a.revision, expectedCurrentVersionId: a.currentVersionId }, { content: after })
+  const diff = diffVersions(ctx, a.id, a.currentVersionId!, b.currentVersionId!).diff
+  expect(diff).toMatchObject({ kind: 'text', mode: 'originals', lines: [], beforeText: before, afterText: after })
+  expect(getAsset(ctx, a.id)).toEqual(b)
+  expect(getVersion(ctx, a.id, a.currentVersionId!).version.content).toBe(before)
+})
 it('文件与文本导出默认独占，既有目标及并发保存不可覆盖（R1）', async () => {
   const f = fileAsset()
   await importFile(ctx, f.id, { expectedRevision: 1 }, srcFile())

@@ -18,6 +18,7 @@
 
 import { basename, dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { compareVersionText } from './versionDiff'
 import {
   constants,
   type Stats,
@@ -40,7 +41,7 @@ import type {
   AssetDetail,
   AssetVersion,
   VersionDiff,
-  VersionDiffLine,
+  VersionFileMetadata,
   VersionPage,
   WriteCondition
 } from '../../shared/assetsContracts'
@@ -425,48 +426,30 @@ export function diffVersions(
     if (b === undefined) throw new AssetsStoreError('NOT_FOUND', '目标版本不存在。')
     // 任一侧是文件版本 → 无逐行 diff（二进制无法文本比对）。
     if (a.file_path !== null || b.file_path !== null) {
-      return { diff: { kind: 'file', fromVersion: a.version, toVersion: b.version, lines: [] } }
+      return { diff: { kind: 'file', fromVersion: a.version, toVersion: b.version, lines: [], files: {
+        from: versionFileMetadata(ctx.layout, a), to: versionFileMetadata(ctx.layout, b)
+      } } }
     }
     return {
       diff: {
         kind: 'text',
         fromVersion: a.version,
         toVersion: b.version,
-        lines: diffLines(a.content.split('\n'), b.content.split('\n'))
+        ...compareVersionText(a.content, b.content)
       }
     }
   })
 }
 
-/** 基于 LCS 的逐行 diff；O(n·m)，资产正文规模下可接受。 */
-function diffLines(a: string[], b: string[]): VersionDiffLine[] {
-  const n = a.length
-  const m = b.length
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-    }
+/** 比较文件版本只读取元信息；缺失或越界保留显示名并明确不可用。 */
+function versionFileMetadata(layout: AssetsLayout, version: VersionRow): VersionFileMetadata {
+  try {
+    assertReadableBlob(layout, version.file_path)
+    const fileBytes = statSync(resolveWithinFiles(layout, version.file_path!)).size
+    return { fileName: version.file_name, fileBytes, available: true }
+  } catch {
+    return { fileName: version.file_name, fileBytes: null, available: false }
   }
-  const out: VersionDiffLine[] = []
-  let i = 0
-  let j = 0
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      out.push({ kind: 'context', text: a[i] })
-      i++
-      j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push({ kind: 'remove', text: a[i] })
-      i++
-    } else {
-      out.push({ kind: 'add', text: b[j] })
-      j++
-    }
-  }
-  while (i < n) out.push({ kind: 'remove', text: a[i++] })
-  while (j < m) out.push({ kind: 'add', text: b[j++] })
-  return out
 }
 
 // ── rollbackVersion ───────────────────────────────────────────────────────
