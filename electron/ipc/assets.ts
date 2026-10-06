@@ -20,6 +20,7 @@ import type { ArchiveScope, AssetsErrorCode, WorkspaceRequest } from '../../shar
 import { assetsStoreManager } from '../assets/store'
 import { AssetsStoreError, type AssetsContext } from '../assets/types'
 import { createAsset, getAsset, listAssets, updateAsset } from '../assets/assetService'
+import { getReferences, addReference, removeReference, getReferenceGraph } from '../assets/referenceService'
 import { archiveAsset, restoreAsset, deletePreview, deleteAsset } from '../assets/archiveService'
 import { listCategories, createCategory, updateCategory, categoryImpact, removeCategory } from '../assets/categoryService'
 import { listTags, createTag, addTags, removeTags, tagImpact, renameTag, mergeTags, deleteTag } from '../assets/tagService'
@@ -149,6 +150,22 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
 
 /** 完整资产域固定通道（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
+  const referenceServices = {
+    references: (ctx: AssetsContext, query: unknown) => ({ references: getReferences(ctx, query) }),
+    addReference,
+    removeReference,
+    referenceGraph: (ctx: AssetsContext, query: unknown) => ({ graph: getReferenceGraph(ctx, query) })
+  }
+  for (const method of Object.keys(referenceServices) as (keyof typeof referenceServices)[]) {
+    ipcMain.handle(ASSETS_CHANNELS[method], async (_event, request: unknown) => {
+      try {
+        const scope = assertWorkspaceRequest(request)
+        const ctx = await assetsStoreManager.getForRequest(scope)
+        const { workspaceId: _workspace, spaceEpoch: _epoch, ...query } = request as Record<string, unknown>
+        return { ok: true, ...referenceServices[method](ctx, query) }
+      } catch (error) { return failure(error) }
+    })
+  }
   ipcMain.handle(ASSETS_CHANNELS.context, async () => {
     try {
       return { ok: true, context: assetsStoreManager.context() }

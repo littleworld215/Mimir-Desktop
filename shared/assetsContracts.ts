@@ -223,6 +223,23 @@ export interface AssetPage {
   pageSize: number
 }
 
+export interface AssetReferences {
+  assetId: number
+  revision: number
+  references: AssetSummary[]
+  referencedBy: AssetSummary[]
+}
+export interface AssetReferenceEdge { sourceAssetId: number; targetAssetId: number }
+export interface AssetReferenceGraph {
+  rootId: number
+  depth: number
+  nodes: AssetSummary[]
+  edges: AssetReferenceEdge[]
+  truncated: boolean
+}
+export interface AssetReferenceWrite extends WorkspaceRequest, AssetReferenceEdge { expectedRevision: number }
+export interface AssetReferenceChange { changed: boolean; revision: number }
+
 export interface VersionPage {
   items: AssetVersionSummary[]
   total: number
@@ -299,6 +316,10 @@ export interface AssetDeleteImpact {
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
 export interface AssetsApi {
+  references(req: AssetRef): Promise<AssetsResult<{ references: AssetReferences }>>
+  addReference(req: AssetReferenceWrite): Promise<AssetsResult<AssetReferenceChange>>
+  removeReference(req: AssetReferenceWrite): Promise<AssetsResult<AssetReferenceChange>>
+  referenceGraph(req: AssetRef & { depth?: number }): Promise<AssetsResult<{ graph: AssetReferenceGraph }>>
   context(): Promise<AssetsResult<{ context: WorkspaceRequest }>>
   list(req: WorkspaceRequest & AssetListQuery): Promise<AssetsResult<{ page: AssetPage }>>
   get(req: AssetRef): Promise<AssetsResult<{ asset: AssetDetail }>>
@@ -395,6 +416,10 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  references: 'assets:references',
+  addReference: 'assets:addReference',
+  removeReference: 'assets:removeReference',
+  referenceGraph: 'assets:referenceGraph',
   context: 'assets:context',
   list: 'assets:list',
   get: 'assets:get',

@@ -65,9 +65,46 @@ beforeEach(() => {
 })
 
 describe('注册面', () => {
-  it('完整注册合同28条通道，不注册任意通道', () => {
+  it('增量注册四个参见通道，旧方法继续保留', () => {
+    for (const channel of ['assets:references', 'assets:addReference', 'assets:removeReference', 'assets:referenceGraph']) expect(hoisted.handlers.has(channel)).toBe(true)
+  })
+  it('完整注册合同32条通道（旧28加参见4），不注册任意通道', () => {
     const expected = Object.values(ASSETS_CHANNELS).sort()
     expect([...hoisted.handlers.keys()].sort()).toEqual(expected)
+  })
+})
+
+describe('四个参见通道运行时合同', () => {
+  const channels = ['assets:references', 'assets:addReference', 'assets:removeReference', 'assets:referenceGraph']
+  it('每个入口拒绝未知字段/路径、无效scope与无效业务参数', async () => {
+    hoisted.getForRequest.mockResolvedValue(fakeContext(0))
+    for (const channel of channels) {
+      for (const payload of [null, [], {}, { ...SCOPE, assetId: 1, unexpected: true }, { ...SCOPE, assetId: 1, databasePath: '/secret' }, { ...SCOPE, assetId: '1' }]) {
+        expect(await handler(channel)({}, payload)).toMatchObject({ ok: false, code: 'BAD_REQUEST' })
+      }
+    }
+    expect(await handler('assets:referenceGraph')({}, { ...SCOPE, assetId: 1, depth: 4 })).toMatchObject({ ok: false, code: 'BAD_REQUEST' })
+    for (const channel of ['assets:addReference', 'assets:removeReference']) {
+      for (const expectedRevision of [undefined, null, 0, '1', 1.1]) expect(await handler(channel)({}, { ...SCOPE, sourceAssetId: 1, targetAssetId: 2, expectedRevision })).toMatchObject({ ok: false, code: 'BAD_REQUEST' })
+    }
+  })
+  it('四个新入口跨scope与未知故障不外泄，旧通道错误合同保持', async () => {
+    for (const channel of channels) {
+      hoisted.getForRequest.mockRejectedValueOnce(new AssetsStoreError('SPACE_CHANGED', 'changed'))
+      expect(await handler(channel)({}, SCOPE)).toMatchObject({ ok: false, code: 'SPACE_CHANGED' })
+      hoisted.getForRequest.mockRejectedValueOnce(new Error('SQLITE secret stack'))
+      expect(await handler(channel)({}, SCOPE)).toMatchObject({ ok: false, code: 'WRITE_FAILED' })
+    }
+    expect(hoisted.logError).toHaveBeenCalledTimes(4)
+  })
+  it('写入及幂等结果、冲突details原样返回', async () => {
+    const run = vi.fn().mockReturnValue({ changes: 1 })
+    hoisted.getForRequest.mockResolvedValue({ write: (op: (s: unknown) => unknown) => op({ get: () => ({ id: 1, revision: 2, archived_at: null }), run }) })
+    const req = { ...SCOPE, sourceAssetId: 1, targetAssetId: 2, expectedRevision: 2 }
+    expect(await handler('assets:addReference')({}, req)).toEqual({ ok: true, changed: true, revision: 3 })
+    run.mockReturnValue({ changes: 0 })
+    expect(await handler('assets:removeReference')({}, req)).toEqual({ ok: true, changed: false, revision: 2 })
+    expect(await handler('assets:addReference')({}, { ...req, expectedRevision: 1 })).toMatchObject({ ok: false, code: 'REVISION_CONFLICT', details: { currentRevision: 2 } })
   })
 })
 
