@@ -70,7 +70,7 @@ const ptyInstances = new Map<string, pty.IPty>()
  * 渲染层路径边界守卫已从本文件抽离到 `./rendererPathGuards`（被本文件与 `ipc/assets.ts`
  * 共用，避免循环依赖）。这里只保留 `pickedPaths` 的白名单维护入口。
  */
-import { assertRendererPath, assertRendererFilePath, pickedPaths } from './rendererPathGuards'
+import { assertRendererPath, assertRendererFilePath, pickedPaths, authorizeSaveDialog } from './rendererPathGuards'
 
 /**
  * 校验「项目目录数组」（`figures:renamePreview` / `figures:renameApply`）。
@@ -273,7 +273,7 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
 
   ipcMain.handle('dialog:save', async (_event, options) => {
     const win = winRef.current
-    return win === null ? dialog.showSaveDialog(options) : dialog.showSaveDialog(win, options)
+    return authorizeSaveDialog(() => win === null ? dialog.showSaveDialog(options) : dialog.showSaveDialog(win, options))
   })
 
   // Shell

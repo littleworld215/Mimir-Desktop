@@ -29,7 +29,7 @@ import {
   diffVersions,
   rollbackVersion
 } from '../assets/fileService'
-import { assertRendererPath } from './rendererPathGuards'
+import { assertRendererFilePath, claimAssetSavePath, type AssetSaveLease } from './rendererPathGuards'
 import log from '../logger'
 
 type Failure = {
@@ -42,6 +42,7 @@ type Failure = {
 /** 业务错误回传 code（含冲突上下文）；未知异常兜底为 WRITE_FAILED 并落日志（不外泄细节）。 */
 function failure(error: unknown): Failure {
   if (error instanceof AssetsStoreError) {
+    if ('cause' in error) log.error('[assets] 文件生命周期故障：', error)
     return {
       ok: false,
       code: error.code,
@@ -112,7 +113,7 @@ function assertSafePath(input: unknown, mode: 'read' | 'write'): string {
     throw new AssetsStoreError('BAD_REQUEST', '路径必须是非空字符串。')
   }
   try {
-    return assertRendererPath(input, mode)
+    return assertRendererFilePath(input, mode)
   } catch (error) {
     throw new AssetsStoreError('PATH_REJECTED', error instanceof Error ? error.message : '路径被拒绝。')
   }
@@ -175,9 +176,11 @@ export function registerAssetsHandlers(): void {
       const scope = assertWorkspaceRequest(request)
       const req = (request ?? {}) as Record<string, unknown>
       const assetId = assertPositiveId(req.assetId, 'assetId')
+      // R4：导入源用更严格的「文件」通道校验——必须是用户在文件对话框中显式选中的精确文件。
       const sourcePath = assertSafePath(req.sourcePath, 'read')
-      const ctx = await assetsStoreManager.getForRequest(scope)
-      const asset = importFile(ctx, assetId, parseWriteCondition(req), sourcePath, typeof req.changelog === 'string' ? req.changelog : undefined)
+      const asset = await assetsStoreManager.run(scope, async (ctx) =>
+        importFile(ctx, assetId, parseWriteCondition(req), sourcePath, typeof req.changelog === 'string' ? req.changelog : undefined)
+      )
       return { ok: true, asset }
     } catch (error) {
       return failure(error)
@@ -185,17 +188,30 @@ export function registerAssetsHandlers(): void {
   })
 
   ipcMain.handle(ASSETS_CHANNELS.saveFile, async (_event, request: unknown) => {
+    let lease: AssetSaveLease | undefined
     try {
       const scope = assertWorkspaceRequest(request)
       const req = (request ?? {}) as Record<string, unknown>
       const assetId = assertPositiveId(req.assetId, 'assetId')
       const versionId = req.versionId === undefined || req.versionId === null ? undefined : assertPositiveId(req.versionId, 'versionId')
-      const destinationPath = assertSafePath(req.destinationPath, 'write')
-      const ctx = await assetsStoreManager.getForRequest(scope)
-      const result = saveFile(ctx, assetId, versionId, destinationPath)
+      // 控制平面 / 托管目录已在 assertRendererPath 内先行拒绝；dialog:save 注册的一次性精确授权在此放行。
+      if (typeof req.destinationPath !== 'string' || req.destinationPath.trim() === '') {
+        throw new AssetsStoreError('BAD_REQUEST', '路径必须是非空字符串。')
+      }
+      try { lease = claimAssetSavePath(req.destinationPath) } catch (error) {
+        throw new AssetsStoreError('PATH_REJECTED', error instanceof Error ? error.message : '路径被拒绝。')
+      }
+      const claimed = lease
+      const result = await assetsStoreManager.run(scope, async (ctx) => {
+        const saved = saveFile(ctx, assetId, versionId, claimed.path)
+        claimed.commit()
+        return saved
+      })
       return { ok: true, ...result }
     } catch (error) {
       return failure(error)
+    } finally {
+      lease?.release()
     }
   })
 

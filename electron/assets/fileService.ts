@@ -11,20 +11,27 @@
  *
  * 设计纪律（与 I0/I1 其它服务一致）：
  * - 唯一写入入口是 `ctx.write`；会话在事务结束后失效，跨 await 持有即失效。
- * - 文件 I/O 一律同步（`copyFileSync` / `writeFileSync`），不破坏事务同步约束。
- * - 版本 append-only：先校验 revision/version，再落盘 blob，最后写 DB；blob 落盘失败则清理孤儿文件。
+ * - 导入复制异步完成，受 manager.run 跟踪；DB 事务仅做同步提交。
+ * - 版本 append-only：staging 完成后复核 scope 与条件，搬入 blob；事务未提交才清理本操作文件。
  * - 渲染层传入的路径在 IPC 层经 `assertRendererPath` 校验，服务层只接收已可信的绝对路径。
  */
 
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   constants,
+  type Stats,
+  fstatSync,
+  read,
+  write,
   copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   openSync,
   closeSync,
+  realpathSync,
+  linkSync,
   statSync,
   unlinkSync,
   writeFileSync
@@ -41,7 +48,7 @@ import { ASSET_FILE_MAX_BYTES } from '../../shared/assetsContracts'
 import { AssetsStoreError, type AssetsContext, type AssetsWriteSession } from './types'
 import { assertFileBytes } from './validation'
 import { selectAsset, detail, appendVersion, type AssetRow } from './assetRepository'
-import { newBlobId, versionBlobRelPath, resolveWithinFiles, type AssetsLayout } from './paths'
+import { newBlobId, versionBlobRelPath, resolveWithinFiles, safeFileName, type AssetsLayout } from './paths'
 import {
   selectVersion,
   countVersions,
@@ -64,7 +71,7 @@ function positive(input: unknown, label = 'id'): number {
   }
   return input
 }
-/** 解析条件写；expectedRevision 必填，expectedCurrentVersionId 可选（显式 null 视为不校验）。 */
+/** 解析条件写；显式 null 要求当前无版本，缺省才不校验版本指针。 */
 function parseCondition(c: unknown): {
   expectedRevision: number
   hasVersion: boolean
@@ -91,15 +98,76 @@ function parsePaging(page: unknown, pageSize: unknown): { page: number; pageSize
   return { page: p, pageSize: ps }
 }
 
+/**
+ * 判定源路径是否为符号链接 / junction（跨平台、纯函数，便于单测）。
+ *
+ * 两种跨平台判定，任一命中即视为链接：
+ * - `stat.isSymbolicLink()` 为真：覆盖 Windows 的文件 / 目录符号链接与 junction 在 lstat 下的报告。
+ * - 否则若 `realpath` 解析到的路径与入参 `resolvedPath` 不同：覆盖 lstat 不报 symbolicLink 的少数情况。
+ * `realPath` 为 null 时无法确认磁盘实体，fail-closed 拒绝；Windows 比较统一大小写。
+ */
+export function sourceIsLink(
+  stat: { isSymbolicLink(): boolean } | null,
+  realPath: string | null,
+  resolvedPath: string
+): boolean {
+  if (stat !== null && stat.isSymbolicLink()) return true
+  if (realPath === null) return true
+  const normalize = (path: string): string => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
+  return normalize(realPath) !== normalize(resolvedPath)
+}
+
+function sameFile(a: Stats, b: Stats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.isFile() && b.isFile() && !b.isSymbolicLink()
+}
+function unchangedFile(a: Stats, b: Stats): boolean {
+  return sameFile(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
+}
+async function copyDescriptors(source: number, destination: number): Promise<{ bytes: number; digest: string }> {
+  const buffer = Buffer.allocUnsafe(64 * 1024)
+  const digest = createHash('sha256')
+  let total = 0
+  for (;;) {
+    const bytes = await new Promise<number>((resolve, reject) => read(source, buffer, 0, buffer.length, total,
+      (error, count) => error ? reject(error) : resolve(count)))
+    if (bytes === 0) return { bytes: total, digest: digest.digest('hex') }
+    assertFileBytes(total + bytes)
+    let offset = 0
+    while (offset < bytes) {
+      const count = await new Promise<number>((resolve, reject) => write(destination, buffer, offset, bytes - offset, total + offset,
+        (error, written) => error ? reject(error) : resolve(written)))
+      if (count === 0) throw new AssetsStoreError('WRITE_FAILED', '暂存文件写入未推进。')
+      offset += count
+    }
+    digest.update(buffer.subarray(0, bytes))
+    total += bytes
+  }
+}
+
+/** 校验实际暂存内容；只读持有的 descriptor，不跟随可被替换的路径。 */
+async function descriptorDigest(fd: number): Promise<string> {
+  const digest = createHash('sha256')
+  const buffer = Buffer.allocUnsafe(64 * 1024)
+  let offset = 0
+  for (;;) {
+    const bytes = await new Promise<number>((resolve, reject) => read(fd, buffer, 0, buffer.length, offset,
+      (error, count) => error ? reject(error) : resolve(count)))
+    if (bytes === 0) return digest.digest('hex')
+    assertFileBytes(offset + bytes)
+    digest.update(buffer.subarray(0, bytes))
+    offset += bytes
+  }
+}
+
 // ── importFile ────────────────────────────────────────────────────────────
 /** 把源文件作为新版本导入文件型资产；blob 落到托管 files/<assetId>/<blob>-<name>。 */
-export function importFile(
+export async function importFile(
   ctx: AssetsContext,
   assetId: number,
   condition: unknown,
   sourcePath: string,
   changelog?: string
-): AssetDetail {
+): Promise<AssetDetail> {
   const id = positive(assetId)
   if (typeof sourcePath !== 'string' || sourcePath.trim() === '') {
     throw new AssetsStoreError('BAD_REQUEST', 'sourcePath 必须是非空字符串。')
@@ -108,36 +176,111 @@ export function importFile(
   const log = typeof changelog === 'string' ? changelog : ''
   const now = new Date().toISOString()
 
-  return ctx.write(s => {
-    const row = selectAsset(s, id)
-    if (row === undefined) throw new AssetsStoreError('NOT_FOUND', '资产不存在。')
-    if (row.archived_at !== null) throw new AssetsStoreError('ASSET_ARCHIVED', '请先恢复归档资产。')
-    if (row.storage_type !== 'file') throw new AssetsStoreError('BAD_REQUEST', '仅文件型资产可导入文件。')
-    if (row.revision !== c.expectedRevision) {
-      throw new AssetsStoreError('REVISION_CONFLICT', '资产已更新。', { currentRevision: row.revision })
-    }
-    if (c.hasVersion && c.expectedCurrentVersionId !== row.current_version_id) {
-      throw new AssetsStoreError('VERSION_CONFLICT', '当前版本已改变。', { currentVersionId: row.current_version_id })
-    }
+  // 事务外异步暂存，搬入 files 后的 SQL/COMMIT/最终 scope 失败统一由外层清理。
+  // R2/R4：拒绝符号链接 / junction（只导入真实普通文件）；普通文件 + 字节上限校验。
+  let srcStat: Stats
+  try {
+    srcStat = lstatSync(sourcePath)
+  } catch {
+    throw new AssetsStoreError('FILE_UNAVAILABLE', '源文件不可读或不存在。')
+  }
+  // 符号链接 / junction 判定用跨平台纯函数 sourceIsLink：
+  // ① lstat 直接报 symbolicLink；② realpath 解析到不同于入参的路径。
+  // realpath 失败无法确认实体，按不可用源拒绝，不退回字面路径。
+  const rawPath = resolve(sourcePath)
+  let realPath: string | null = null
+  let parentIdentity = rawPath
+  try {
+    realPath = realpathSync(sourcePath)
+    parentIdentity = join(realpathSync(dirname(rawPath)), basename(rawPath))
+  } catch {
+    realPath = null
+  }
+  if (sourceIsLink(srcStat, realPath, parentIdentity)) {
+    throw new AssetsStoreError('FILE_UNAVAILABLE', '源文件是符号链接或 junction，拒绝导入。')
+  }
+  if (!srcStat.isFile()) throw new AssetsStoreError('BAD_REQUEST', '源路径不是普通文件。')
+  assertFileBytes(srcStat.size)
 
-    // 先校验源文件，再决定落盘目标——校验失败不产生任何副作用。
-    let stat: ReturnType<typeof statSync>
-    try {
-      stat = statSync(sourcePath)
-    } catch {
-      throw new AssetsStoreError('FILE_UNAVAILABLE', '源文件不可读或不存在。')
+  // 拷贝到 staging（与 files/ 同卷，后续排他 hardlink 落盘）；文件名用唯一 blobId，绝不覆盖他人 blob。
+  const fileName = basename(sourcePath)
+  const stagingName = `${newBlobId()}-${safeFileName(fileName)}`
+  const stagingAbs = join(ctx.layout.stagingDir, stagingName)
+  let sourceFd: number | null = null
+  let stagingFd: number | null = null
+  let stagingIdentity: Stats | null = null
+  let finalIdentity: Stats | null = null
+  let finalAbs: string | null = null
+  let committed = false
+  try {
+    ctx.assertCurrent()
+    // POSIX 拒绝最终链接；Windows 没有可靠 O_NOFOLLOW，靠打开前后实体核对 fail-closed。
+    sourceFd = openSync(sourcePath, constants.O_RDONLY | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW))
+    if (!unchangedFile(srcStat, fstatSync(sourceFd)) || !unchangedFile(srcStat, lstatSync(sourcePath))) {
+      throw new AssetsStoreError('FILE_UNAVAILABLE', '源文件在打开时发生变化。')
     }
-    if (!stat.isFile()) throw new AssetsStoreError('BAD_REQUEST', '源路径不是普通文件。')
-    assertFileBytes(stat.size)
+    stagingFd = openSync(stagingAbs, 'wx+', 0o600)
+    stagingIdentity = fstatSync(stagingFd)
+    const copied = await copyDescriptors(sourceFd, stagingFd)
+    ctx.assertCurrent()
+    if (copied.bytes !== srcStat.size || !unchangedFile(srcStat, fstatSync(sourceFd)) || !unchangedFile(srcStat, lstatSync(sourcePath))) {
+      throw new AssetsStoreError('FILE_UNAVAILABLE', '源文件在复制期间发生变化。')
+    }
+    const staged = fstatSync(stagingFd)
+    if (!sameFile(stagingIdentity, lstatSync(stagingAbs)) || staged.nlink !== 1 || staged.size !== copied.bytes) {
+      throw new AssetsStoreError('FILE_UNAVAILABLE', '暂存文件身份或字节数在复制期间发生变化。')
+    }
+    const actualDigest = await descriptorDigest(stagingFd)
+    ctx.assertCurrent()
+    if (actualDigest !== copied.digest || !unchangedFile(staged, fstatSync(stagingFd)) || !unchangedFile(staged, lstatSync(stagingAbs))) {
+      throw new AssetsStoreError('FILE_UNAVAILABLE', '暂存内容在复制或验证期间发生变化。')
+    }
+    closeSync(sourceFd)
+    sourceFd = null
+    // 关闭后没有 await；提交内再次核验已验证的实体与修改时间。
+    closeSync(stagingFd)
+    stagingFd = null
+    const asset = ctx.write(s => {
+      const row = selectAsset(s, id)
+      if (row === undefined) throw new AssetsStoreError('NOT_FOUND', '资产不存在。')
+      if (row.archived_at !== null) throw new AssetsStoreError('ASSET_ARCHIVED', '请先恢复归档资产。')
+      if (row.storage_type !== 'file') throw new AssetsStoreError('BAD_REQUEST', '仅文件型资产可导入文件。')
+      if (row.revision !== c.expectedRevision) {
+        throw new AssetsStoreError('REVISION_CONFLICT', '资产已更新。', { currentRevision: row.revision })
+      }
+      if (c.hasVersion && c.expectedCurrentVersionId !== row.current_version_id) {
+        throw new AssetsStoreError('VERSION_CONFLICT', '当前版本已改变。', { currentVersionId: row.current_version_id })
+      }
 
-    const fileName = basename(sourcePath)
-    const relPath = versionBlobRelPath(id, newBlobId(), fileName)
-    const abs = resolveWithinFiles(ctx.layout, relPath)
-    mkdirSync(dirname(abs), { recursive: true })
-    copyFileSync(sourcePath, abs)
+      // 事务内复核：staging 仍可读、字节数未变（防提交前被改），最终路径合法且不存在。
+      let st: ReturnType<typeof statSync>
+      try {
+        st = lstatSync(stagingAbs)
+      } catch {
+        throw new AssetsStoreError('FILE_UNAVAILABLE', '暂存文件在提交前丢失。')
+      }
+      if (stagingIdentity === null || !unchangedFile(staged, st) || st.nlink !== 1 || st.size !== srcStat.size || !unchangedFile(srcStat, lstatSync(sourcePath))) {
+        throw new AssetsStoreError('FILE_UNAVAILABLE', '暂存文件在提交前发生变化。')
+      }
+      const relPath = versionBlobRelPath(id, newBlobId(), fileName)
+      const abs = resolveWithinFiles(ctx.layout, relPath)
+      mkdirSync(dirname(abs), { recursive: true })
+      // 同卷排他创建硬链接；已有目标（含外部竞态创建）始终失败，不能先预占再 rename 覆盖。
+      try {
+        linkSync(stagingAbs, abs)
+        finalAbs = abs
+        finalIdentity = stagingIdentity
+        unlinkSync(stagingAbs)
+      } catch {
+        throw new AssetsStoreError('WRITE_FAILED', '版本 blob 落盘失败。')
+      }
+      finalAbs = abs
+      stagingIdentity = null
+      const moved = lstatSync(abs)
+      if (finalIdentity === null || !sameFile(finalIdentity, moved) || moved.nlink !== 1) {
+        throw new AssetsStoreError('FILE_UNAVAILABLE', '搬入的版本文件身份发生变化。')
+      }
 
-    // blob 已落盘；DB 写入若失败则清理孤儿 blob（事务回滚只管 DB）。
-    try {
       const next = (s.get<{ n: number }>('SELECT coalesce(max(version),0) n FROM asset_version WHERE asset_id=?', id)?.n ?? 0) + 1
       s.run(
         'INSERT INTO asset_version(asset_id,version,content,changelog,source_json,file_path,file_name,created_at) VALUES (?,?,?,?,?,?,?,?)',
@@ -146,11 +289,40 @@ export function importFile(
       const vid = s.get<{ id: number }>('SELECT last_insert_rowid() id')?.id as number
       s.run('UPDATE asset SET current_version_id=?, revision=revision+1, updated_at=? WHERE id=?', vid, now, id)
       return detail(s, selectAsset(s, id) as AssetRow, ctx.layout)
-    } catch (error) {
-      try { unlinkSync(abs) } catch { /* 孤儿 blob 清理尽力而为 */ }
-      throw error
+    })
+    committed = true
+    return asset
+  } catch (error) {
+    const cleanupErrors: unknown[] = []
+    for (const fd of [sourceFd, stagingFd]) {
+      if (fd === null) continue
+      try { closeSync(fd) } catch (closeError) { cleanupErrors.push(closeError) }
     }
-  })
+    sourceFd = null
+    stagingFd = null
+    for (const [path, identity] of [[!committed ? finalAbs : null, finalIdentity], [stagingAbs, stagingIdentity]] as const) {
+      if (path === null || identity === null) continue
+      try {
+        const current = lstatSync(path)
+        // link 成功而 staging unlink 失败时，这两个链接均由本操作持有，允许按身份清掉。
+        const ownPair = finalAbs !== null && finalIdentity !== null && stagingIdentity !== null
+          && current.nlink === 2 && sameFile(identity, lstatSync(finalAbs))
+          && sameFile(identity, lstatSync(stagingAbs))
+        if (!sameFile(identity, current) || (current.nlink !== 1 && !ownPair)) {
+          throw new Error('清理目标身份已改变，保留外部替换文件。')
+        }
+        unlinkSync(path)
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') cleanupErrors.push(cleanupError)
+      }
+    }
+    if (cleanupErrors.length !== 0) {
+      const failure = new AssetsStoreError('WRITE_FAILED', '导入失败且本次文件清理未完成，请查看日志并保留资产库。')
+      Object.defineProperty(failure, 'cause', { value: new AggregateError([error, ...cleanupErrors], '导入与清理故障') })
+      throw failure
+    }
+    throw error
+  }
 }
 
 // ── saveFile ─────────────────────────────────────────────────────────────

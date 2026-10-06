@@ -66,3 +66,6 @@ TaskFlowDocs/
 
 # Local
 pnpm-workspace.yaml
+
+# 本机测试临时目录（仅忽略产物；不是运行或验证前提）
+mimirvitesttmp/

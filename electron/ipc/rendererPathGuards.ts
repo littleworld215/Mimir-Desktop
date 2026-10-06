@@ -11,13 +11,101 @@
  * 3. 用户在本会话里经原生对话框显式选中的路径及其子路径（见 `pickedPaths`）。
  */
 import { resolve } from 'node:path'
+import { lstatSync } from 'node:fs'
 import { isControlPlanePath } from '../agent/controlPlane'
 import { isPathWithin } from './pathGuards'
 import { isManagedAssetPath, MANAGED_ASSET_REJECT_MESSAGE } from '../assets/managedPaths'
-import { spaceRoot, getStoreValue } from '../library/store'
+import { spaceRoot, getStoreValue, getActiveWorkspace, currentSpaceEpoch } from '../library/store'
 
 /** 用户在原生文件对话框里**显式选中**过的路径（文件与目录，绝对路径）。 */
 export const pickedPaths = new Set<string>()
+
+/**
+ * 资产导出专用一次性授权（R4）：保存对话框登记可信 workspace/epoch，handler 首个 await 前消费。
+ * 仅放行**完全相等**的文件路径——不放行父目录，也不放行同目录下其它（相邻）文件；
+ * 控制平面 / 托管目录已在前面先行拒绝。用于「保存到用户刚在对话框里选的文件」这一合法动作，
+ * 而不把整个目录永久加入白名单（与 `pickedPaths` 的长期复用区分开）。
+ */
+interface SaveAuthorization { workspaceId: string; spaceEpoch: string; claimed: boolean }
+const oneShotFileAuths = new Map<string, SaveAuthorization>()
+export interface AssetSaveLease { path: string; commit(): void; release(): void }
+
+function trustedScope(): { workspaceId: string; spaceEpoch: string } {
+  const workspace = getActiveWorkspace()
+  if (workspace === null) throw new Error('当前没有科研空间。')
+  return { workspaceId: workspace.id, spaceEpoch: currentSpaceEpoch() }
+}
+function authKey(path: string): string {
+  const absolute = resolve(path)
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute
+}
+
+/** 资产导出专用：外部文件授权在首个 await 前原子领取，不为通用读写授权。 */
+export function claimAssetSavePath(input: unknown): AssetSaveLease {
+  if (typeof input !== 'string' || input.trim() === '') throw new Error('无效路径')
+  const target = resolve(input)
+  if (isControlPlanePath(target)) throw new Error(CONTROL_PLANE_REJECTED)
+  if (isManagedAssetPath(target, safeSpaceRoot())) throw new Error(MANAGED_ASSET_REJECT_MESSAGE)
+  if (isPathWithin(target, safeSpaceRoot())) return { path: target, commit() {}, release() {} }
+  const key = authKey(target)
+  const auth = oneShotFileAuths.get(key)
+  const current = trustedScope()
+  if (auth === undefined || auth.claimed || auth.workspaceId !== current.workspaceId || auth.spaceEpoch !== current.spaceEpoch) {
+    throw new Error('已拒绝：请通过保存对话框重新选择该精确文件。')
+  }
+  auth.claimed = true
+  let settled = false
+  return {
+    path: target,
+    commit() {
+      if (settled) return
+      settled = true
+      if (oneShotFileAuths.get(key) === auth) oneShotFileAuths.delete(key)
+    },
+    release() {
+      if (settled) return
+      settled = true
+      if (oneShotFileAuths.get(key) !== auth) return
+      let active: ReturnType<typeof trustedScope>
+      try { active = trustedScope() } catch { oneShotFileAuths.delete(key); return }
+      let absent = false
+      try { lstatSync(target) } catch (error) { absent = (error as NodeJS.ErrnoException).code === 'ENOENT' }
+      if (absent && auth.workspaceId === active.workspaceId && auth.spaceEpoch === active.spaceEpoch) auth.claimed = false
+      else oneShotFileAuths.delete(key)
+    }
+  }
+}
+
+/** 原生保存对话框前捕获可信 scope；对话框期间切空间则不登记授权。 */
+export async function authorizeSaveDialog<T extends { canceled: boolean; filePath?: string }>(show: () => Promise<T>): Promise<T> {
+  let captured: ReturnType<typeof trustedScope> | null = null
+  try { captured = trustedScope() } catch { /* 无空间仍展示通用原生对话框。 */ }
+  const result = await show()
+  if (result.canceled) clearOneShotFileAuths()
+  let current: ReturnType<typeof trustedScope> | null = null
+  try { current = trustedScope() } catch { /* 空间消失只取消授权，不改变对话框结果。 */ }
+  if (!result.canceled && result.filePath && captured !== null && current !== null && captured.workspaceId === current.workspaceId && captured.spaceEpoch === current.spaceEpoch) {
+    registerOneShotFileAuth(result.filePath)
+  }
+  return result
+}
+
+/** dialog:save 成功选定文件后注册一次性精确授权（不含父目录 / 相邻路径）。 */
+export function registerOneShotFileAuth(filePath: string): void {
+  if (typeof filePath !== 'string' || filePath.trim() === '') return
+  oneShotFileAuths.set(authKey(filePath), { ...trustedScope(), claimed: false })
+}
+
+/** 保存成功后消费（焚毁）该一次性授权，避免被长期复用。 */
+export function consumeOneShotFileAuth(filePath: string): void {
+  if (typeof filePath !== 'string') return
+  oneShotFileAuths.delete(authKey(filePath))
+}
+
+/** 取消 / 切换时清空一次性授权（cancel 解注册）。 */
+export function clearOneShotFileAuths(): void {
+  oneShotFileAuths.clear()
+}
 
 /** 控制平面拒绝文案（settings / 能力域 / 技能 / 桥接凭据；与 Agent 侧同一条硬约束）。 */
 const CONTROL_PLANE_REJECTED = '已拒绝：该路径属于 Mimir 的配置/能力控制平面，不允许经此通道访问。'
