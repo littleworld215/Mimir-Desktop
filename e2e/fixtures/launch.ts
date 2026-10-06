@@ -19,6 +19,7 @@ import { existsSync, realpathSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { createTempHome, type TempHome } from '../helpers/tempHome'
+import { isInside } from '../helpers/isolationPaths'
 import { installDialogHandler, type DialogRecorder } from '../helpers/confirm'
 import { writeSeed, type SeedData, defaultSeed } from './seed'
 
@@ -82,95 +83,108 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     // 隔离的核心：homedir() 跟随 HOME（macOS/Linux），进而重定向 ~/.mimir 与 ~/Mimir
-    HOME: tempHome.home,
-    USERPROFILE: tempHome.home, // Windows 等价物
     // 关掉可能干扰的观测/网关环境变量，确保用例不误连真实服务。
     // OTel 三件套都置空：只清 endpoint 时若配置项改从别处读取，会漏掉（见 otelTrace.ts）。
     MIMIR_OTEL_ENDPOINT: '',
     MIMIR_OTEL_PUBLIC_KEY: '',
     MIMIR_OTEL_SECRET_KEY: '',
-    ...options.env
+    ...options.env,
+    // Isolation settings cannot be overridden by a scenario.
+    HOME: tempHome.home,
+    USERPROFILE: tempHome.home
   }
 
-  const app = await electron.launch({
+  let app: ElectronApplication
+  try { app = await electron.launch({
     args: [mainEntry, `--user-data-dir=${tempHome.userData}`],
     cwd: repoRoot,
     env,
     timeout: options.timeout ?? 60_000
-  })
+  }) } catch (error) { tempHome.cleanup(); throw error }
+  const electronProcess = app.process()
 
-  // ── 隔离硬校验 ────────────────────────────────────────────────────────
-  // 判据是「store.ts 实际用的路径」而非 app.getPath('home')。
-  // 原因（实测结论，2026-09-16）：macOS 上 app.getPath('home') 走系统 API，
-  // **不跟随 HOME 环境变量**；而 store.ts 用 Node 的 os.homedir()，**跟随 HOME**。
-  // 两者行为不同，因此必须校验真正决定数据落点的那个。
-  const paths = await app.evaluate(({ app: electronApp }) => ({
-    userData: electronApp.getPath('userData')
-  }))
+  try {
 
-  // 归一化后比对：realpath 消除 macOS /var → /private/var 这类符号链接差异
-  const userDataReal = realpathSync(paths.userData)
-  if (!isInside(userDataReal, tempHome.root)) {
-    await app.close()
-    tempHome.cleanup()
-    throw new Error(
-      `userData 隔离未生效，已中止以免污染真实数据。\n` +
-        `  期望位于: ${tempHome.root}\n` +
-        `  实际值:   ${userDataReal}`
+    // ── 隔离硬校验 ────────────────────────────────────────────────────────
+    // 判据是「store.ts 实际用的路径」而非 app.getPath('home')。
+    // 原因（实测结论，2026-09-16）：macOS 上 app.getPath('home') 走系统 API，
+    // **不跟随 HOME 环境变量**；而 store.ts 用 Node 的 os.homedir()，**跟随 HOME**。
+    // 两者行为不同，因此必须校验真正决定数据落点的那个。
+    const paths = await app.evaluate(({ app: electronApp }) => ({
+      userData: electronApp.getPath('userData'),
+      home: process.getBuiltinModule('os').homedir()
+    }))
+
+    // 归一化后比对：realpath 消除 macOS /var → /private/var 这类符号链接差异
+    const userDataReal = realpathSync(paths.userData)
+    if (!isInside(userDataReal, tempHome.root) || realpathSync(paths.home) !== realpathSync(tempHome.home)) {
+      await app.close()
+      tempHome.cleanup()
+      throw new Error(
+        `userData 隔离未生效，已中止以免污染真实数据。\n` +
+          `  期望位于: ${tempHome.root}\n` +
+          `  实际值:   ${userDataReal}`
+      )
+    }
+
+    // 等首个窗口就绪后，校验 store 真的落在临时 HOME（此时应用已完成 store 初始化）
+    const firstWindow = await app.firstWindow()
+    const storeFile = join(tempHome.home, '.mimir', 'store.json')
+    const contamination = await waitFor(() => existsSync(storeFile), 10_000)
+    if (!contamination) {
+      await app.close()
+      tempHome.cleanup()
+      throw new Error(
+        `数据隔离未生效：临时 HOME 下未生成 ~/.mimir/store.json。\n` +
+          `  期望路径: ${storeFile}\n` +
+          `  说明: store.ts 的 os.homedir() 未跟随 HOME 环境变量，` +
+          `隔离手段需改（见 spec.md 契约 2）。\n` +
+          `  已中止以免污染真实 ~/.mimir（其中含明文凭据）。`
+      )
+    }
+
+    // 原生 dialog 覆写（同步变体也要处理：它们直接返回值而非 Promise）
+    const openPaths = options.openDialogPaths ?? []
+    const savePath = options.saveDialogPath ?? join(tempHome.root, 'saved-output.txt')
+    await app.evaluate(
+      ({ dialog }, payload) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: payload.openPaths })
+        // 同步变体：返回 string[]，取消时为空数组
+        dialog.showOpenDialogSync = () => payload.openPaths
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath: payload.savePath })
+        dialog.showSaveDialogSync = () => payload.savePath
+        dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
+        dialog.showMessageBoxSync = () => 0
+      },
+      { openPaths, savePath }
     )
-  }
 
-  // 等首个窗口就绪后，校验 store 真的落在临时 HOME（此时应用已完成 store 初始化）
-  const firstWindow = await app.firstWindow()
-  const storeFile = join(tempHome.home, '.mimir', 'store.json')
-  const contamination = await waitFor(() => existsSync(storeFile), 10_000)
-  if (!contamination) {
-    await app.close()
-    tempHome.cleanup()
-    throw new Error(
-      `数据隔离未生效：临时 HOME 下未生成 ~/.mimir/store.json。\n` +
-        `  期望路径: ${storeFile}\n` +
-        `  说明: store.ts 的 os.homedir() 未跟随 HOME 环境变量，` +
-        `隔离手段需改（见 spec.md 契约 2）。\n` +
-        `  已中止以免污染真实 ~/.mimir（其中含明文凭据）。`
-    )
-  }
+    const page = firstWindow
+    await page.waitForLoadState('domcontentloaded')
 
-  // 原生 dialog 覆写（同步变体也要处理：它们直接返回值而非 Promise）
-  const openPaths = options.openDialogPaths ?? []
-  const savePath = options.saveDialogPath ?? join(tempHome.root, 'saved-output.txt')
-  await app.evaluate(
-    ({ dialog }, payload) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: payload.openPaths })
-      // 同步变体：返回 string[]，取消时为空数组
-      dialog.showOpenDialogSync = () => payload.openPaths
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: payload.savePath })
-      dialog.showSaveDialogSync = () => payload.savePath
-      dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
-      dialog.showMessageBoxSync = () => 0
-    },
-    { openPaths, savePath }
-  )
+    // dialog 自动应答器：每个应用实例只注册一次（page 跨用例共享，重复注册会抢答）
+    const dialogs = installDialogHandler(page)
 
-  const page = firstWindow
-  await page.waitForLoadState('domcontentloaded')
-
-  // dialog 自动应答器：每个应用实例只注册一次（page 跨用例共享，重复注册会抢答）
-  const dialogs = installDialogHandler(page)
-
-  return {
-    app,
-    page,
-    tempHome,
-    dialogs,
-    paths: { userData: paths.userData, home: tempHome.home },
-    cleanup: async () => {
-      try {
-        await app.close()
-      } finally {
-        tempHome.cleanup()
+    return {
+      app,
+      page,
+      tempHome,
+      dialogs,
+      paths: { userData: paths.userData, home: tempHome.home },
+      cleanup: async () => {
+        try {
+          if (electronProcess.exitCode === null) {
+            await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 2 })
+            await app.close()
+          }
+        } finally {
+          tempHome.cleanup()
+        }
       }
     }
+  } catch (error) {
+    try { await app.close() } finally { tempHome.cleanup() }
+    throw error
   }
 }
 
@@ -182,13 +196,4 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boo
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   return predicate()
-}
-
-/**
- * child 是否位于 parent 之内（含 parent 自身）。
- * 用路径分隔符补齐后再比对，避免 `/a/bc` 被误判为在 `/a/b` 之内。
- */
-function isInside(child: string, parent: string): boolean {
-  const normalizedParent = parent.endsWith('/') ? parent : `${parent}/`
-  return child === parent || child.startsWith(normalizedParent)
 }

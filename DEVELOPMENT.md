@@ -632,7 +632,7 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 
 ---
 
-## 科研资产整合进度（2026-10-06，个人分支）
+## 科研资产整合进度（2026-10-07，个人分支）
 
 - 当前任务来源为来源仓库 `docs/MIGRATION-Mimir-Desktop.md` 和 `docs/INTEGRATION-PLAN-I0-I1.md`；Codex 全面负责实现与交付。
 - 文件导入由 `AssetsStoreManager.run` 跟踪，使用异步 descriptor 复制、SHA-256 暂存校验与同卷排他 hardlink 落盘；需文件系统支持硬链接，无法落盘时失败而不降级为覆盖。事务失败清理本操作文件；数据库提交后的响应故障保留已引用文件。
@@ -641,7 +641,10 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 - 标签治理服务支持独立创建、关联增删、影响预览、条件重命名、合并和删除；关系变化提升标签 revision，治理提升受影响资产 revision（含归档），旧表单不可覆盖回来。正文历史不变。
 - 归档/恢复幂等；永久删除显式确认并校验 revision，SQL 提交后才清理本资产记录的平铺 blob。拒绝 junction/跨资产路径，保留未知孤儿，清理失败返回 cleanupPending 并留日志，后续 doctor/恢复模块需处理待清理目录。
 - IPC/preload 与渲染门面已接通全部 28 个固定方法，列表返回真实摘要分页和筛选；显式 undefined 版本条件拒绝，空正文/null条件和冲突 details 原样保留。
-- 2026-10-07：最新三闸门 exit 0；全量 59 文件/805 项，796 通过/9 既有跳过。标签、归档删除、通道与门面分别独立复核。资产 UI 仍为骨架，操作界面和真实 Electron 闭环尚未完成，不宣称 I1 整体通过验收。
+- 上一批：1c3ae99 全量 796 通过/9 跳过；标签、归档删除、通道和门面已有复核。
+- 本批 I1-09：三栏/窄屏资产操作、三形态编辑、分类/标签治理、版本比较/回滚、原生文件导入下载、归档恢复/永久删除、错误与 cleanupPending 反馈已接入。治理预览拒绝陈旧返回；保存失败保留输入，切模块/空间和窗口关闭受守卫保护。窗口实际关闭之后才拆后台，原生保存失败不退出。
+- 修复后 typecheck/test/build exit 0；全量 64 文件/816 项，807 通过/9 既有跳过。真实隔离 Electron 三条关键闭环通过，最后一条保存后退出并只读重开临时 SQLite 核对正文。只读 reviewer 定向 11/11，无新增 P1/P2。
+- 原生探针 Node→Electron→Node 各7/7；Electron 33.4.11/ABI130、SQLite3.49.2、FTS5/trigram 可用。打包目录验证和第二实例真实进程终验待补，I0/I1 整体暂不标验收完成；来源报告 docs/verification-integration-ui-20261007.md。未访问来源真实 data 或用户真实空间，不起 dev 服务、不调用模型。
 
 ## License
 

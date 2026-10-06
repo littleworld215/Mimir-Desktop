@@ -13,6 +13,7 @@ import { expect, type Page } from '@playwright/test'
 export const MODULE_LABELS = {
   chat: '对话',
   overview: '总览',
+  assets: '资产库',
   library: '文献库',
   paper: '论文',
   experiments: '实验',
@@ -30,6 +31,10 @@ export type ModuleKey = keyof typeof MODULE_LABELS
 /** 点击侧栏进入某模块，并等待其标题渲染完成。 */
 export async function gotoModule(page: Page, module: ModuleKey): Promise<void> {
   await page.getByRole('button', { name: MODULE_LABELS[module], exact: true }).first().click()
+  if (module === 'chat') {
+    await expect(page.getByPlaceholder('今天帮你做些什么？输入 / 可调用技能与指令')).toBeVisible()
+    return
+  }
   // 等模块标题出现即视为切换完成（App.tsx 用 key 重挂载主内容）
   await expect(page.locator('.module-title').first()).toBeVisible()
 }

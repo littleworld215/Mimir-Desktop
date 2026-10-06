@@ -14,6 +14,8 @@ import { FolderOpen, Loader2, Plus, Monitor, Moon, Sun, Check } from 'lucide-rea
 import { cn } from '@/lib/utils'
 import { Sidebar, type ModuleId } from '@/components/layout/Sidebar'
 import { getSettingsSession } from '@/lib/settingsGuard'
+import { requestAssetsLeave } from '@/lib/assetsEditGuard'
+import { AssetsLeaveDialog } from '@/components/modules/assets/AssetsLeaveDialog'
 import { AGENT_HANDOFF_EVENT, clearAgentContext, SPACE_CHANGED_EVENT } from '@/lib/agentContext'
 import { flushSessionOnSpaceChange } from '@/lib/spaceFlush'
 import { ChatView } from '@/components/chat/ChatView'
@@ -107,6 +109,7 @@ export default function App() {
     async (id: string) => {
       const api = window.electronAPI?.workspaces
       if (!api || id === activeSpaceId) return
+      if (!await requestAssetsLeave()) return
       // 与「切换模块」的离开守卫一致：在设置页且存在未保存更改时先询问保存，
       // 否则空间切换会重挂载主内容并静默丢弃设置编辑。
       const session = getSettingsSession()
@@ -186,6 +189,7 @@ export default function App() {
     const api = window.electronAPI?.workspaces
     const name = gateName.trim()
     if (!api || name === '') return
+    if (!await requestAssetsLeave()) return
     setGateBusy(true)
     setGateError(null)
     try {
@@ -217,6 +221,7 @@ export default function App() {
   const handleNavigate = useCallback(
     async (id: ModuleId) => {
       if (id === activeModule) return
+      if (!await requestAssetsLeave()) return
       const session = getSettingsSession()
       if (session !== null && session.isDirty()) {
         const proceed = window.confirm('设置存在尚未保存的更改，是否保存后再切换？\n\n「确定」= 保存并切换；「取消」= 留在设置页')
@@ -596,6 +601,7 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AssetsLeaveDialog />
     </div>
   )
 }

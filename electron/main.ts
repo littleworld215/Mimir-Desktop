@@ -20,6 +20,7 @@ import { isSafeExternalUrl } from './safeUrl'
 import { stopBridge } from './plugins/bridge'
 import log, { initLogger } from './logger'
 import { assetsStoreManager } from './assets/store'
+import { createQuitFlow } from './quitFlow'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -134,11 +135,26 @@ function createWindow(): void {
 
   windowRef.current = mainWindow
 
+  mainWindow.webContents.on('will-prevent-unload', event => {
+    if (!mainWindow) return
+    const closingWindow = mainWindow
+    const choice = dialog.showMessageBoxSync(closingWindow, { type: 'warning', buttons: ['留在这里', '保存后关闭', '丢弃未保存输入并关闭'], defaultId: 0, cancelId: 0, title: '存在未保存输入或在途操作', message: '保存成功后才能关闭。正在执行的操作请等待完成；丢弃输入后退出仍会排空资产写入。' })
+    if (choice === 2) event.preventDefault()
+    else if (choice === 1) {
+      // Only invokes our renderer guard. No body text or user-provided script is evaluated.
+      void closingWindow.webContents.executeJavaScript("window.mimirRequestAssetsLeave?.('save') ?? false").then(saved => {
+        if (saved && !closingWindow.isDestroyed()) closingWindow.close()
+        else quitFlow.cancelClose()
+      }).catch(error => { quitFlow.cancelClose(); log.warn('[quit] 保存前关闭取消：', error) })
+    } else quitFlow.cancelClose()
+  })
+
   mainWindow.on('closed', () => {
     // 窗口销毁后其 IPC 目标已失效：中止该窗口名下所有会话的后台任务，避免残留任务空转写事件
     stopAllAgentTasks()
     if (windowRef.current === mainWindow) windowRef.current = null
     mainWindow = null
+    quitFlow.windowClosed()
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -276,9 +292,6 @@ app.whenReady().then(async () => {
   app.quit()
 })
 
-/** 退出清理是否已触发：防止 `app.quit()` 再次进入 `before-quit` 形成死循环。 */
-let quitting = false
-
 /** 退出清理的最长等待：某个清理卡住时也要保证进程能退出（见应用规则「禁止静默挂起」）。 */
 const SHUTDOWN_TIMEOUT_MS = 3_000
 
@@ -359,12 +372,11 @@ async function shutdown(): Promise<void> {
   }
 }
 
-app.on('before-quit', (event) => {
-  if (quitting) return
-  quitting = true
-  // 先拦住退出，做完异步清理再真正 quit（Electron 不等待 before-quit 里的异步工作）。
-  event.preventDefault()
-  void (async () => {
+const quitFlow = createQuitFlow({
+  hasWindow: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
+  closeWindow: () => mainWindow?.close(),
+  quit: () => app.quit(),
+  shutdown: async () => {
     // ① 先排空资产写入：独立预算，不被通用超时截断——保证在途事务落定后才继续退出。
     await drainAssetsBeforeQuit()
     // ② 再做通用清理：共享 3 秒预算，某个清理卡住时也要保证进程能退出。
@@ -374,7 +386,6 @@ app.on('before-quit', (event) => {
         setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref?.()
       })
     ])
-  })().finally(() => {
-    app.quit()
-  })
+  }
 })
+app.on('before-quit', event => quitFlow.beforeQuit(event))

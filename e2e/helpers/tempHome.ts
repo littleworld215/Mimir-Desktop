@@ -9,7 +9,7 @@
  */
 import { mkdtempSync, rmSync, mkdirSync, existsSync, realpathSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, dirname, basename } from 'path'
 
 export interface TempHome {
   /** 传给 Electron 的 HOME / USERPROFILE，承载 `~/.mimir` 与 `~/Mimir/<空间名>` */
@@ -36,6 +36,7 @@ export function createTempHome(): TempHome {
   // macOS 上 tmpdir() 常返回 /var/folders/...，而 /var 是指向 /private/var 的符号链接。
   // Electron 报回的是解析后的 /private/var/...，若不做归一化，前缀比对会误判为「隔离失效」。
   const root = realpathSync(raw)
+  const expectedParent = realpathSync(tmpdir())
   const home = join(root, 'home')
   const userData = join(root, 'userData')
   mkdirSync(home, { recursive: true })
@@ -46,7 +47,10 @@ export function createTempHome(): TempHome {
     home,
     userData,
     cleanup: () => {
-      if (existsSync(root)) rmSync(root, { recursive: true, force: true })
+      if (!existsSync(root)) return
+      const actual = realpathSync(root)
+      if (actual !== root || dirname(actual) !== expectedParent || !basename(actual).startsWith('mimir-e2e-')) throw new Error('拒绝清理未经核定的临时目录')
+      rmSync(root, { recursive: true, force: true })
     }
   }
 }
