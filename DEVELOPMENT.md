@@ -632,9 +632,7 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 
 ---
 
-## License
-
-### 科研资产整合进度（2026-10-06，个人分支）
+## 科研资产整合进度（2026-10-06，个人分支）
 
 - 当前任务来源为来源仓库 `docs/MIGRATION-Mimir-Desktop.md` 和 `docs/INTEGRATION-PLAN-I0-I1.md`；Codex 全面负责实现与交付。
 - 文件导入由 `AssetsStoreManager.run` 跟踪，使用异步 descriptor 复制、SHA-256 暂存校验与同卷排他 hardlink 落盘；需文件系统支持硬链接，无法落盘时失败而不降级为覆盖。事务失败清理本操作文件；数据库提交后的响应故障保留已引用文件。
@@ -642,4 +640,6 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 - `VersionDiff` 保留旧字段，新增可选 `mode` / `beforeText` / `afterText` / `files`。文本最多 500,000 个矩阵格、20,000 个行对象；`replacement` 表示完整线性替换，`originals` 必须展示两侧完整原文，不能将空 `lines` 当成内容相同。CRLF、空行、末尾换行不归一化。文件比较只提供名称、大小与可用性；缺失文件大小为 `null`，不改历史。
 - 资产 UI 仍为骨架，IPC/preload 仍仅 8 个方法；标签治理、归档/永久删除、完整接线和 UI 闭环尚未完成，不宣称 I1 整体通过验收。
 
-MIT（见 `package.json` 的 `license` 字段）。功能与理念承自 [dsh-Mimir-Academic-research](https://github.com/1692775560/dsh-Mimir-Academic-research)（MIT）。
+## License
+
+GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标注不准确）。功能与理念承自 [dsh-Mimir-Academic-research](https://github.com/1692775560/dsh-Mimir-Academic-research)（MIT）。
