@@ -1,6 +1,10 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { dirname, resolve } from 'node:path'
+
+const libraryStorePath = fileURLToPath(new URL('./electron/library/store.ts', import.meta.url))
+const stubStorePath = fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url))
 
 /**
  * Vitest 配置（主进程侧）。
@@ -17,7 +21,15 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   // 与 electron.vite.config.ts 用同一个 React 插件：渲染层用例需要它做 JSX 转换
   // （缺了会报 `React is not defined`，因为 tsconfig 用的是 react-jsx 运行时）。
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'isolated-library-store',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (importer === undefined || !source.startsWith('.')) return null
+      const resolved = resolve(dirname(importer.split('?')[0]), source)
+      return resolved === libraryStorePath || `${resolved}.ts` === libraryStorePath ? stubStorePath : null
+    }
+  }],
   test: {
     environment: 'node',
     // 渲染层用例（test/unit/*.test.tsx）走文件头 `@vitest-environment jsdom` 覆盖环境，
@@ -50,7 +62,7 @@ export default defineConfig({
       // （`test/unit/x.test.ts` 写 `../../electron/library/store`），漏掉就会命中
       // **真实 store**（写 ~/.mimir 与磁盘），与测试里 seed 的内存桩各写各的，
       // 表现为「setStoreValue 之后立刻 getStoreValue 得到 undefined」。
-      { find: /^\.\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
+      // ./store 不作字符串 alias：上面的解析插件仅替换 library 的真实目标。
       { find: /^\.\.\/library\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
       { find: /^\.\.\/\.\.\/library\/store$/, replacement: fileURLToPath(new URL('./test/stubs/store.ts', import.meta.url)) },
       // 测试自身从 test/unit 视角导入 electron 侧 store 的写法

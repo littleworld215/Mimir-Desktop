@@ -19,6 +19,7 @@ import { countTokensCached } from './agent/tokenizer'
 import { isSafeExternalUrl } from './safeUrl'
 import { stopBridge } from './plugins/bridge'
 import log, { initLogger } from './logger'
+import { assetsStoreManager } from './assets/store'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -282,6 +283,39 @@ let quitting = false
 const SHUTDOWN_TIMEOUT_MS = 3_000
 
 /**
+ * 资产库写入排空的**独立**等待上限。
+ *
+ * 为什么单独计时：`beforeSpaceSwitch()` 要等在途资产写入落定，它与「停任务 / 关桥接」这类
+ * 通用清理不是一类工作。此前它被塞进 `Promise.race(shutdown(), 3s)`，排空未完成就被
+ * `app.quit()` 截断，可能带着在途写事务退出。这里给它自己的预算，并**先排空、再通用清理**。
+ * 超时只告警：此时新写入已被切换态拒绝，不会再有新的提交进入。
+ */
+const ASSETS_DRAIN_TIMEOUT_MS = 30_000
+
+/** 退出前排空资产库写入（独立预算；失败/超时只告警，不阻塞退出）。 */
+async function drainAssetsBeforeQuit(): Promise<void> {
+  let timedOut = false
+  try {
+    await Promise.race([
+      assetsStoreManager.beforeSpaceSwitch(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          timedOut = true
+          resolve()
+        }, ASSETS_DRAIN_TIMEOUT_MS).unref?.()
+      })
+    ])
+  } catch (error) {
+    log.warn('[shutdown] 排空资产库写入失败：', error)
+    return
+  }
+  // 超时是「可能带着在途事务退出」的场景，必须留痕；新写入此时已被切换态拒绝。
+  if (timedOut) {
+    log.warn(`[shutdown] 资产排空超时（${ASSETS_DRAIN_TIMEOUT_MS}ms），继续退出`)
+  }
+}
+
+/**
  * 退出前的显式资源回收（复用各模块**已有**的关闭接口，不新造生命周期）：
  *
  * - `stopAllAgentTasks()`：中止所有在途 Agent 会话（各自持有 AbortController，
@@ -296,6 +330,8 @@ const SHUTDOWN_TIMEOUT_MS = 3_000
  * 对外暴露 dispose，且都不会拖住退出，故未做额外处理。
  */
 async function shutdown(): Promise<void> {
+  // 资产库排空已由 before-quit 以**独立预算**先行完成（见 drainAssetsBeforeQuit），
+  // 这里只做通用清理，共享 SHUTDOWN_TIMEOUT_MS 预算，避免被排空耗时挤掉。
   try {
     stopAllAgentTasks()
   } catch (error) {
@@ -328,12 +364,17 @@ app.on('before-quit', (event) => {
   quitting = true
   // 先拦住退出，做完异步清理再真正 quit（Electron 不等待 before-quit 里的异步工作）。
   event.preventDefault()
-  void Promise.race([
-    shutdown(),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref?.()
-    })
-  ]).finally(() => {
+  void (async () => {
+    // ① 先排空资产写入：独立预算，不被通用超时截断——保证在途事务落定后才继续退出。
+    await drainAssetsBeforeQuit()
+    // ② 再做通用清理：共享 3 秒预算，某个清理卡住时也要保证进程能退出。
+    await Promise.race([
+      shutdown(),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref?.()
+      })
+    ])
+  })().finally(() => {
     app.quit()
   })
 })

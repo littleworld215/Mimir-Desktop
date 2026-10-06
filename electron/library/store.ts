@@ -479,13 +479,39 @@ function migrateLegacyTo(space: WorkspaceRecord): void {
   }
 }
 
-/** 激活某空间：切换空间层缓存并持久化激活指针。 */
+/**
+ * 激活某空间：持久化激活指针 + 装载该空间数据。
+ *
+ * **原子性要求**：必须「先落盘、成功后才改内存」。此前顺序相反
+ * （`loadSpaceCache` 先改缓存与代际，再 `setActiveWorkspaceId` 写盘），
+ * 写盘失败会留下「内存已切、磁盘未切」的分歧状态——重启后回落磁盘口径，
+ * 用户会看到空间凭空变回旧值。因此写盘失败必须把内存全部还原后再抛错。
+ */
 export function switchWorkspace(id: string): WorkspaceRecord {
   const list = listWorkspaces()
   const target = list.find((w) => w.id === id)
   if (target === undefined) throw new Error(`space-not-found: ${id}`)
+
+  const previousActive = globalStore[ACTIVE_KEY]
+  const previousSpaceStore = spaceStore
+  const previousSpaceWritable = spaceWritable
+  const previousEpoch = spaceEpoch
+
+  globalStore[ACTIVE_KEY] = target.id
+  try {
+    saveGlobal()
+  } catch (error) {
+    // 写盘失败：还原指针、缓存与代际，保持「内存与磁盘一致（均为旧空间）」后再向上抛。
+    if (previousActive === undefined) delete globalStore[ACTIVE_KEY]
+    else globalStore[ACTIVE_KEY] = previousActive
+    spaceStore = previousSpaceStore
+    spaceWritable = previousSpaceWritable
+    spaceEpoch = previousEpoch
+    throw error
+  }
+
+  // 指针已成功落盘，再装载目标空间数据（损坏时内部置只读并记录 issue，不抛）。
   loadSpaceCache(target.path)
-  setActiveWorkspaceId(target.id)
   return { ...target }
 }
 
