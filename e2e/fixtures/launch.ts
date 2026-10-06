@@ -33,6 +33,8 @@ export const repoRoot = join(__dirname, '..', '..')
 export const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 
 export interface LaunchOptions {
+  /** Explicit packaged executable; no development main entry is passed. */
+  executablePath?: string
   /** 预置数据；不传则用 defaultSeed()（1 个科研空间 + 空设置，可绕过首启动向导） */
   seed?: SeedData
   /**
@@ -66,7 +68,7 @@ export interface LaunchedApp {
 }
 
 export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
-  if (!existsSync(mainEntry)) {
+  if (!existsSync(options.executablePath ?? mainEntry)) {
     throw new Error(
       `未找到构建产物：${mainEntry}\n` +
         `E2E 测试的是 electron-vite build 的产物，请先运行 \`pnpm build\`（或直接用 \`pnpm test:e2e\`，它隐含构建）。`
@@ -96,7 +98,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
 
   let app: ElectronApplication
   try { app = await electron.launch({
-    args: [mainEntry, `--user-data-dir=${tempHome.userData}`],
+    executablePath: options.executablePath,
+    args: [...(options.executablePath ? [] : [mainEntry]), `--user-data-dir=${tempHome.userData}`],
     cwd: repoRoot,
     env,
     timeout: options.timeout ?? 60_000

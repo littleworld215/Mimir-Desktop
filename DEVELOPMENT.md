@@ -634,6 +634,11 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 
 ## 科研资产整合进度（2026-10-07，个人分支）
 
+- 最新：I0/I1 Windows x64 Codex阶段验收通过。三闸门exit0，全量812通过/9既有跳过；开发/打包Electron4/4，真实第二实例、同空间重启及包内污染检查通过。完整矩阵在来源docs/verification-integration-package-20261007.md；以下前批记录保留为历史。下一步I2，非资产打包全流程/其他平台安装器/用户真实使用未验收。
+- 打包前执行 `pnpm assets:native` 准备本机精确Electron缓存。builder不重写Node测试绑定，afterPack只替换产物绑定；缓存缺失、版本/平台/架构不匹配就失败。跨平台/交叉架构需自行准备对应缓存，universal尚不支持。其他原生依赖保留准备好的二进制。
+- 构建后目录打包：`pnpm exec electron-builder --win --x64 --dir --publish never`。本机隔离验证另用已安装electronDist并禁用签名；产物运行检查 `node scripts/checkAssetsPackage.mjs dist/win-unpacked/resources`。审计也核对out与当前构建一致。
+- 显式打包E2E（PowerShell）：`$env:MIMIR_E2E_PACKAGED=(Resolve-Path 'dist/win-unpacked/Mimir.exe').Path`，再 `pnpm exec playwright test e2e/specs/17-packaged-assets.spec.ts --retries=0`。用临时HOME/userData，不导入个人空间或模型；普通E2E不要求打包。
+
 - 当前任务来源为来源仓库 `docs/MIGRATION-Mimir-Desktop.md` 和 `docs/INTEGRATION-PLAN-I0-I1.md`；Codex 全面负责实现与交付。
 - 文件导入由 `AssetsStoreManager.run` 跟踪，使用异步 descriptor 复制、SHA-256 暂存校验与同卷排他 hardlink 落盘；需文件系统支持硬链接，无法落盘时失败而不降级为覆盖。事务失败清理本操作文件；数据库提交后的响应故障保留已引用文件。
 - 原生保存路径授权绑定空间 id/epoch，精确到单文件且领取后消费；取消、空间变化或目标已存在不会让旧授权复活，也不授予通用文件读取能力。

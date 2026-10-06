@@ -64,8 +64,7 @@ mimir-desktop/
 taskflow/
 TaskFlowDocs/
 
-# Local
-pnpm-workspace.yaml
+# pnpm-workspace.yaml defines this standalone repository (also when nested).
 
 # 本机测试临时目录（仅忽略产物；不是运行或验证前提）
 mimirvitesttmp/

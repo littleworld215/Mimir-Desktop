@@ -9,7 +9,18 @@ directories:
   buildResources: build
   output: dist
 
+# Dual ABI cache: packaging must not rewrite the Node binding used by tests.
+# Other native dependencies retain their prepared binaries; afterPack installs
+# the exact Electron asset binding into the artifact, before signing.
+npmRebuild: false
+afterPack: scripts/packageAssetsNative.cjs
+
 files:
+  # Explicit application files; production node_modules/package.json are added
+  # by electron-builder. Never collect arbitrary local snapshots or databases.
+  - 'out/**'
+  - 'LICENSE'
+  - '!out/**/*.tsbuildinfo'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron/*'
@@ -22,6 +33,20 @@ files:
   - '!components.json'
   - '!tailwind.config.js'
   - '!postcss.config.js'
+  - '!pnpm-workspace.yaml'
+  - '!.native/**'
+  - '!test/**'
+  - '!e2e/**'
+  - '!scripts/**'
+  - '!test-results/**'
+  - '!playwright-report/**'
+  - '!playwright.config.*'
+  - '!vitest.config.*'
+  - '!mimirvitesttmp/**'
+  - '!mimir-desktop/**'
+  - '!.userdata/**'
+  - '!%SystemDrive%/**'
+  - '!data/**'
 
 publish:
   provider: github

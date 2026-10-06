@@ -9,6 +9,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e/specs',
+  // Explicit packaged validation requires a separately built executable.
+  testIgnore: process.env.MIMIR_E2E_PACKAGED ? [] : ['**/17-packaged-assets.spec.ts'],
   // 启动 Electron 要装载 LangChain 全家桶，冷启慢；给足超时。
   timeout: 90_000,
   expect: { timeout: 15_000 },
