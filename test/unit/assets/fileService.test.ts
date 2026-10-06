@@ -183,3 +183,44 @@ it('非文件资产 fileAvailable 恒为 false', () => {
   const t = createAsset(ctx, { name: 'T', category: 'inbox', storageType: 'inline_text', content: 'x' })
   expect(getAsset(ctx, t.id).fileAvailable).toBe(false)
 })
+
+it('saveFile 拒绝覆盖既有目标（原子独占创建），原文件字节不变（R1）', () => {
+  const f = fileAsset()
+  importFile(ctx, f.id, { expectedRevision: f.revision }, srcFile('s1', 'v1-content'))
+  importFile(ctx, f.id, { expectedRevision: 2 }, srcFile('s2', 'v2-content'))
+  const dest = join(root, 'out.bin')
+  expect(saveFile(ctx, f.id, undefined, dest)).toEqual({ saved: true })
+  expect(readFileSync(dest, 'utf8')).toBe('v2-content')
+  // 再次保存到同一目标：应当拒绝覆盖，且原内容保持不变（不先 exists 再写，无 TOCTOU）。
+  expect(() => saveFile(ctx, f.id, undefined, dest)).toThrow(expect.objectContaining({ code: 'FILE_EXISTS' }))
+  expect(readFileSync(dest, 'utf8')).toBe('v2-content')
+})
+
+it('saveFile 文本版本也拒绝覆盖既有目标（R1）', () => {
+  const t = createAsset(ctx, { name: 'T', category: 'inbox', storageType: 'inline_text', content: 'body' })
+  const dest = join(root, 'out.txt')
+  expect(saveFile(ctx, t.id, undefined, dest)).toEqual({ saved: true })
+  expect(() => saveFile(ctx, t.id, undefined, dest)).toThrow(expect.objectContaining({ code: 'FILE_EXISTS' }))
+})
+
+it('rollbackVersion 文件：旧 blob 缺失时拒绝回滚，且不产生任何版本 / revision / 指针变化（R3）', () => {
+  const f = fileAsset()
+  const a = importFile(ctx, f.id, { expectedRevision: f.revision }, srcFile('s1', 'v1-blob'))
+  const c = importFile(ctx, f.id, { expectedRevision: a.revision }, srcFile('s2', 'v2-blob'))
+  // 删除 v1 的 blob（文件版本），使其不可复用。
+  const rel = listVersions(ctx, f.id).items.find((v) => v.version === 1)
+  expect(rel?.filePath).not.toBeNull()
+  const abs = resolveWithinFiles(assetsLayout(root), rel!.filePath as string)
+  expect(existsSync(abs)).toBe(true)
+  unlinkSync(abs)
+  // 回滚到 v1 应当因 blob 缺失被拒。
+  expect(() =>
+    rollbackVersion(ctx, f.id, { expectedRevision: c.revision }, a.currentVersionId as number)
+  ).toThrow(expect.objectContaining({ code: 'FILE_UNAVAILABLE' }))
+  // 零变化：版本数、当前版本指针、revision 全部不变；v1 的 blob 未被重建。
+  const after = getAsset(ctx, f.id)
+  expect(after.versionCount).toBe(2)
+  expect(after.currentVersionId).toBe(c.currentVersionId)
+  expect(after.revision).toBe(c.revision)
+  expect(existsSync(abs)).toBe(false)
+})

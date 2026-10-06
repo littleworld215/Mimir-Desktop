@@ -35,7 +35,7 @@ vi.mock('../../electron/logger', () => ({
   default: { error: hoisted.logError, warn: vi.fn(), info: vi.fn(), scope: vi.fn() }
 }))
 
-import { registerAssetsHandlers } from '../../electron/ipc/assets'
+import { registerAssetsHandlers, parseWriteCondition } from '../../electron/ipc/assets'
 import { AssetsStoreError } from '../../electron/assets/types'
 import { ASSETS_CHANNELS } from '../../shared/assetsContracts'
 
@@ -97,6 +97,34 @@ describe('assets:context', () => {
       code: 'NO_ACTIVE_WORKSPACE',
       message: '当前没有激活的科研空间。'
     })
+  })
+})
+
+describe('parseWriteCondition —— R6 三态（absent / 显式 null / 正整数）', () => {
+  it('缺省 expectedCurrentVersionId → 不传该字段', () => {
+    expect(parseWriteCondition({ expectedRevision: 1 })).toEqual({ expectedRevision: 1 })
+  })
+  it('显式 null → 保留为「当前应当无版本」，不静默丢弃（与 WriteCondition 契约一致）', () => {
+    expect(parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: null })).toEqual({
+      expectedRevision: 1,
+      expectedCurrentVersionId: null
+    })
+  })
+  it('正整数 → 透传该 id', () => {
+    expect(parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: 5 })).toEqual({
+      expectedRevision: 1,
+      expectedCurrentVersionId: 5
+    })
+  })
+  it('key 存在但值为 undefined → 视为缺省（不传该字段）', () => {
+    expect(parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: undefined })).toEqual({ expectedRevision: 1 })
+  })
+  it('非法类型（字符串 / 负数）→ BAD_REQUEST', () => {
+    expect(() => parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: 'x' })).toThrow()
+    expect(() => parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: -1 })).toThrow()
+  })
+  it('缺少 expectedRevision → BAD_REQUEST', () => {
+    expect(() => parseWriteCondition({ expectedCurrentVersionId: 1 })).toThrow()
   })
 })
 

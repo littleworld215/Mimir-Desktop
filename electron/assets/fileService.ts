@@ -17,7 +17,18 @@
  */
 
 import { basename, dirname, resolve } from 'node:path'
-import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import type {
   AssetDetail,
   AssetVersion,
@@ -30,7 +41,7 @@ import { ASSET_FILE_MAX_BYTES } from '../../shared/assetsContracts'
 import { AssetsStoreError, type AssetsContext, type AssetsWriteSession } from './types'
 import { assertFileBytes } from './validation'
 import { selectAsset, detail, appendVersion, type AssetRow } from './assetRepository'
-import { newBlobId, versionBlobRelPath, resolveWithinFiles } from './paths'
+import { newBlobId, versionBlobRelPath, resolveWithinFiles, type AssetsLayout } from './paths'
 import {
   selectVersion,
   countVersions,
@@ -143,7 +154,15 @@ export function importFile(
 }
 
 // ── saveFile ─────────────────────────────────────────────────────────────
-/** 把某版本（文件 blob 或正文）落盘到目标路径。versionId 缺省取当前版本。 */
+/**
+ * 把某版本（文件 blob 或正文）落盘到目标路径。versionId 缺省取当前版本。
+ *
+ * 纪律（R1）：
+ * - 事务内**只**校验 + 取源（文件 blob 绝对路径 / 正文），**不**在事务内写盘，
+ *   避免「DB 回滚但目标文件已落盘」的孤儿（目标在用户空间，不应因资产事务失败被留下）。
+ * - 写盘在事务提交后做，并以**原子独占创建**（`wx` / `COPYFILE_EXCL`）拒绝覆盖既有目标：
+ *   不先 exists 再写（消除 TOCTOU 竞态），目标已存在直接抛 `FILE_EXISTS`，原文件字节不变。
+ */
 export function saveFile(
   ctx: AssetsContext,
   assetId: number,
@@ -156,24 +175,37 @@ export function saveFile(
   }
   const dest = resolve(destinationPath)
 
-  return ctx.write(s => {
+  const source = ctx.write(s => {
     const row = selectAsset(s, id)
     if (row === undefined) throw new AssetsStoreError('NOT_FOUND', '资产不存在。')
     const vid = versionId == null ? row.current_version_id : positive(versionId, 'versionId')
     if (vid === null) throw new AssetsStoreError('NOT_FOUND', '该资产尚无版本。')
     const v = selectVersion(s, id, vid)
     if (v === undefined) throw new AssetsStoreError('NOT_FOUND', '版本不存在。')
-
-    mkdirSync(dirname(dest), { recursive: true })
     if (v.file_path !== null) {
       const abs = resolveWithinFiles(ctx.layout, v.file_path)
       if (!existsSync(abs)) throw new AssetsStoreError('FILE_UNAVAILABLE', '版本文件已不存在。')
-      copyFileSync(abs, dest)
-    } else {
-      writeFileSync(dest, v.content)
+      return { kind: 'file' as const, abs }
     }
-    return { saved: true }
+    return { kind: 'text' as const, content: v.content }
   })
+
+  mkdirSync(dirname(dest), { recursive: true })
+  try {
+    if (source.kind === 'file') {
+      copyFileSync(source.abs, dest, constants.COPYFILE_EXCL)
+    } else {
+      writeFileSync(dest, source.content, { flag: 'wx' })
+    }
+  } catch (error) {
+    if (error instanceof AssetsStoreError) throw error
+    const errno = (error as NodeJS.ErrnoException | undefined)?.code
+    if (errno === 'EEXIST') {
+      throw new AssetsStoreError('FILE_EXISTS', '目标文件已存在，拒绝覆盖；请选择其它路径或先删除目标文件。')
+    }
+    throw error
+  }
+  return { saved: true }
 }
 
 // ── listVersions ──────────────────────────────────────────────────────────
@@ -266,6 +298,35 @@ function diffLines(a: string[], b: string[]): VersionDiffLine[] {
 }
 
 // ── rollbackVersion ───────────────────────────────────────────────────────
+/**
+ * 校验某版本关联的 blob 仍是「托管目录内、普通文件、可读」。供 rollbackVersion 文件分支在
+ * 复用不可变 blob 之前调用（R3）：校验失败抛错，事务回滚，不产生任何版本 / revision / 指针变化，
+ * 旧版本行与旧 blob 哈希均保持原样。
+ */
+function assertReadableBlob(layout: AssetsLayout, relPath: string | null): void {
+  if (relPath === null) throw new AssetsStoreError('FILE_UNAVAILABLE', '该版本没有关联的文件。')
+  let abs: string
+  try {
+    abs = resolveWithinFiles(layout, relPath)
+  } catch {
+    throw new AssetsStoreError('PATH_REJECTED', '版本文件不在托管目录内。')
+  }
+  let lst: ReturnType<typeof lstatSync>
+  try {
+    lst = lstatSync(abs)
+  } catch {
+    throw new AssetsStoreError('FILE_UNAVAILABLE', '版本文件已不存在。')
+  }
+  if (lst.isSymbolicLink()) throw new AssetsStoreError('PATH_REJECTED', '版本文件是符号链接，拒绝复用。')
+  if (!lst.isFile()) throw new AssetsStoreError('FILE_UNAVAILABLE', '版本文件不是普通文件。')
+  try {
+    const fd = openSync(abs, 'r')
+    closeSync(fd)
+  } catch {
+    throw new AssetsStoreError('FILE_UNAVAILABLE', '版本文件不可读。')
+  }
+}
+
 /** 以旧版本为蓝本生成新版本：正文型直接复用内容，文件型复用不可变 blob。 */
 export function rollbackVersion(
   ctx: AssetsContext,
@@ -292,6 +353,10 @@ export function rollbackVersion(
     if (target === undefined) throw new AssetsStoreError('NOT_FOUND', '目标版本不存在。')
 
     if (target.file_path !== null) {
+      // R3：复用不可变 blob 前，先校验该 blob 仍是「托管目录内、普通文件、可读」。
+      // 校验失败（缺失 / 符号链接 / 不可读 / 越界）直接抛错 → 事务回滚，版本号 / revision /
+      // 指针 / 时间戳全部不变，旧版本行与旧 blob 哈希均保持原样。
+      assertReadableBlob(ctx.layout, target.file_path)
       // 复用不可变 blob：新建一条版本记录指向同一 blob，version 号递增。
       const next = (s.get<{ n: number }>('SELECT coalesce(max(version),0) n FROM asset_version WHERE asset_id=?', id)?.n ?? 0) + 1
       s.run(

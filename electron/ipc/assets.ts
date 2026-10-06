@@ -20,7 +20,7 @@ import {
 import type { AssetPage, AssetsErrorCode, WorkspaceRequest } from '../../shared/assetsContracts'
 import { assetsStoreManager } from '../assets/store'
 import { AssetsStoreError } from '../assets/types'
-import { assertPositiveId } from '../assets/validation'
+import { assertPositiveId, AssetsValidationError } from '../assets/validation'
 import {
   importFile,
   saveFile,
@@ -48,6 +48,10 @@ function failure(error: unknown): Failure {
       message: error.message,
       ...(error.details === undefined ? {} : { details: error.details })
     }
+  }
+  // 校验层错误（assertPositiveId / readPositiveInt 等）属 BAD_REQUEST，不应降级为 WRITE_FAILED。
+  if (error instanceof AssetsValidationError) {
+    return { ok: false, code: 'BAD_REQUEST', message: error.message }
   }
   log.error('[assets] 未预期的错误：', error)
   return {
@@ -114,13 +118,27 @@ function assertSafePath(input: unknown, mode: 'read' | 'write'): string {
   }
 }
 
-/** 从请求中解析条件写对象（expectedRevision 必填，expectedCurrentVersionId 可选）。 */
-function parseWriteCondition(request: Record<string, unknown>): Record<string, unknown> {
+/**
+ * 从请求中解析条件写对象（expectedRevision 必填，expectedCurrentVersionId 三态）。
+ *
+ * 三态必须与 `fileService.parseCondition` 对齐（R6）：
+ * - 缺省（key 不存在）→ 不传 `expectedCurrentVersionId`，service 视为「不校验当前版本指针」；
+ * - 显式 `null` → 传 `expectedCurrentVersionId: null`，语义为「当前应当没有任何版本」
+ *   （首次导入 / 空资产回滚等场景），**绝不**静默丢弃——否则与 asset core 的 WriteCondition 契约失真；
+ * - 正整数 → 传该 id。
+ * 非法类型（字符串 / 数组 / 负数等）由 assertPositiveId 抛 BAD_REQUEST。
+ */
+export function parseWriteCondition(request: Record<string, unknown>): Record<string, unknown> {
   if (!('expectedRevision' in request)) throw new AssetsStoreError('BAD_REQUEST', '缺少 expectedRevision。')
   const expectedRevision = assertPositiveId(request.expectedRevision, 'expectedRevision')
   const condition: Record<string, unknown> = { expectedRevision }
-  if (request.expectedCurrentVersionId !== undefined && request.expectedCurrentVersionId !== null) {
-    condition.expectedCurrentVersionId = assertPositiveId(request.expectedCurrentVersionId, 'expectedCurrentVersionId')
+  if ('expectedCurrentVersionId' in request) {
+    const raw = request.expectedCurrentVersionId
+    if (raw === null) {
+      condition.expectedCurrentVersionId = null
+    } else if (raw !== undefined) {
+      condition.expectedCurrentVersionId = assertPositiveId(raw, 'expectedCurrentVersionId')
+    }
   }
   return condition
 }
