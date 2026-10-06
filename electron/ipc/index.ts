@@ -49,6 +49,7 @@ import { registerFiguresHandlers } from './figures'
 import { registerWorkspacesHandlers } from './workspaces'
 import { registerVenuesHandlers } from './venues'
 import { registerPaperHandlers } from './paper'
+import { registerAssetsHandlers } from './assets'
 
 // Maximum PDF download size (64 MB)
 const ARXIV_PDF_DOWNLOAD_TIMEOUT_MS = 60_000
@@ -831,6 +832,8 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   registerWorkspacesHandlers({ assertRendererPath })
   registerVenuesHandlers()
   registerPaperHandlers({ assertRendererPath })
+  // 资产库域（`assets:*`）：I0-05 只注册 context / list 两条最小通路。
+  registerAssetsHandlers()
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   BookOpen,
   BarChart3,
   Image,
+  Boxes,
   Presentation,
   Server,
   Clock,
@@ -27,6 +28,7 @@ export type ModuleId =
   | 'library'
   | 'experiments'
   | 'figures'
+  | 'assets'
   | 'meetings'
   | 'venues'
   | 'servers'
@@ -58,7 +60,8 @@ const navGroups: NavGroup[] = [
       { id: 'library', label: '文献库', icon: BookOpen },
       { id: 'paper', label: '论文', icon: FileText },
       { id: 'experiments', label: '实验', icon: BarChart3 },
-      { id: 'figures', label: '图表', icon: Image }
+      { id: 'figures', label: '图表', icon: Image },
+      { id: 'assets', label: '资产库', icon: Boxes }
     ]
   },
   {

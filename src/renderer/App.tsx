@@ -22,6 +22,7 @@ import { Paper } from '@/components/modules/Paper'
 import { Library } from '@/components/modules/library/Library'
 import { Experiments } from '@/components/modules/Experiments'
 import { Figures } from '@/components/modules/Figures'
+import { Assets } from '@/components/modules/assets/Assets'
 import { Meetings } from '@/components/modules/meetings/Meetings'
 import { Venues } from '@/components/modules/Venues'
 import { Servers } from '@/components/modules/Servers'
@@ -379,6 +380,8 @@ export default function App() {
         return <Experiments />
       case 'figures':
         return <Figures />
+      case 'assets':
+        return <Assets />
       case 'meetings':
         return <Meetings />
       case 'venues':

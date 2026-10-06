@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ServerDraft, ServerPatch, ServerRecord } from './servers/types'
 import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
+import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
 
 /**
  * 渲染进程日志桥：把渲染层日志送到主进程统一写文件（与主进程日志同一时间轴）。
@@ -102,10 +103,19 @@ export interface FigureRecord {
   readonly createdAt: string
 }
 
+/**
+ * I0-05 已接线的资产库方法子集；完整契约见 `shared/assetsContracts.ts` 的 `AssetsApi`，
+ * 其余方法在 I1-08 逐条补齐（两个桥声明共享同一契约，不重复手写字段）。
+ */
+export type AssetsApiSubset = Pick<AssetsApi, 'context' | 'list'>
+
 export interface ElectronAPI {
   // App info
   getAppVersion: () => Promise<string>
   getPlatform: () => string
+
+  /** 资产库（`assets:*`）：当前仅 context / list 两条最小通路。 */
+  assets: AssetsApiSubset
 
   // Agent
   sendMessage: (message: string, conversationId: string) => Promise<string>
@@ -439,6 +449,12 @@ let streamCallSeq = 0
 const electronAPI: ElectronAPI = {
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatform: () => process.platform,
+
+  // 资产库（`assets:*`）：逐方法固定通道 invoke，**不**暴露任意通道调用。
+  assets: {
+    context: () => ipcRenderer.invoke(ASSETS_CHANNELS.context),
+    list: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.list, request)
+  },
 
   sendMessage: (message, conversationId) =>
     ipcRenderer.invoke('agent:sendMessage', message, conversationId),

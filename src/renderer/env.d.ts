@@ -1,10 +1,16 @@
 /// <reference types="vite/client" />
 
 import type { AgentStreamEvent } from '../../electron/agent/streamProtocol'
+import type { AssetsApi } from '../../shared/assetsContracts'
 
 interface ElectronAPI {
   getAppVersion: () => Promise<string>
   getPlatform: () => string
+  /**
+   * 资产库（`assets:*`）。I0-05 只接线最小通路（context / list）；
+   * 其余方法在 I1-08 按 `shared/assetsContracts.ts` 的 `AssetsApi` 补齐。
+   */
+  assets: Pick<AssetsApi, 'context' | 'list'>
   sendMessage: (message: string, conversationId: string) => Promise<string>
   /**
    * 发送消息并接收**结构化流式事件**（协议见 `electron/agent/streamProtocol.ts`）。
