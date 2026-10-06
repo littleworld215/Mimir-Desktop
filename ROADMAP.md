@@ -78,3 +78,7 @@ Mimir-Desktop 已实现的核心能力（见 [README.md](./README.md)）：
 - 想修 Bug 或加功能：见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 - 想了解架构与设计决策：见 [DEVELOPMENT.md](./DEVELOPMENT.md)。
 - 有想法：欢迎开 Issue 讨论——**大方向调整请先讨论再动手**。
+
+### 科研资产整合 I3 进度（2026-10-07）
+
+I3-01可移植JSON/Markdown导出服务已通过类型、全量测试和构建（881通过、9既有跳过），尚无UI入口。I3-02只读导入差异预览/条件提交、I3-03批量整理/文件夹队列/UI及原生打包闭环仍待；详细任务在来源docs/INTEGRATION-PLAN-I3.md，不将服务主题标为整阶段完成。

@@ -1,9 +1,9 @@
 import type { AssetPage, AssetSummary } from '../../shared/assetsContracts'
-import type { AssetsContext } from './types'
+import type { AssetsContext, AssetsWriteSession } from './types'
 import { AssetsStoreError } from './types'
 import { summary, type AssetRow } from './assetRepository'
 import { selectCategory, selectDescendantCodes } from './categoryRepository'
-import { literalLike, literalPhrase, readSearchQuery } from './searchQuery'
+import { literalLike, literalPhrase, readSearchQuery, type SearchQuery } from './searchQuery'
 
 const body = '(SELECT coalesce(v.content,\'\') FROM asset_version v WHERE v.id=a.current_version_id AND v.asset_id=a.id)'
 const tags = '(SELECT 1 FROM asset_tag at JOIN tag t ON t.id=at.tag_id WHERE at.asset_id=a.id AND t.name LIKE ? ESCAPE \'\\\')'
@@ -45,7 +45,11 @@ export function searchExcerpt(text: string, q: string): NonNullable<AssetSummary
 
 export function searchAssets(ctx: AssetsContext, payload: unknown = {}): AssetPage {
   const query = readSearchQuery(payload)
-  return ctx.write(s => {
+  return ctx.write(s => searchAssetsInSession(s, query))
+}
+
+/** Export owns one session; nested ctx.write would invalidate its outer guarded session. */
+export function searchAssetsInSession(s: AssetsWriteSession, query: SearchQuery): AssetPage {
     const where: string[] = []
     const params: unknown[] = []
     const add = (sql: string, ...values: unknown[]) => { where.push(sql); params.push(...values) }
@@ -109,5 +113,4 @@ export function searchAssets(ctx: AssetsContext, payload: unknown = {}): AssetPa
       return item
     })
     return { items, total, page: query.page, pageSize: query.pageSize }
-  })
 }

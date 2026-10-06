@@ -666,3 +666,10 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 ## License
 
 GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标注不准确）。功能与理念承自 [dsh-Mimir-Academic-research](https://github.com/1692775560/dsh-Mimir-Academic-research)（MIT）。
+
+## 科研资产整合 I3-01（2026-10-07）
+
+- `electron/assets/exchangeExport.ts`提供JSON/Markdown纯服务，`shared/assetsContracts.ts`定义可移植DTO；通过`searchAssetsInSession`复用一个受守卫快照，不能嵌套ctx.write。
+- 全筛选或最多500所选ID，空选择导出零条，缺失/筛选外ID拒绝；普通列表ID上限仍200。保留分类路径、标签、参见code、模板配置、来源与原文空白；文件只元信息，无数据库ID/托管路径。
+- original-only严格布尔true，最新非AI版本没有则回退当前；JSON/Markdown最终UTF8上限200MiB，超限拒绝，不截断。
+- 定向29/29，全量881通过/9既有跳过，typecheck/test/build exit0；来源证据docs/verification-integration-i3-export-20261007.md。I3-01没有IPC、落盘授权或UI，下一主题JSON预览/条件导入；I3整体尚未验收。

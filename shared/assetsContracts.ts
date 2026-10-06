@@ -113,6 +113,42 @@ export interface AssetCreateInput {
 
 export type AssetPatch = Partial<Omit<AssetCreateInput, 'code' | 'storageType'>>
 
+/** Portable exchange carries no SQLite identities, managed paths or binary bytes. */
+export interface ExchangeAsset {
+  code: string
+  name: string
+  category: string
+  categoryPath: string[]
+  description: string
+  storageType: StorageType
+  externalUrl: string | null
+  sourceJson: string
+  sourceTask: string
+  notes: string
+  kind: AssetKind | null
+  templateConfig: TemplateConfig
+  tags: Array<{ name: string; color: string | null }>
+  references: string[]
+  content: string | null
+  contentVersion: number | null
+  currentFileName: string | null
+  isFavorite: 0 | 1
+  lastUsedAt: string | null
+  archivedAt: string | null
+  aiGenerated?: true
+}
+export interface ExchangeDocument { exportedAt: string; count: number; assets: ExchangeAsset[] }
+export type AssetExportQuery = Omit<AssetListQuery, 'page' | 'pageSize' | 'ids'>
+export interface AssetExportRequest {
+  format?: 'json' | 'markdown'
+  query?: AssetExportQuery
+  ids?: number[]
+  ai?: 'include' | 'original-only'
+}
+export interface AssetExportResult { format: 'json' | 'markdown'; count: number; fileName: string; content: string }
+/** Mirrors the source application's transfer-file limit; never silently truncates. */
+export const ASSET_TRANSFER_MAX_BYTES = 200 * 1024 * 1024
+
 export interface AssetListQuery {
   q?: string
   searchIn?: 'all' | 'title' | 'body' | 'source' | 'organization'
