@@ -21,20 +21,29 @@ import {
   Puzzle
 } from 'lucide-react'
 
-export type ModuleId =
-  | 'chat'
-  | 'overview'
-  | 'paper'
-  | 'library'
-  | 'experiments'
-  | 'figures'
-  | 'assets'
-  | 'meetings'
-  | 'venues'
-  | 'servers'
-  | 'ledger'
-  | 'plugins'
-  | 'settings'
+/**
+ * 全部模块 id —— **运行时单一来源**（`ModuleId` 由它派生）。
+ *
+ * 为什么保留一份运行时可读清单：类型在运行时会被擦除，无法在测试里断言
+ * 「ModuleId ↔ 导航列表」不漂移；有了它就能用一条一致性测试兜住漏改。
+ */
+export const MODULE_IDS = [
+  'chat',
+  'overview',
+  'paper',
+  'library',
+  'experiments',
+  'figures',
+  'assets',
+  'meetings',
+  'venues',
+  'servers',
+  'ledger',
+  'plugins',
+  'settings'
+] as const
+
+export type ModuleId = (typeof MODULE_IDS)[number]
 
 interface NavItem {
   id: ModuleId
@@ -47,7 +56,7 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const navGroups: NavGroup[] = [
+export const navGroups: NavGroup[] = [
   {
     items: [
       { id: 'chat', label: '对话', icon: MessageSquare },

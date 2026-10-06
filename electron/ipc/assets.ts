@@ -52,15 +52,31 @@ function assertWorkspaceRequest(input: unknown): WorkspaceRequest {
   return { workspaceId, spaceEpoch }
 }
 
-/** 校验分页参数（默认 1 / 50，上限 200）。 */
+/**
+ * 读取一个正整数分页参数。
+ *
+ * 刻意**不做** `Number(value)` 强转：那会把 `true` / `'2'` / `[]` 静默变成数字
+ * （与 `validation.ts` 的 `assertPositiveId` 属同一类隐式转换问题）。只接受 number 类型的
+ * safe integer，其余一律 BAD_REQUEST。
+ */
+function readPositiveInt(value: unknown, fallback: number, message: string): number {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new AssetsStoreError('BAD_REQUEST', message)
+  }
+  return value
+}
+
+/** 校验分页参数（默认 1 / 50，每页上限 200）。 */
 function readPaging(input: unknown): { page: number; pageSize: number } {
   const raw = (input ?? {}) as { page?: unknown; pageSize?: unknown }
-  const page = raw.page === undefined ? 1 : Number(raw.page)
-  const pageSize = raw.pageSize === undefined ? ASSETS_PAGE_DEFAULT : Number(raw.pageSize)
-  if (!Number.isInteger(page) || page < 1) {
-    throw new AssetsStoreError('BAD_REQUEST', '页码非法。')
-  }
-  if (!Number.isInteger(pageSize) || pageSize < ASSETS_PAGE_MIN || pageSize > ASSETS_PAGE_MAX) {
+  const page = readPositiveInt(raw.page, 1, '页码非法。')
+  const pageSize = readPositiveInt(
+    raw.pageSize,
+    ASSETS_PAGE_DEFAULT,
+    `每页条数需在 ${ASSETS_PAGE_MIN}–${ASSETS_PAGE_MAX} 之间。`
+  )
+  if (pageSize < ASSETS_PAGE_MIN || pageSize > ASSETS_PAGE_MAX) {
     throw new AssetsStoreError('BAD_REQUEST', `每页条数需在 ${ASSETS_PAGE_MIN}–${ASSETS_PAGE_MAX} 之间。`)
   }
   return { page, pageSize }
