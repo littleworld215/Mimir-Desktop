@@ -173,6 +173,14 @@ describe('assets:list —— 分页校验（不接受隐式类型转换）', () 
 })
 
 describe('assets:list —— 业务错误与未知异常', () => {
+  it('新增查询合同沿用同一通道，非法字段返回BAD_REQUEST', async () => {
+    hoisted.getForRequest.mockResolvedValue(fakeContext(0))
+    const request = { ...SCOPE, q: '科研', searchIn: 'all', sort: 'relevance', updatedAfter: '2024-02-29', ids: [], excludeTagIds: [1] }
+    expect(await handler(ASSETS_CHANNELS.list)({}, request)).toMatchObject({ ok: true, page: { total: 0 } })
+    for (const patch of [{ q: '\0' }, { searchIn: 'other' }, { sort: 'other' }, { updatedAfter: '2026-02-29' }, { ids: [0] }, { ids: new Array(1) }, { tagIds: new Array(1) }, { excludeTagIds: new Array(1) }, { excludeTagIds: null }, { unexpected: true }]) {
+      expect(await handler(ASSETS_CHANNELS.list)({}, { ...request, ...patch })).toMatchObject({ ok: false, code: 'BAD_REQUEST' })
+    }
+  })
   it('空间已切换 → SPACE_CHANGED', async () => {
     hoisted.getForRequest.mockRejectedValue(
       new AssetsStoreError('SPACE_CHANGED', '科研空间已切换，操作已中止，请重新获取空间上下文。')

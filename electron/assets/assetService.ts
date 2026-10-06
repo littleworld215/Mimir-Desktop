@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import type { AssetCreateInput, AssetPatch, AssetDetail, AssetPage, AssetListQuery, WriteCondition } from '../../shared/assetsContracts'
+import type { AssetCreateInput, AssetPatch, AssetDetail, WriteCondition } from '../../shared/assetsContracts'
 import { AssetsStoreError, type AssetsContext } from './types'
 import { assertAssetCode, assertAssetName, assertContentBytes, assertExternalUrl, assertStorageType, assertSourceObject, assertTemplateConfig, assertTagName, assertTagCount } from './validation'
-import { selectCategory, selectDescendantCodes } from './categoryRepository'
-import { appendVersion, assetTags, detail, selectAsset, summary, type AssetRow } from './assetRepository'
+import { selectCategory } from './categoryRepository'
+import { appendVersion, assetTags, detail, selectAsset, type AssetRow } from './assetRepository'
 import { replaceTags } from './tagRepository'
 import { normalizeTagName } from './tagNormalization'
 
@@ -124,36 +124,5 @@ export function getAsset(ctx: AssetsContext, id: number): AssetDetail {
   return ctx.write(s => { const row = selectAsset(s,id); if (row === undefined) throw new AssetsStoreError('NOT_FOUND','资产不存在。'); return detail(s,row,ctx.layout) })
 }
 
-/** 参数化真实分页；读取也通过scope/epoch守卫，列表不装载正文。 */
-export function listAssets(ctx: AssetsContext, payload: unknown = {}): AssetPage {
-  const q = object(payload)
-  if (Object.keys(q).some(k=>!['page','pageSize','category','kind','tagIds','tagMode','storageType','archived'].includes(k))) throw new AssetsStoreError('BAD_REQUEST','列表参数非法。')
-  const page = positive(q.page === undefined ? 1 : q.page); const pageSize = positive(q.pageSize === undefined ? 50 : q.pageSize)
-  if (pageSize > 200 || !Number.isSafeInteger((page-1)*pageSize)) throw new AssetsStoreError('BAD_REQUEST','分页超出范围。')
-  if (q.category !== undefined) { try { q.category = assertAssetCode(q.category) } catch { throw new AssetsStoreError('BAD_REQUEST','分类参数非法。') } }
-  if (q.kind !== undefined && q.kind !== null && !['thought','rule','file','prompt'].includes(q.kind as string)) throw new AssetsStoreError('BAD_REQUEST','kind非法。')
-  if (q.storageType !== undefined) { try { assertStorageType(q.storageType) } catch { throw new AssetsStoreError('BAD_REQUEST','storageType非法。') } }
-  if (q.archived !== undefined && !['exclude','include','only'].includes(q.archived as string)) throw new AssetsStoreError('BAD_REQUEST','归档参数非法。')
-  if (q.tagMode !== undefined && !['and','or'].includes(q.tagMode as string)) throw new AssetsStoreError('BAD_REQUEST','标签模式非法。')
-  if (q.tagIds !== undefined && !Array.isArray(q.tagIds)) throw new AssetsStoreError('BAD_REQUEST','标签参数非法。')
-  const tags = [...new Set(((q.tagIds ?? []) as unknown[]).map(positive))]
-  return ctx.write(s => {
-    const where: string[] = []; const params: unknown[] = []
-    if (q.archived === 'only') where.push('archived_at IS NOT NULL'); else if (q.archived !== 'include') where.push('archived_at IS NULL')
-    if (q.category !== undefined) {
-      if (selectCategory(s,q.category as string) === undefined) throw new AssetsStoreError('BAD_CATEGORY','分类不存在。')
-      const categories = [q.category,...selectDescendantCodes(s,q.category as string)]
-      where.push(`category IN (${categories.map(()=>'?').join(',')})`); params.push(...categories)
-    }
-    if (q.kind !== undefined) { where.push(q.kind === null ? 'kind IS NULL' : 'kind=?'); if (q.kind !== null) params.push(q.kind) }
-    if (q.storageType !== undefined) { where.push('storage_type=?'); params.push(q.storageType) }
-    if (tags.length > 0) {
-      where.push(`id IN (SELECT asset_id FROM asset_tag WHERE tag_id IN (${tags.map(()=>'?').join(',')}) GROUP BY asset_id${q.tagMode === 'or' ? '' : ' HAVING count(DISTINCT tag_id)=?'})`)
-      params.push(...tags); if (q.tagMode !== 'or') params.push(tags.length)
-    }
-    const clause = where.length === 0 ? '' : ` WHERE ${where.join(' AND ')}`
-    const total = s.get<{ n: number }>(`SELECT count(*) n FROM asset${clause}`,...params)?.n ?? 0
-    const rows = s.all<AssetRow>(`SELECT * FROM asset${clause} ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?`,...params,pageSize,(page-1)*pageSize)
-    return { items: rows.map(row=>summary(s,row)),total,page,pageSize }
-  })
-}
+/** 保留I1服务入口，查询合同在独立服务中统一校验。 */
+export { searchAssets as listAssets } from './searchService'

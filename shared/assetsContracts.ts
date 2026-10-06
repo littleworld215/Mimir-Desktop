@@ -114,6 +114,12 @@ export interface AssetCreateInput {
 export type AssetPatch = Partial<Omit<AssetCreateInput, 'code' | 'storageType'>>
 
 export interface AssetListQuery {
+  q?: string
+  searchIn?: 'all' | 'title' | 'body' | 'source' | 'organization'
+  sort?: 'relevance' | 'updated' | 'name'
+  updatedAfter?: string
+  excludeTagIds?: number[]
+  ids?: number[]
   page?: number
   pageSize?: number
   category?: string
@@ -193,6 +199,8 @@ export interface AssetDetail {
 
 /** 列表行：不含正文，避免一次载入全部内容。 */
 export interface AssetSummary {
+  /** Plain text only; matches use JavaScript UTF-16 offsets, not code point offsets. */
+  excerpt?: { text: string; matches: Array<{ start: number; end: number }> }
   id: number
   code: string
   name: string
