@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { snapshotBeforeMigration } from '../../../electron/assets/migrations'
+import { ASSETS_SCHEMA_VERSION } from '../../../electron/assets/schema'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -25,9 +26,9 @@ async function open(): Promise<AssetsStore> {
 function hash(path: string): string { return createHash('sha256').update(readFileSync(path)).digest('hex') }
 
 describe('真实 SQLite 持久化', () => {
-  it('schema1 / 五表 / 15分类 / 0资产版本 / 固定连接参数', async () => {
+  it('当前schema / 15分类 / 0资产版本 / 固定连接参数', async () => {
     const { db } = await open()
-    expect(db.pragma('user_version', { simple: true })).toBe(1)
+    expect(db.pragma('user_version', { simple: true })).toBe(ASSETS_SCHEMA_VERSION)
     expect(db.prepare('SELECT count(*) n FROM asset_category').get()).toEqual({ n: 15 })
     expect(db.prepare('SELECT count(*) n FROM asset').get()).toEqual({ n: 0 })
     expect(db.prepare('SELECT count(*) n FROM asset_version').get()).toEqual({ n: 0 })
@@ -83,7 +84,7 @@ describe('真实 SQLite 持久化', () => {
     db.exec('PRAGMA user_version=0')
     db.close()
     const store = await open()
-    expect(store.db.pragma('user_version', { simple: true })).toBe(1)
+    expect(store.db.pragma('user_version', { simple: true })).toBe(ASSETS_SCHEMA_VERSION)
     const backups = readdirSync(layout.backupsDir)
     expect(backups).toHaveLength(1)
     const snapshot = factory(join(layout.backupsDir, backups[0]), { readonly: true })
@@ -95,7 +96,7 @@ describe('真实 SQLite 持久化', () => {
   it('快照同名冲突不覆盖已有文件', async () => {
     const store = await open()
     const clock = (): Date => new Date(0)
-    const name = join(store.layout.backupsDir, 'schema-0-0-conflict.db')
+    const name = join(store.layout.backupsDir, `schema-${ASSETS_SCHEMA_VERSION}-0-conflict.db`)
     writeFileSync(name, 'immutable backup')
     const before = hash(name)
     await expect(snapshotBeforeMigration(store.db, store.layout.backupsDir, clock, () => 'conflict')).rejects.toMatchObject({ code: 'WRITE_FAILED' })

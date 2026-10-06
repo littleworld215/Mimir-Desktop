@@ -2,15 +2,15 @@
  * 资产库 SQLite schema（**目标自有版本，从 1 开始，与来源 v8 无关**）。
  *
  * 设计依据：docs/INTEGRATION-PLAN-I0-I1.md §3.1 / §3.2。
- * - 五张业务表：asset_category / asset / asset_version / tag / asset_tag。
+ * - v1 五张业务表；v2 增加有向参见与当前版本全文索引。
  * - `asset_version` **append-only**：由 trigger 禁止 UPDATE；删除资产时可级联删除其版本。
  * - `asset.current_version_id` 不得跨资产：用组合外键
  *   `asset(id, current_version_id) → asset_version(asset_id, id)` 表达，DB 层强约束。
  * - `revision` 用于并发元信息写入（正文冲突另由 expectedCurrentVersionId 覆盖）。
- * - I2 再加 asset_reference / FTS；I4 加 saved_filter；I5 加 ai_draft。此处不预建空表。
+ * - I4 加 saved_filter；I5 加 ai_draft。后续能力不预建空表。
  */
 
-export const ASSETS_SCHEMA_VERSION = 1
+export const ASSETS_SCHEMA_VERSION = 2
 
 /**
  * 预置分类（与来源 `server/src/db/seed.ts` 的 CATEGORIES / AI_TREE / inbox 语义对齐，共 15 项）。
@@ -58,7 +58,7 @@ export const BUILTIN_CATEGORIES: readonly BuiltinCategory[] = [
  *   该外键在 SQLite 中允许「引用尚未存在行的表」——外键是延迟校验的，只要插入顺序正确即可。
  * - `PRAGMA foreign_keys = ON` 由连接层设置（store.ts），DDL 本身不设置。
  */
-export const ASSETS_DDL: readonly string[] = [
+export const ASSETS_V1_DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS asset_category (
     code TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
@@ -136,3 +136,35 @@ export const ASSETS_DDL: readonly string[] = [
       SELECT RAISE(ABORT, 'asset_version is append-only');
     END`
 ]
+
+/** I2 DDL only: preserve the exact v1 schema for readonly pre-migration validation. */
+export const ASSETS_I2_DDL: readonly string[] = [
+  `CREATE TABLE asset_reference (
+    source_asset_id INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+    target_asset_id INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_asset_id, target_asset_id),
+    CHECK (source_asset_id <> target_asset_id)
+  )`,
+  `CREATE INDEX idx_asset_reference_target_source ON asset_reference(target_asset_id, source_asset_id)`,
+  `CREATE VIRTUAL TABLE asset_fts USING fts5(name, description, notes, source_task, content, tokenize='trigram')`,
+  // Index writes stay inside the asset transaction. Inserting a historical
+  // version alone never changes search until the current pointer is committed.
+  `CREATE TRIGGER trg_asset_fts_insert AFTER INSERT ON asset BEGIN
+    INSERT INTO asset_fts(rowid,name,description,notes,source_task,content)
+    VALUES(NEW.id,NEW.name,NEW.description,NEW.notes,NEW.source_task,'');
+  END`,
+  `CREATE TRIGGER trg_asset_fts_update
+    AFTER UPDATE OF name,description,notes,source_task,current_version_id ON asset BEGIN
+    DELETE FROM asset_fts WHERE rowid=NEW.id;
+    INSERT INTO asset_fts(rowid,name,description,notes,source_task,content)
+    SELECT a.id,a.name,a.description,a.notes,a.source_task,coalesce(v.content,'')
+    FROM asset a LEFT JOIN asset_version v ON v.id=a.current_version_id AND v.asset_id=a.id
+    WHERE a.id=NEW.id;
+  END`,
+  `CREATE TRIGGER trg_asset_fts_delete AFTER DELETE ON asset BEGIN
+    DELETE FROM asset_fts WHERE rowid=OLD.id;
+  END`
+]
+
+export const ASSETS_DDL: readonly string[] = [...ASSETS_V1_DDL, ...ASSETS_I2_DDL]

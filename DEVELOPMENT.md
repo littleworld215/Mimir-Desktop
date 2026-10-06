@@ -634,6 +634,10 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 
 ## 科研资产整合进度（2026-10-07，个人分支）
 
+- 当前I2-01：schema2加入asset_reference和当前版本五字段FTS5 trigram；旧schema1在完整性/已知旧DDL/外键预检后生成不可覆盖schema-1快照，同一事务升级并回填，不reseed旧分类、不改旧历史。asset元信息/current pointer/delete触发器与业务写入同事务；旧正文不参与当前检索。FTS/关系结构损坏拒写，不静默重建。
+- 本批三闸门exit0，全量823通过/9既有跳过；新增11项真实SQLite迁移/事务/关系基础测试，含回填失败与未checkpoint WAL一致快照；Codex只读终复核无新P1/P2。详细计划和运行证据在来源docs/INTEGRATION-PLAN-I2.md、verification-integration-i2-schema-20261007.md。
+- I2查询、关系服务/IPC和交互尚待；当前结构基础不提供搜索或关系入口。`18-assets-migration.spec.ts`使用合成schema1旧库，普通E2E跑开发路径，显式MIMIR_E2E_PACKAGED额外跑打包升级。来源真实data与用户space不自动导入。
+
 - 最新：I0/I1 Windows x64 Codex阶段验收通过。三闸门exit0，全量812通过/9既有跳过；开发/打包Electron4/4，真实第二实例、同空间重启及包内污染检查通过。完整矩阵在来源docs/verification-integration-package-20261007.md；以下前批记录保留为历史。下一步I2，非资产打包全流程/其他平台安装器/用户真实使用未验收。
 - 打包前执行 `pnpm assets:native` 准备本机精确Electron缓存。builder不重写Node测试绑定，afterPack只替换产物绑定；缓存缺失、版本/平台/架构不匹配就失败。跨平台/交叉架构需自行准备对应缓存，universal尚不支持。其他原生依赖保留准备好的二进制。
 - 构建后目录打包：`pnpm exec electron-builder --win --x64 --dir --publish never`。本机隔离验证另用已安装electronDist并禁用签名；产物运行检查 `node scripts/checkAssetsPackage.mjs dist/win-unpacked/resources`。审计也核对out与当前构建一致。

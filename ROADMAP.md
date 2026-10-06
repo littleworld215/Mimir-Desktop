@@ -73,6 +73,8 @@ Mimir-Desktop 已实现的核心能力（见 [README.md](./README.md)）：
 
 ## 如何参与
 
+科研资产I2进度：详细计划已落盘；I2-01 schema2、旧库备份升级、当前版本事务索引与有向参见结构已验证。下一主题I2-02查询/安全片段，再I2-03参见服务/关系图、I2-04交互终验；I2整体未完成。来源docs/INTEGRATION-PLAN-I2.md为详细执行依据。
+
 - 想修 Bug 或加功能：见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 - 想了解架构与设计决策：见 [DEVELOPMENT.md](./DEVELOPMENT.md)。
 - 有想法：欢迎开 Issue 讨论——**大方向调整请先讨论再动手**。

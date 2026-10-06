@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { assetsLayout } from './paths'
 import { resolveAssetsNativeBinding } from './nativeBinding'
 import { initializeSchema, inspectStore, snapshotBeforeMigration } from './migrations'
+import { ASSETS_SCHEMA_VERSION } from './schema'
 import { AssetsStoreError } from './types'
 import type {
   AssetsContext,
@@ -57,7 +58,7 @@ export async function openAssetsStore(options: {
       try { version = inspectStore(reader, factory) } finally { reader.close() }
     }
     db = factory(layout.dbPath, {})
-    if (version === 0) {
+    if (version < ASSETS_SCHEMA_VERSION) {
       mkdirSync(layout.backupsDir, { recursive: true })
       if (existing) await (options.snapshot ?? snapshotBeforeMigration)(db, layout.backupsDir, clock)
       db.pragma('foreign_keys = ON')
