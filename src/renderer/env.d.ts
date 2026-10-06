@@ -7,10 +7,13 @@ interface ElectronAPI {
   getAppVersion: () => Promise<string>
   getPlatform: () => string
   /**
-   * 资产库（`assets:*`）。I0-05 只接线最小通路（context / list）；
-   * 其余方法在 I1-08 按 `shared/assetsContracts.ts` 的 `AssetsApi` 补齐。
+   * 资产库（`assets:*`）。I0-05 起逐步接线：当前含 context / list 与 I1-04 文件版本六方法；
+   * 其余方法按 `shared/assetsContracts.ts` 的 `AssetsApi` 在后续阶段补齐。
    */
-  assets: Pick<AssetsApi, 'context' | 'list'>
+  assets: Pick<
+    AssetsApi,
+    'context' | 'list' | 'importFile' | 'saveFile' | 'listVersions' | 'getVersion' | 'diffVersions' | 'rollbackVersion'
+  >
   sendMessage: (message: string, conversationId: string) => Promise<string>
   /**
    * 发送消息并接收**结构化流式事件**（协议见 `electron/agent/streamProtocol.ts`）。

@@ -7,7 +7,6 @@ import { existsSync, mkdirSync } from 'fs'
 import { agentService } from '../agent/agentService'
 import { isControlPlanePath } from '../agent/controlPlane'
 import { isPathWithin } from './pathGuards'
-import { isManagedAssetPath, MANAGED_ASSET_REJECT_MESSAGE } from '../assets/managedPaths'
 import { isSafeExternalUrl } from '../safeUrl'
 import { startBridge, stopBridge, isBridgeRunning, getBridgePort, getConfirmToken } from '../plugins/bridge'
 import { setApprovalSender, settleApproval } from '../agent/approval'
@@ -68,91 +67,10 @@ import log, { streamLog } from '../logger'
 const ptyInstances = new Map<string, pty.IPty>()
 
 /**
- * 用户在原生文件对话框里**显式选中**过的路径（文件与目录，绝对路径）。
- *
- * `fs:readFile` 是渲染层唯一能读任意文本的通道（附件解析用）。若无边界，任何被注入的
- * 渲染内容都能借它读走整块磁盘 —— 与 Agent 侧 fsBackend 的权限矩阵形成两条口径不一的
- * 旁路。这里改为**白名单**：只有用户自己在对话框里点过的路径才可访问。
- *
- * 目录同样收进来：论文模块的项目目录（`latex:*` / `snapshots:*` / `paper:*`）都由
- * `dialog:open`（`openDirectory`）选出，与「选中文件」是同一类用户意图。
- *
- * 用 `Set` 而非持久化：选择是本次会话的行为，关窗即失效，避免长期漂开放大攻击面。
+ * 渲染层路径边界守卫已从本文件抽离到 `./rendererPathGuards`（被本文件与 `ipc/assets.ts`
+ * 共用，避免循环依赖）。这里只保留 `pickedPaths` 的白名单维护入口。
  */
-const pickedPaths = new Set<string>()
-
-/** 当前科研空间根目录；取不到（store 未就绪等）时返回空串，由调用方按「越界」处理。 */
-function safeSpaceRoot(): string {
-  try {
-    return resolve(spaceRoot())
-  } catch {
-    return ''
-  }
-}
-
-/**
- * 路径包含判定统一走 `./pathGuards`（`path.relative` + realpath 语义，见该文件说明）。
- * 不再在此手拼 `'/'` 前缀——那在 Windows / 软链 / 同前缀兄弟目录（`/a/b` vs `/a/bc`）下都会误判。
- */
-
-/** 控制平面拒绝文案（settings / 能力域 / 技能 / 桥接凭据；与 Agent 侧同一条硬约束）。 */
-const CONTROL_PLANE_REJECTED = '已拒绝：该路径属于 Mimir 的配置/能力控制平面，不允许经此通道访问。'
-
-/**
- * **渲染层路径边界的唯一入口**：所有接收路径参数的 IPC 处理器都必须先过这里。
- *
- * 放行三条（顺序即优先级）：
- * 1. 控制平面 → 硬拒绝（与 Agent 侧同口径，见 {@link isControlPlanePath}）；
- * 2. 当前科研空间根目录内 —— 用户自己的资料库；
- * 3. 用户在本会话里经原生对话框显式选中的路径及其子路径（见 {@link pickedPaths}）。
- *
- * 其余一律拒绝并给出可见原因（渲染层的 `dialog:open` 可重新授权）。
- *
- * @throws 越界时抛错（IPC invoke 会把错误回传渲染层，调用方已在 try/catch 内）。
- */
-function assertRendererPath(input: unknown, mode: 'read' | 'write' = 'read'): string {
-  if (typeof input !== 'string' || input.trim() === '') throw new Error('无效路径')
-  const target = resolve(input)
-  if (isControlPlanePath(target)) throw new Error(CONTROL_PLANE_REJECTED)
-  // 资产库托管数据（数据库 / 版本 blob / 暂存 / 备份）不接受通用文件通道读写。
-  if (isManagedAssetPath(target, safeSpaceRoot())) throw new Error(MANAGED_ASSET_REJECT_MESSAGE)
-  if (isPathWithin(target, safeSpaceRoot())) return target
-  for (const picked of pickedPaths) {
-    if (isPathWithin(target, picked)) return target
-  }
-  throw new Error(
-    mode === 'write'
-      ? '已拒绝：写入目标不在当前科研空间内，也不是你在本会话中选择过的目录。请重新选择该目录后再试。'
-      : '已拒绝：目标不在当前科研空间内，也不是你在本会话中选择过的文件或目录。请重新选择后再试。'
-  )
-}
-
-/**
- * 校验渲染层**文件**通道的目标路径（`fs:readFile` / `fs:readImageDataUrl` / `fs:writeFile`）。
- *
- * 在 {@link assertRendererPath} 的同一套基元（控制平面 / {@link isPathWithin}）之上再收紧一层：
- * - 读：只放行「用户经原生对话框显式选择过的**这个文件自身**」，或**用户已保存进设置的
- *   工作台背景图**（跨重启仍然有效，否则重启后背景图读取会被误拒）—— 读通道比目录通道
- *   更敏感：它能把任意文本读进上下文，因此不放行「选中目录下的任意子文件」；
- * - 写：仅放行科研空间根目录内（渲染层的 `fs:writeFile` 当前无调用方，
- *   保留通道但把边界收到与 Agent 侧一致）。
- *
- * @throws 越界时抛错（IPC invoke 会把错误回传渲染层，调用方已在 try/catch 内）。
- */
-function assertRendererFilePath(input: unknown, mode: 'read' | 'write' = 'read'): string {
-  if (typeof input !== 'string' || input.trim() === '') throw new Error('无效路径')
-  const target = resolve(input)
-  if (isControlPlanePath(target)) throw new Error(CONTROL_PLANE_REJECTED)
-  if (isManagedAssetPath(target, safeSpaceRoot())) throw new Error(MANAGED_ASSET_REJECT_MESSAGE)
-  if (mode === 'read') {
-    if (pickedPaths.has(target) || target === resolveWallpaperPath()) return target
-    throw new Error('已拒绝：仅允许读取你在文件对话框中主动选择的文件。')
-  }
-  if (!isPathWithin(target, safeSpaceRoot())) {
-    throw new Error('已拒绝：写入目标必须位于当前科研空间内。')
-  }
-  return target
-}
+import { assertRendererPath, assertRendererFilePath, pickedPaths } from './rendererPathGuards'
 
 /**
  * 校验「项目目录数组」（`figures:renamePreview` / `figures:renameApply`）。
@@ -164,24 +82,6 @@ function assertProjectDirs(input: unknown): string[] {
   if (input === undefined || input === null) return []
   if (!Array.isArray(input)) throw new Error('无效路径')
   return input.map((dir) => assertRendererPath(dir, 'write'))
-}
-
-/**
- * 用户已保存的工作台背景图路径（settings.wallpaper.path），无则返回空串。
- *
- * 背景图在「设置」里选择后落盘，**下次启动**仍要从磁盘读回；此时用户当次会话并未经过
- * 文件对话框，单纯的内存白名单会把它误拒。因此把「用户已显式保存的这张图」视为授权路径。
- */
-function resolveWallpaperPath(): string {
-  try {
-    const settings = getStoreValue<Record<string, unknown>>('settings')
-    const wp = settings?.wallpaper
-    if (wp === null || typeof wp !== 'object') return ''
-    const p = (wp as { path?: unknown }).path
-    return typeof p === 'string' && p !== '' ? resolve(p) : ''
-  } catch {
-    return ''
-  }
 }
 
 export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): void {

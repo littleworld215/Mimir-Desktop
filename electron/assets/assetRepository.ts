@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs'
 import type { AssetDetail, AssetSummary, AssetTag, StorageType, AssetKind, TemplateConfig } from '../../shared/assetsContracts'
 import type { AssetsWriteSession } from './types'
 import { AssetsStoreError } from './types'
 import { selectCategory } from './categoryRepository'
+import { resolveWithinFiles, type AssetsLayout } from './paths'
 
 export interface AssetRow {
   id: number; code: string; name: string; category: string; description: string
@@ -34,9 +36,9 @@ export function categoryPath(s: AssetsWriteSession, code: string): string[] {
   return result
 }
 
-export function detail(s: AssetsWriteSession, row: AssetRow): AssetDetail {
-  const version = row.current_version_id === null ? undefined : s.get<{ version: number; content: string; file_name: string | null }>(
-    'SELECT version,content,file_name FROM asset_version WHERE id=? AND asset_id=?', row.current_version_id, row.id)
+export function detail(s: AssetsWriteSession, row: AssetRow, layout?: AssetsLayout): AssetDetail {
+  const version = row.current_version_id === null ? undefined : s.get<{ version: number; content: string; file_name: string | null; file_path: string | null }>(
+    'SELECT version,content,file_name,file_path FROM asset_version WHERE id=? AND asset_id=?', row.current_version_id, row.id)
   return {
     id: row.id, code: row.code, name: row.name, category: row.category, categoryPath: categoryPath(s, row.category),
     description: row.description, storageType: row.storage_type, externalUrl: row.external_url,
@@ -46,7 +48,20 @@ export function detail(s: AssetsWriteSession, row: AssetRow): AssetDetail {
     isFavorite: row.is_favorite, lastUsedAt: row.last_used_at, archivedAt: row.archived_at,
     revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
     versionCount: s.get<{ n: number }>('SELECT count(*) n FROM asset_version WHERE asset_id=?', row.id)?.n ?? 0,
-    tags: assetTags(s, row.id), fileAvailable: false, currentFileName: version?.file_name ?? null
+    tags: assetTags(s, row.id), fileAvailable: fileAvailableFor(row, version, layout), currentFileName: version?.file_name ?? null
+  }
+}
+
+/**
+ * 文件型资产：当前版本 blob 是否仍在托管目录下。
+ * `layout` 缺失（如纯服务层单测未注入）时为 false；路径非法（realpath 越界/junction）按不可用处理。
+ */
+function fileAvailableFor(row: AssetRow, version: { file_path: string | null } | undefined, layout: AssetsLayout | undefined): boolean {
+  if (row.storage_type !== 'file' || version?.file_path == null || layout === undefined) return false
+  try {
+    return existsSync(resolveWithinFiles(layout, version.file_path))
+  } catch {
+    return false
   }
 }
 
@@ -60,10 +75,21 @@ export function summary(s: AssetsWriteSession, row: AssetRow): AssetSummary {
   }
 }
 
-/** 版本与指针必须由调用者在同一受守卫事务中提交。 */
-export function appendVersion(s: AssetsWriteSession, row: AssetRow, content: string, changelog: string, now: string): void {
+/** 版本与指针必须由调用者在同一受守卫事务中提交。可附带不可变文件 blob（file_path）与显式 source。 */
+export function appendVersion(
+  s: AssetsWriteSession,
+  row: AssetRow,
+  content: string,
+  changelog: string,
+  now: string,
+  filePath: string | null = null,
+  sourceJson?: string
+): void {
   const next = (s.get<{ n: number }>('SELECT coalesce(max(version),0) n FROM asset_version WHERE asset_id=?', row.id)?.n ?? 0) + 1
-  s.run('INSERT INTO asset_version(asset_id,version,content,changelog,source_json,created_at) VALUES (?,?,?,?,?,?)', row.id, next, content, changelog, row.source_json, now)
+  s.run(
+    'INSERT INTO asset_version(asset_id,version,content,changelog,source_json,file_path,created_at) VALUES (?,?,?,?,?,?,?)',
+    row.id, next, content, changelog, sourceJson ?? row.source_json, filePath, now
+  )
   const id = s.get<{ id: number }>('SELECT last_insert_rowid() id')?.id
   s.run('UPDATE asset SET current_version_id=? WHERE id=?', id, row.id)
 }

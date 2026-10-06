@@ -73,7 +73,7 @@ export function createAsset(ctx: AssetsContext, payload: unknown): AssetDetail {
     const row = selectAsset(s,id) as AssetRow
     if (type !== 'file') appendVersion(s,row,type === 'inline_text' ? input.content ?? '' : '',input.changelog ?? '',now)
     replaceTags(s,id,(v.tagNames ?? []) as string[])
-    return detail(s,selectAsset(s,id) as AssetRow)
+    return detail(s,selectAsset(s,id) as AssetRow,ctx.layout)
   })
 }
 
@@ -104,7 +104,7 @@ export function updateAsset(ctx: AssetsContext, id: number, condition: unknown, 
     const sets: string[] = []
     const params: unknown[] = []
     for (const [key,column] of Object.entries(columns)) if (v[key] !== undefined && v[key] !== row[column as keyof AssetRow]) { sets.push(`${column}=?`); params.push(v[key]) }
-    const before = detail(s,row)
+    const before = detail(s,row,ctx.layout)
     const contentChanged = v.content !== undefined && v.content !== before.currentContent
     const requestedTags = v.tagNames as string[] | undefined
     const currentTags = assetTags(s,id).map(t=>normalizeTagName(t.name)).sort()
@@ -115,13 +115,13 @@ export function updateAsset(ctx: AssetsContext, id: number, condition: unknown, 
     s.run(`UPDATE asset SET ${sets.join(',')} WHERE id=?`,...params)
     if (contentChanged) appendVersion(s,selectAsset(s,id) as AssetRow,v.content as string,(v.changelog ?? '') as string,now)
     if (tagsChanged) replaceTags(s,id,requestedTags as string[])
-    return detail(s,selectAsset(s,id) as AssetRow)
+    return detail(s,selectAsset(s,id) as AssetRow,ctx.layout)
   })
 }
 
 export function getAsset(ctx: AssetsContext, id: number): AssetDetail {
   positive(id)
-  return ctx.write(s => { const row = selectAsset(s,id); if (row === undefined) throw new AssetsStoreError('NOT_FOUND','资产不存在。'); return detail(s,row) })
+  return ctx.write(s => { const row = selectAsset(s,id); if (row === undefined) throw new AssetsStoreError('NOT_FOUND','资产不存在。'); return detail(s,row,ctx.layout) })
 }
 
 /** 参数化真实分页；读取也通过scope/epoch守卫，列表不装载正文。 */

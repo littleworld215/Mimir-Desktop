@@ -20,6 +20,16 @@ import {
 import type { AssetPage, AssetsErrorCode, WorkspaceRequest } from '../../shared/assetsContracts'
 import { assetsStoreManager } from '../assets/store'
 import { AssetsStoreError } from '../assets/types'
+import { assertPositiveId } from '../assets/validation'
+import {
+  importFile,
+  saveFile,
+  listVersions,
+  getVersion,
+  diffVersions,
+  rollbackVersion
+} from '../assets/fileService'
+import { assertRendererPath } from './rendererPathGuards'
 import log from '../logger'
 
 type Failure = {
@@ -92,7 +102,30 @@ function readPaging(input: unknown): { page: number; pageSize: number } {
   return { page, pageSize }
 }
 
-/** 资产库：空间上下文 / 列表（`assets:*`）。 */
+/** 渲染层路径边界校验：把 `assertRendererPath` 的拒绝统一映射为 `PATH_REJECTED`。 */
+function assertSafePath(input: unknown, mode: 'read' | 'write'): string {
+  if (typeof input !== 'string' || input.trim() === '') {
+    throw new AssetsStoreError('BAD_REQUEST', '路径必须是非空字符串。')
+  }
+  try {
+    return assertRendererPath(input, mode)
+  } catch (error) {
+    throw new AssetsStoreError('PATH_REJECTED', error instanceof Error ? error.message : '路径被拒绝。')
+  }
+}
+
+/** 从请求中解析条件写对象（expectedRevision 必填，expectedCurrentVersionId 可选）。 */
+function parseWriteCondition(request: Record<string, unknown>): Record<string, unknown> {
+  if (!('expectedRevision' in request)) throw new AssetsStoreError('BAD_REQUEST', '缺少 expectedRevision。')
+  const expectedRevision = assertPositiveId(request.expectedRevision, 'expectedRevision')
+  const condition: Record<string, unknown> = { expectedRevision }
+  if (request.expectedCurrentVersionId !== undefined && request.expectedCurrentVersionId !== null) {
+    condition.expectedCurrentVersionId = assertPositiveId(request.expectedCurrentVersionId, 'expectedCurrentVersionId')
+  }
+  return condition
+}
+
+/** 资产库：空间上下文 / 列表 / 文件版本（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
   ipcMain.handle(ASSETS_CHANNELS.context, async () => {
     try {
@@ -114,6 +147,91 @@ export function registerAssetsHandlers(): void {
       )
       const result: AssetPage = { items: [], total, page, pageSize }
       return { ok: true, page: result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.importFile, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const sourcePath = assertSafePath(req.sourcePath, 'read')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const asset = importFile(ctx, assetId, parseWriteCondition(req), sourcePath, typeof req.changelog === 'string' ? req.changelog : undefined)
+      return { ok: true, asset }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.saveFile, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const versionId = req.versionId === undefined || req.versionId === null ? undefined : assertPositiveId(req.versionId, 'versionId')
+      const destinationPath = assertSafePath(req.destinationPath, 'write')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const result = saveFile(ctx, assetId, versionId, destinationPath)
+      return { ok: true, ...result }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.listVersions, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const page = listVersions(ctx, assetId, req.page, req.pageSize)
+      return { ok: true, page }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.getVersion, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const versionId = assertPositiveId(req.versionId, 'versionId')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const { version } = getVersion(ctx, assetId, versionId)
+      return { ok: true, version }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.diffVersions, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const fromVersionId = assertPositiveId(req.fromVersionId, 'fromVersionId')
+      const toVersionId = assertPositiveId(req.toVersionId, 'toVersionId')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const { diff } = diffVersions(ctx, assetId, fromVersionId, toVersionId)
+      return { ok: true, diff }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
+  ipcMain.handle(ASSETS_CHANNELS.rollbackVersion, async (_event, request: unknown) => {
+    try {
+      const scope = assertWorkspaceRequest(request)
+      const req = (request ?? {}) as Record<string, unknown>
+      const assetId = assertPositiveId(req.assetId, 'assetId')
+      const versionId = assertPositiveId(req.versionId, 'versionId')
+      const ctx = await assetsStoreManager.getForRequest(scope)
+      const result = rollbackVersion(ctx, assetId, parseWriteCondition(req), versionId)
+      return { ok: true, ...result }
     } catch (error) {
       return failure(error)
     }

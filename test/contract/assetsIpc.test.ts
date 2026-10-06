@@ -65,10 +65,18 @@ beforeEach(() => {
 })
 
 describe('注册面', () => {
-  it('只注册 context / list 两条通道', () => {
-    expect([...hoisted.handlers.keys()].sort()).toEqual(
-      [ASSETS_CHANNELS.context, ASSETS_CHANNELS.list].sort()
-    )
+  it('本阶段注册 context/list 与文件版本 6 项，共 8 条通道（不注册多余通道）', () => {
+    const expected = [
+      ASSETS_CHANNELS.context,
+      ASSETS_CHANNELS.list,
+      ASSETS_CHANNELS.importFile,
+      ASSETS_CHANNELS.saveFile,
+      ASSETS_CHANNELS.listVersions,
+      ASSETS_CHANNELS.getVersion,
+      ASSETS_CHANNELS.diffVersions,
+      ASSETS_CHANNELS.rollbackVersion
+    ].sort()
+    expect([...hoisted.handlers.keys()].sort()).toEqual(expected)
   })
 })
 

@@ -104,17 +104,20 @@ export interface FigureRecord {
 }
 
 /**
- * I0-05 已接线的资产库方法子集；完整契约见 `shared/assetsContracts.ts` 的 `AssetsApi`，
- * 其余方法在 I1-08 逐条补齐（两个桥声明共享同一契约，不重复手写字段）。
+ * 资产库已接线的方法子集；完整契约见 `shared/assetsContracts.ts` 的 `AssetsApi`。
+ * I0-05 起逐步补齐：I1-03 接 context / list，I1-04 接文件版本六方法，其余在后续阶段补齐。
  */
-export type AssetsApiSubset = Pick<AssetsApi, 'context' | 'list'>
+export type AssetsApiSubset = Pick<
+  AssetsApi,
+  'context' | 'list' | 'importFile' | 'saveFile' | 'listVersions' | 'getVersion' | 'diffVersions' | 'rollbackVersion'
+>
 
 export interface ElectronAPI {
   // App info
   getAppVersion: () => Promise<string>
   getPlatform: () => string
 
-  /** 资产库（`assets:*`）：当前仅 context / list 两条最小通路。 */
+  /** 资产库（`assets:*`）：I0-05 起逐步接线，当前含 context / list / 文件版本六方法。 */
   assets: AssetsApiSubset
 
   // Agent
@@ -453,7 +456,13 @@ const electronAPI: ElectronAPI = {
   // 资产库（`assets:*`）：逐方法固定通道 invoke，**不**暴露任意通道调用。
   assets: {
     context: () => ipcRenderer.invoke(ASSETS_CHANNELS.context),
-    list: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.list, request)
+    list: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.list, request),
+    importFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.importFile, request),
+    saveFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.saveFile, request),
+    listVersions: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.listVersions, request),
+    getVersion: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.getVersion, request),
+    diffVersions: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.diffVersions, request),
+    rollbackVersion: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.rollbackVersion, request)
   },
 
   sendMessage: (message, conversationId) =>
