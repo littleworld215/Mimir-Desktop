@@ -1,8 +1,8 @@
 /**
- * 资产库 IPC 合同测试（I0-05）。
+ * 资产库 IPC 错误与注册面合同测试（I1-08）。
  *
  * 守护点：
- * - 只注册 `assets:context` / `assets:list` 两条通道，不注册多余通道；
+ * - 完整注册固定28条资产通道，不注册多余通道；
  * - 返回值恒为判别联合 `{ ok: true, ... } | { ok: false, code, message }`，**从不抛异常**；
  * - 业务错误回传 `AssetsStoreError.code`；分页 / scope 非法 → `BAD_REQUEST`；
  * - 未知异常回 `WRITE_FAILED`，**不回传 SQL / 堆栈**，但主进程要落日志。
@@ -52,7 +52,7 @@ function handler(channel: string): (...args: unknown[]) => unknown {
 function fakeContext(count: number): unknown {
   return {
     write: (operation: (session: unknown) => unknown): unknown =>
-      operation({ get: () => ({ c: count }) })
+      operation({ get: () => ({ n: count }), all: () => [] })
   }
 }
 
@@ -65,17 +65,8 @@ beforeEach(() => {
 })
 
 describe('注册面', () => {
-  it('本阶段注册 context/list 与文件版本 6 项，共 8 条通道（不注册多余通道）', () => {
-    const expected = [
-      ASSETS_CHANNELS.context,
-      ASSETS_CHANNELS.list,
-      ASSETS_CHANNELS.importFile,
-      ASSETS_CHANNELS.saveFile,
-      ASSETS_CHANNELS.listVersions,
-      ASSETS_CHANNELS.getVersion,
-      ASSETS_CHANNELS.diffVersions,
-      ASSETS_CHANNELS.rollbackVersion
-    ].sort()
+  it('完整注册合同28条通道，不注册任意通道', () => {
+    const expected = Object.values(ASSETS_CHANNELS).sort()
     expect([...hoisted.handlers.keys()].sort()).toEqual(expected)
   })
 })
@@ -116,8 +107,8 @@ describe('parseWriteCondition —— R6 三态（absent / 显式 null / 正整�
       expectedCurrentVersionId: 5
     })
   })
-  it('key 存在但值为 undefined → 视为缺省（不传该字段）', () => {
-    expect(parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: undefined })).toEqual({ expectedRevision: 1 })
+  it('key存在但值为undefined不能丢弃版本条件，明确拒绝', () => {
+    expect(() => parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: undefined })).toThrow()
   })
   it('非法类型（字符串 / 负数）→ BAD_REQUEST', () => {
     expect(() => parseWriteCondition({ expectedRevision: 1, expectedCurrentVersionId: 'x' })).toThrow()

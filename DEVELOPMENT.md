@@ -640,7 +640,8 @@ TaskFlow 上游为 **AGPL-3.0**，副本见 `taskflow/LICENSE-TaskFlow`。本仓
 - `VersionDiff` 保留旧字段，新增可选 `mode` / `beforeText` / `afterText` / `files`。文本最多 500,000 个矩阵格、20,000 个行对象；`replacement` 表示完整线性替换，`originals` 必须展示两侧完整原文，不能将空 `lines` 当成内容相同。CRLF、空行、末尾换行不归一化。文件比较只提供名称、大小与可用性；缺失文件大小为 `null`，不改历史。
 - 标签治理服务支持独立创建、关联增删、影响预览、条件重命名、合并和删除；关系变化提升标签 revision，治理提升受影响资产 revision（含归档），旧表单不可覆盖回来。正文历史不变。
 - 归档/恢复幂等；永久删除显式确认并校验 revision，SQL 提交后才清理本资产记录的平铺 blob。拒绝 junction/跨资产路径，保留未知孤儿，清理失败返回 cleanupPending 并留日志，后续 doctor/恢复模块需处理待清理目录。
-- 资产 UI 仍为骨架，IPC/preload 仍仅 8 个方法；上述能力目前为服务层交付，完整接线和 UI 闭环尚未完成，不宣称 I1 整体通过验收。
+- IPC/preload 与渲染门面已接通全部 28 个固定方法，列表返回真实摘要分页和筛选；显式 undefined 版本条件拒绝，空正文/null条件和冲突 details 原样保留。
+- 2026-10-07：最新三闸门 exit 0；全量 59 文件/805 项，796 通过/9 既有跳过。标签、归档删除、通道与门面分别独立复核。资产 UI 仍为骨架，操作界面和真实 Electron 闭环尚未完成，不宣称 I1 整体通过验收。
 
 ## License
 

@@ -1,14 +1,13 @@
 /**
  * 资产库 IPC 域（`assets:*`）。
  *
- * I0-05 只建立**最小真实通路**：`assets:context`（取当前可信空间作用域）与
- * `assets:list`（对真实库做一次计数查询，返回真实空态）。完整的 §3.3 方法在 I1-08 接线。
+ * I1-08 接通完整合同：资产、分类、标签治理、归档与文件版本，列表返回真实分页摘要。
  *
  * 纪律（与其它 IPC 域一致）：
  * - 返回值统一判别联合 `{ ok: true, ... } | { ok: false, code, message }`，**不向渲染层抛异常**；
  * - 业务错误回传 `AssetsStoreError.code`；未知异常记主进程日志并回有意义的提示，
  *   不泄漏 SQL / 堆栈 / 凭据；
- * - 渲染层传入的路径参数若将来出现，一律在 try 内部过 `assertRendererPath`（本域当前不接收路径）。
+ * - 导入严格校验已选文件，导出领取一次性原生保存授权；均在 try 内捕获错误。
  */
 import { ipcMain } from 'electron'
 import {
@@ -17,9 +16,13 @@ import {
   ASSETS_PAGE_MAX,
   ASSETS_PAGE_MIN
 } from '../../shared/assetsContracts'
-import type { AssetPage, AssetsErrorCode, WorkspaceRequest } from '../../shared/assetsContracts'
+import type { ArchiveScope, AssetsErrorCode, WorkspaceRequest } from '../../shared/assetsContracts'
 import { assetsStoreManager } from '../assets/store'
-import { AssetsStoreError } from '../assets/types'
+import { AssetsStoreError, type AssetsContext } from '../assets/types'
+import { createAsset, getAsset, listAssets, updateAsset } from '../assets/assetService'
+import { archiveAsset, restoreAsset, deletePreview, deleteAsset } from '../assets/archiveService'
+import { listCategories, createCategory, updateCategory, categoryImpact, removeCategory } from '../assets/categoryService'
+import { listTags, createTag, addTags, removeTags, tagImpact, renameTag, mergeTags, deleteTag } from '../assets/tagService'
 import { assertPositiveId, AssetsValidationError } from '../assets/validation'
 import {
   importFile,
@@ -64,7 +67,7 @@ function failure(error: unknown): Failure {
 
 /** 校验渲染层传入的 workspace 作用域（必须是两个非空字符串）。 */
 function assertWorkspaceRequest(input: unknown): WorkspaceRequest {
-  if (typeof input !== 'object' || input === null) {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     throw new AssetsStoreError('BAD_REQUEST', '缺少空间上下文。')
   }
   const { workspaceId, spaceEpoch } = input as { workspaceId?: unknown; spaceEpoch?: unknown }
@@ -137,14 +140,14 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
     const raw = request.expectedCurrentVersionId
     if (raw === null) {
       condition.expectedCurrentVersionId = null
-    } else if (raw !== undefined) {
+    } else {
       condition.expectedCurrentVersionId = assertPositiveId(raw, 'expectedCurrentVersionId')
     }
   }
   return condition
 }
 
-/** 资产库：空间上下文 / 列表 / 文件版本（`assets:*`）。 */
+/** 完整资产域固定通道（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
   ipcMain.handle(ASSETS_CHANNELS.context, async () => {
     try {
@@ -157,19 +160,48 @@ export function registerAssetsHandlers(): void {
   ipcMain.handle(ASSETS_CHANNELS.list, async (_event, request: unknown) => {
     try {
       const scope = assertWorkspaceRequest(request)
-      const { page, pageSize } = readPaging(request)
+      readPaging(request)
       const ctx = await assetsStoreManager.getForRequest(scope)
-      // 真实查询：I1 的资产服务落地前，这里只做一次计数，返回真实空态而非假列表。
-      const total = ctx.write(
-        (session) =>
-          session.get<{ c: number }>('SELECT COUNT(*) AS c FROM asset WHERE archived_at IS NULL')?.c ?? 0
-      )
-      const result: AssetPage = { items: [], total, page, pageSize }
-      return { ok: true, page: result }
+      const { workspaceId: _workspace, spaceEpoch: _epoch, ...query } = request as Record<string, unknown>
+      return { ok: true, page: listAssets(ctx, query) }
     } catch (error) {
       return failure(error)
     }
   })
+
+  // Synchronous services retain transaction/scope guards; every fixed channel catches failures.
+  const register = (channel: string, operation: (ctx: AssetsContext, req: Record<string, unknown>) => object) => {
+    ipcMain.handle(channel, async (_event, request: unknown) => {
+      try {
+        const scope = assertWorkspaceRequest(request)
+        const ctx = await assetsStoreManager.getForRequest(scope)
+        return { ok: true, ...operation(ctx, request as Record<string, unknown>) }
+      } catch (error) { return failure(error) }
+    })
+  }
+  register(ASSETS_CHANNELS.get, (ctx, r) => ({ asset: getAsset(ctx, r.assetId as number) }))
+  register(ASSETS_CHANNELS.create, (ctx, r) => ({ asset: createAsset(ctx, r.input) }))
+  register(ASSETS_CHANNELS.update, (ctx, r) => ({ asset: updateAsset(ctx, r.assetId as number, parseWriteCondition(r), r.patch) }))
+  register(ASSETS_CHANNELS.archive, (ctx, r) => archiveAsset(ctx, r.assetId, r.expectedRevision))
+  register(ASSETS_CHANNELS.restore, (ctx, r) => restoreAsset(ctx, r.assetId, r.expectedRevision))
+  register(ASSETS_CHANNELS.deletePreview, (ctx, r) => ({ impact: deletePreview(ctx, r.assetId) }))
+  register(ASSETS_CHANNELS.delete, (ctx, r) => deleteAsset(ctx, r.assetId, r.expectedRevision, r.confirm))
+  register(ASSETS_CHANNELS.listCategories, (ctx, r) => ({ categories: listCategories(ctx, r.archived as ArchiveScope | undefined) }))
+  register(ASSETS_CHANNELS.createCategory, (ctx, r) => ({ category: createCategory(ctx, r.input) }))
+  register(ASSETS_CHANNELS.updateCategory, (ctx, r) => ({ category: updateCategory(ctx, r.code as string, r.expectedRevision as number, r.patch) }))
+  register(ASSETS_CHANNELS.categoryImpact, (ctx, r) => ({ impact: categoryImpact(ctx, r.code as string) }))
+  register(ASSETS_CHANNELS.deleteCategory, (ctx, r) => {
+    if (r.confirm !== true) throw new AssetsStoreError('BAD_REQUEST', '删除分类需要明确确认。')
+    return { deletedCode: removeCategory(ctx, r.code as string, r.expectedRevision as number) }
+  })
+  register(ASSETS_CHANNELS.listTags, ctx => ({ tags: listTags(ctx) }))
+  register(ASSETS_CHANNELS.createTag, (ctx, r) => createTag(ctx, r.name, r.color))
+  register(ASSETS_CHANNELS.addTags, (ctx, r) => ({ asset: addTags(ctx, r.assetId, r.expectedRevision, r.tags) }))
+  register(ASSETS_CHANNELS.removeTags, (ctx, r) => ({ asset: removeTags(ctx, r.assetId, r.expectedRevision, r.tagIds) }))
+  register(ASSETS_CHANNELS.tagImpact, (ctx, r) => ({ impact: tagImpact(ctx, r.tagId, r.targetName) }))
+  register(ASSETS_CHANNELS.renameTag, (ctx, r) => ({ tag: renameTag(ctx, r.tagId, r.expectedRevision, r.name) }))
+  register(ASSETS_CHANNELS.mergeTags, (ctx, r) => ({ target: mergeTags(ctx, r.sourceId, r.targetId, r.expectedSourceRevision, r.expectedTargetRevision, r.confirm) }))
+  register(ASSETS_CHANNELS.deleteTag, (ctx, r) => deleteTag(ctx, r.tagId, r.expectedRevision, r.confirm))
 
   ipcMain.handle(ASSETS_CHANNELS.importFile, async (_event, request: unknown) => {
     try {

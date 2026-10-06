@@ -104,20 +104,16 @@ export interface FigureRecord {
 }
 
 /**
- * 资产库已接线的方法子集；完整契约见 `shared/assetsContracts.ts` 的 `AssetsApi`。
- * I0-05 起逐步补齐：I1-03 接 context / list，I1-04 接文件版本六方法，其余在后续阶段补齐。
+ * I1-08 完整资产合同；保留旧导出名称兼容已有类型引用。
  */
-export type AssetsApiSubset = Pick<
-  AssetsApi,
-  'context' | 'list' | 'importFile' | 'saveFile' | 'listVersions' | 'getVersion' | 'diffVersions' | 'rollbackVersion'
->
+export type AssetsApiSubset = AssetsApi
 
 export interface ElectronAPI {
   // App info
   getAppVersion: () => Promise<string>
   getPlatform: () => string
 
-  /** 资产库（`assets:*`）：I0-05 起逐步接线，当前含 context / list / 文件版本六方法。 */
+  /** 资产库（`assets:*`）：完整的固定方法合同。 */
   assets: AssetsApiSubset
 
   // Agent
@@ -457,6 +453,26 @@ const electronAPI: ElectronAPI = {
   assets: {
     context: () => ipcRenderer.invoke(ASSETS_CHANNELS.context),
     list: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.list, request),
+    get: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.get, request),
+    create: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.create, request),
+    update: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.update, request),
+    archive: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.archive, request),
+    restore: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.restore, request),
+    deletePreview: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.deletePreview, request),
+    delete: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.delete, request),
+    listCategories: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.listCategories, request),
+    createCategory: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.createCategory, request),
+    updateCategory: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.updateCategory, request),
+    categoryImpact: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.categoryImpact, request),
+    deleteCategory: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.deleteCategory, request),
+    listTags: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.listTags, request),
+    createTag: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.createTag, request),
+    addTags: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.addTags, request),
+    removeTags: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.removeTags, request),
+    tagImpact: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.tagImpact, request),
+    renameTag: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.renameTag, request),
+    mergeTags: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.mergeTags, request),
+    deleteTag: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.deleteTag, request),
     importFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.importFile, request),
     saveFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.saveFile, request),
     listVersions: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.listVersions, request),
