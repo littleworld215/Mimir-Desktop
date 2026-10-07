@@ -1,5 +1,14 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-02（2026-10-07）
+
+- aiProvider读取已有settings.models/selectedModelId，沿用首项与deepseek-flash兜底、modelId/baseUrl/apiKey，不新建配置/复制密钥；ChatOpenAI只做text结果，maxRetries=0。项目没有公共模型工厂，本批独立适配器不改既有Agent模型行为。
+- aiService捕获来源版本/revision及最终Prompt后释放事务；默认60s、上限120s，signal与独立deadline竞速，provider忽略signal也不会晚写。失败脱敏、空结果拒绝，空间变更拒绝落库，成功才进入ai_draft。
+- 模板和UTF8预算纯逻辑移到shared，旧渲染路径仅转发，保持I4接口/字面注入规则。AI服务忽略用户原文变量；默认/带空格原文占位符不会伪造，NUL填值在调用前拒绝。
+- 最终Prompt按JSON转义后60KiB限制，为64KiB溯源预留空间，超限在调用前拒绝。默认Prompt逐字固定来源fixture，不自动创建模板资产。
+- 标签建议只读：正文4000字符、候选40、默认6/最多8，JSON/行解析、归一化去重与已有ID提示。采纳只信名称，现有addTags事务刷新并复用，revision冲突零写；正文/历史不变，资产revision/updatedAt沿用目标标签写入契约。
+- 完整998通过9既有跳过、三闸门exit0，双ABI合成模型/SQLite探针各6/6；详情见来源docs/verification-integration-i5-actions-20261007.md。schema4/49固定方法不变，I5-03 Agent/IPC、I5-04 UI、I5-05 MCP与阶段新目录包待；未调用真实模型。
+
 ## 科研资产整合 I5-01（2026-10-07）
 
 - 资产schema4新增ai_draft；schema1/2/3按冻结DDL预检，升级前不可变SQLite备份，失败事务回滚。来源Web v8不变。

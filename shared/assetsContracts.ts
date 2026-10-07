@@ -21,6 +21,11 @@ export type TagMode = 'and' | 'or'
 /** 资产域统一错误码（IPC 捕获业务错误后回传，未知异常另行兜底）。 */
 export type AssetsErrorCode =
   | 'BAD_REQUEST'
+  | 'AI_NO_MODEL'
+  | 'AI_ABORTED'
+  | 'AI_TIMEOUT'
+  | 'AI_FAILED'
+  | 'AI_EMPTY_RESULT'
   | 'PREVIEW_STALE'
   | 'NOT_FOUND'
   | 'DUPLICATE_CODE'

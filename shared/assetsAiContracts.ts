@@ -1,4 +1,5 @@
 import type { AssetDetail } from './assetsContracts'
+import type { TemplateValues } from './assetsContracts'
 
 export type AiAssistMode = 'polish' | 'restructure'
 export interface AiUsage {
@@ -33,3 +34,21 @@ export interface AiAdoptInput {
   category?: string
 }
 export interface AiAdoptResult { asset: AssetDetail; carry: 'version' | 'derived' }
+
+export interface AiGenerateRequest {
+  assetId: number
+  mode: AiAssistMode
+  sourceVersionId?: number
+  promptAssetId?: number
+  values?: TemplateValues
+}
+export interface AiTagsRequest { assetId: number; sourceVersionId?: number; max?: number }
+export interface AiTagSuggestion { name: string; existingTagId: number | null }
+export interface AiTagsResult {
+  suggestions: AiTagSuggestion[]
+  contentTruncated: boolean
+  truncated: boolean
+  model: string
+  sourceVersionId: number
+  sourceRevision: number
+}
