@@ -1,5 +1,12 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-05A（2026-10-08）
+
+- electron/assets/mcp/broker.ts 与 localTransport.ts提供纯本机传输/会话接缝；尚未挂main、未发布凭据/接业务或SDK，现有HTTP只读bridge保持。不能据此配置可用MCP。
+- 随机token、认证后固定scope/client、14方法名白名单；七写方法confirm=true仍需宿主专门批准（缺省拒绝），不是Agent全权档。宿主业务写还须事务内使用signal/scope守卫；基础模块不导入DB/模型。
+- 一连接一在途请求、16连接、1024请求/会话、1MiB帧；认证5秒、空闲180秒、操作最多120秒。故障握手/BUSY为终态并取消批准，错误仅固定消息映射；客户端本地超限不消耗序号。
+- 16真实Node Windows管道测试通过；两复核P2实际RED修复。超时后忽略signal的旧宿主Promise可能残留P3延期；05B须补任务总量限制/终止会话及真实批准UI，不能宣称事务副作用或Windows ACL已经验收。证据在来源docs/verification-integration-i5-mcp-transport-20261008.md；schema4/57接口不变。
+
 ## 科研资产整合 I5-04（2026-10-08）
 
 - 详情提供AI整理/待采纳草稿/AI标签建议三个lazy窗口；显式外发、可选Prompt变量、取消/IME/焦点恢复及忙碌/离开守卫。草稿对照历史原文，编辑后条件采纳或确认丢弃；版本展示实际AI来源。
