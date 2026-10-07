@@ -48,7 +48,7 @@ const match = (db: Database.Database, word: string) => db.prepare('SELECT rowid 
 describe('I2 schema2 migration and transactional index', () => {
   it('new store has schema2, empty index/references and 15 categories, without an empty backup', async () => {
     const store = await open()
-    expect(store.db.pragma('user_version', { simple: true })).toBe(2)
+    expect(store.db.pragma('user_version', { simple: true })).toBe(schema.ASSETS_SCHEMA_VERSION)
     expect(store.db.prepare('SELECT count(*) AS n FROM asset_fts').get()).toEqual({ n: 0 })
     expect(store.db.prepare('SELECT count(*) AS n FROM asset_reference').get()).toEqual({ n: 0 })
     expect(store.db.prepare('SELECT count(*) AS n FROM asset_category').get()).toEqual({ n: 15 })
@@ -60,7 +60,7 @@ describe('I2 schema2 migration and transactional index', () => {
     const before = business(reader)
     reader.close()
     const store = await open()
-    expect(store.db.pragma('user_version', { simple: true })).toBe(2)
+    expect(store.db.pragma('user_version', { simple: true })).toBe(schema.ASSETS_SCHEMA_VERSION)
     expect(business(store.db)).toEqual(before)
     for (const word of ['科研标题', '科研摘要', '科研备注', '科研来源', '当前全文']) expect(match(store.db, word)).toEqual([{ rowid: 1 }])
     expect(match(store.db, '旧版独有')).toEqual([])
@@ -84,7 +84,7 @@ describe('I2 schema2 migration and transactional index', () => {
     const before = hash(layout.dbPath)
     await expect(open({ snapshot: async () => { throw new Error('snapshot denied') } })).rejects.toThrow('snapshot denied')
     expect(hash(layout.dbPath)).toBe(before)
-    expect((await open()).db.pragma('user_version', { simple: true })).toBe(2)
+    expect((await open()).db.pragma('user_version', { simple: true })).toBe(schema.ASSETS_SCHEMA_VERSION)
   })
   it('DDL failure rolls back the entire migration while retaining the immutable schema1 backup', async () => {
     const layout = legacy()
@@ -105,7 +105,7 @@ describe('I2 schema2 migration and transactional index', () => {
       expect(reader.prepare("SELECT name FROM sqlite_master WHERE name='asset_reference'").get()).toBeUndefined()
     } finally { reader.close() }
     expect(readdirSync(layout.backupsDir)).toHaveLength(1)
-    expect((await open()).db.pragma('user_version', { simple: true })).toBe(2)
+    expect((await open()).db.pragma('user_version', { simple: true })).toBe(schema.ASSETS_SCHEMA_VERSION)
   })
   it('rejects drifted schema1 before backup or any writable open', async () => {
     const layout = legacy()
@@ -137,7 +137,7 @@ describe('I2 schema2 migration and transactional index', () => {
       expect(reader.prepare("SELECT name FROM sqlite_master WHERE name IN ('asset_fts','asset_reference')").all()).toEqual([])
     } finally { reader.close() }
     expect(readdirSync(layout.backupsDir)).toHaveLength(1)
-    expect((await open()).db.pragma('user_version', { simple: true })).toBe(2)
+    expect((await open()).db.pragma('user_version', { simple: true })).toBe(schema.ASSETS_SCHEMA_VERSION)
   })
   it('schema1 snapshot includes committed uncheckpointed WAL rows instead of copying only the main file', async () => {
     const layout = legacy()

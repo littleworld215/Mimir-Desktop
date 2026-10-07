@@ -686,3 +686,10 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - 文件夹由原生授权；私有队列、扫描identity传给descriptor导入，创建资产并入最终文件事务，失败无空壳。逐文件进度/暂停等待当前文件/继续/失败重试；卸载释放队列、晚响应不写页面。拖拽读取立即撤销旧预览。
 - 全量916通过9既有跳过（925项、78文件），typecheck/test/build exit0；Windows x64目录包23729项审计PASS，Node→打包Electron→Node各7/7，开发/打包Electron13/13、0重试，来源check通过。新上下文只读复核2项P2经实际RED后修复，不冒充外部QA。
 - I3-01～03 Windows x64 Codex阶段验收通过，来源报告docs/verification-integration-i3-ui-20261007.md（D-052）。用户真实使用独立登记；下一步I4收藏/最近使用/保存筛选/任务包/变量配置。历史I3-02的计数/标题minor本主题已修复。
+
+## 科研资产整合 I4-01（2026-10-07）
+
+- 当前schema3：saved_filter独立revision，复用收藏/使用字段；已知schema1/2 exactDDL预检、先备份、原子升级，schema2不重复FTS回填。历史版本/用户分类/收藏最近数据不变。
+- collectionService纯服务：收藏幂等、最多500使用ID同事务验证，取用状态不改编辑revision/updatedAt/历史；保存筛选条件CRUD，严格查询校验，不存分页/选择，键序/集合序/默认值规范化。
+- 查询view all/favorites/recent，最近默认使用时间倒序、ID稳定排序，显式旧排序保留。已有43固定方法保持；新取用IPC/UI在I4-02实施，不把服务主题或旧I3目录包当I4整阶段验收。
+- 原始证据与完整结果见来源docs/verification-integration-i4-foundation-20261007.md（D-053）、计划INTEGRATION-PLAN-I4.md；真实Electron仅合成schema1/2升级，不访问用户库。

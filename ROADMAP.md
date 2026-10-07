@@ -84,3 +84,5 @@ Mimir-Desktop 已实现的核心能力（见 [README.md](./README.md)）：
 I3-01可移植JSON/Markdown导出服务已通过类型、全量测试和构建（881通过、9既有跳过），尚无UI入口。I3-02只读导入差异预览/条件提交、I3-03批量整理/文件夹队列/UI及原生打包闭环仍待；详细任务在来源docs/INTEGRATION-PLAN-I3.md，不将服务主题标为整阶段完成。
 I3-02 JSON预览与条件导入服务/IPC已交付：35固定方法、三策略/参见映射/文件历史保留、895通过9既有跳过及真实合成Electron闭环。I3-03尚待，继续完成批量、文件夹队列、UI与目录包终验；一并调整filesMissing计数口径及旧测试标题文案，不把服务主题当整I3完成。
 I3-03与I3 Windows x64 Codex阶段验收完成（D-052）：43固定方法、批量/文件夹/4个lazy交换窗口/显式Prompt格式；916通过9既有跳过、三闸门exit0、开发/打包Electron13/13（0重试）、原生各7/7、包内23729项审计PASS。用户真实使用另验；下一步I4取用能力，详见来源docs/verification-integration-i3-ui-20261007.md。
+
+I4-01 schema3与收藏/使用/保存筛选服务基础完成（D-053），三闸门与合成Electron旧库升级通过；详见来源docs/verification-integration-i4-foundation-20261007.md。I4-02固定IPC/取用与筛选界面、I4-03任务包变量逻辑、I4-04界面及阶段目录包终验仍待，I4整体未验收。

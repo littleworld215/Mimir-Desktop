@@ -200,7 +200,8 @@ export interface AssetFolderQueue {
 export interface AssetListQuery {
   q?: string
   searchIn?: 'all' | 'title' | 'body' | 'source' | 'organization'
-  sort?: 'relevance' | 'updated' | 'name'
+  sort?: 'relevance' | 'updated' | 'name' | 'recent'
+  view?: 'all' | 'favorites' | 'recent'
   updatedAfter?: string
   excludeTagIds?: number[]
   ids?: number[]
@@ -212,6 +213,16 @@ export interface AssetListQuery {
   tagMode?: TagMode
   storageType?: StorageType
   archived?: ArchiveScope
+}
+
+/** Saved queries contain filters only, never a page or a selected asset set. */
+export interface SavedAssetFilter {
+  id: number
+  name: string
+  query: Omit<AssetListQuery, 'page' | 'pageSize' | 'ids'>
+  revision: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AssetTag {
@@ -283,6 +294,8 @@ export interface AssetDetail {
 
 /** 列表行：不含正文，避免一次载入全部内容。 */
 export interface AssetSummary {
+  isFavorite?: 0 | 1
+  lastUsedAt?: string | null
   /** Plain text only; matches use JavaScript UTF-16 offsets, not code point offsets. */
   excerpt?: { text: string; matches: Array<{ start: number; end: number }> }
   id: number

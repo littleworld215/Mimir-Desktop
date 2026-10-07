@@ -10,7 +10,7 @@
  * - I4 加 saved_filter；I5 加 ai_draft。后续能力不预建空表。
  */
 
-export const ASSETS_SCHEMA_VERSION = 2
+export const ASSETS_SCHEMA_VERSION = 3
 
 /**
  * 预置分类（与来源 `server/src/db/seed.ts` 的 CATEGORIES / AI_TREE / inbox 语义对齐，共 15 项）。
@@ -167,4 +167,19 @@ export const ASSETS_I2_DDL: readonly string[] = [
   END`
 ]
 
-export const ASSETS_DDL: readonly string[] = [...ASSETS_V1_DDL, ...ASSETS_I2_DDL]
+export const ASSETS_V2_DDL: readonly string[] = [...ASSETS_V1_DDL, ...ASSETS_I2_DDL]
+
+export const ASSETS_I4_DDL: readonly string[] = [
+  `CREATE TABLE saved_filter (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    query_json TEXT NOT NULL CHECK (json_valid(query_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX idx_saved_filter_updated ON saved_filter(updated_at DESC,id DESC)`,
+  `CREATE INDEX idx_asset_last_used ON asset(last_used_at DESC,id DESC)`,
+  `CREATE INDEX idx_asset_favorite ON asset(is_favorite,id)`
+]
+export const ASSETS_DDL: readonly string[] = [...ASSETS_V2_DDL, ...ASSETS_I4_DDL]

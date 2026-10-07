@@ -68,6 +68,7 @@ function fileAvailableFor(row: AssetRow, version: { file_path: string | null } |
 /** 列表只取元信息与版本编号，不读取正文。 */
 export function summary(s: AssetsWriteSession, row: AssetRow): AssetSummary {
   return {
+    isFavorite: row.is_favorite, lastUsedAt: row.last_used_at,
     id: row.id, code: row.code, name: row.name, category: row.category, categoryPath: categoryPath(s, row.category),
     description: row.description, storageType: row.storage_type, kind: row.kind,
     currentVersion: row.current_version_id === null ? null : s.get<{ version: number }>('SELECT version FROM asset_version WHERE id=? AND asset_id=?', row.current_version_id, row.id)?.version ?? null,

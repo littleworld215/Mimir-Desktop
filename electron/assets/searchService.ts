@@ -55,6 +55,8 @@ export function searchAssetsInSession(s: AssetsWriteSession, query: SearchQuery)
     const add = (sql: string, ...values: unknown[]) => { where.push(sql); params.push(...values) }
     if (query.archived === 'only') add('a.archived_at IS NOT NULL')
     else if (query.archived !== 'include') add('a.archived_at IS NULL')
+    if (query.view === 'favorites') add('a.is_favorite=1')
+    if (query.view === 'recent') add('a.last_used_at IS NOT NULL')
     if (query.category !== undefined) {
       if (!selectCategory(s, query.category)) throw new AssetsStoreError('BAD_CATEGORY', '分类不存在。')
       const codes = [query.category, ...selectDescendantCodes(s, query.category)]
@@ -86,6 +88,7 @@ export function searchAssetsInSession(s: AssetsWriteSession, query: SearchQuery)
     let order = 'a.updated_at DESC,a.id DESC'
     const rankParams: unknown[] = []
     if (query.sort === 'name') order = 'a.name COLLATE NOCASE,a.id'
+    if (query.sort === 'recent') order = 'a.last_used_at DESC,a.id DESC'
     if (query.q && query.sort === 'relevance') {
       const fieldRank = (field: string, column: string, score: number): [string, number, string] => long && query.searchIn !== 'organization'
         ? ['a.id IN (SELECT rowid FROM asset_fts WHERE asset_fts MATCH ?)', score, `${column} : ${literalPhrase(query.q)}`]

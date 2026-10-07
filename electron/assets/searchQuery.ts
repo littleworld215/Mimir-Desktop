@@ -25,7 +25,7 @@ export function readSearchQuery(input: unknown): SearchQuery {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) bad()
   const raw = input as Record<string, unknown>
   const keys = ['page', 'pageSize', 'category', 'kind', 'tagIds', 'tagMode', 'storageType', 'archived',
-    'q', 'searchIn', 'sort', 'updatedAfter', 'excludeTagIds', 'ids']
+    'q', 'searchIn', 'sort', 'view', 'updatedAfter', 'excludeTagIds', 'ids']
   if (Object.keys(raw).some(key => !keys.includes(key))) bad()
   const page = positive(raw.page ?? 1)
   const pageSize = positive(raw.pageSize ?? 50)
@@ -34,7 +34,8 @@ export function readSearchQuery(input: unknown): SearchQuery {
   const q = ((raw.q ?? '') as string).trim()
   if ([...q].length > 200) bad()
   if (raw.searchIn !== undefined && !['all', 'title', 'body', 'source', 'organization'].includes(raw.searchIn as string)) bad()
-  if (raw.sort !== undefined && !['relevance', 'updated', 'name'].includes(raw.sort as string)) bad()
+  if (raw.sort !== undefined && !['relevance', 'updated', 'name', 'recent'].includes(raw.sort as string)) bad()
+  if (raw.view !== undefined && !['all', 'favorites', 'recent'].includes(raw.view as string)) bad()
   if (raw.kind !== undefined && raw.kind !== null && !['thought', 'rule', 'file', 'prompt'].includes(raw.kind as string)) bad()
   if (raw.archived !== undefined && !['exclude', 'include', 'only'].includes(raw.archived as string)) bad()
   if (raw.tagMode !== undefined && !['and', 'or'].includes(raw.tagMode as string)) bad()
@@ -51,7 +52,7 @@ export function readSearchQuery(input: unknown): SearchQuery {
   return {
     ...raw as AssetListQuery, category, page, pageSize, q,
     searchIn: (raw.searchIn ?? 'all') as SearchQuery['searchIn'],
-    sort: (raw.sort ?? (q ? 'relevance' : 'updated')) as SearchQuery['sort'],
+    sort: (raw.sort ?? (raw.view === 'recent' ? 'recent' : q ? 'relevance' : 'updated')) as SearchQuery['sort'],
     tagIds: numbers(raw.tagIds), excludeTagIds: numbers(raw.excludeTagIds),
     ids: raw.ids === undefined ? undefined : numbers(raw.ids, 200)
   }

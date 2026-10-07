@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import Database from 'better-sqlite3'
 import { mkdirSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { ASSETS_V1_DDL } from '../../electron/assets/schema'
+import { ASSETS_V1_DDL, ASSETS_SCHEMA_VERSION } from '../../electron/assets/schema'
 import { launchApp } from '../fixtures/launch'
 import { gotoModule } from '../helpers/nav'
 
@@ -41,7 +41,7 @@ for (const runtime of runtimes) {
       const dir = join(launched.tempHome.home, 'Mimir', '科研空间', '.mimir', 'assets')
       const reader = new Database(join(dir, 'assets.db'), { readonly: true })
       try {
-        expect(reader.pragma('user_version', { simple: true })).toBe(2)
+        expect(reader.pragma('user_version', { simple: true })).toBe(ASSETS_SCHEMA_VERSION)
         expect(reader.pragma('integrity_check', { simple: true })).toBe('ok')
         expect(reader.prepare('SELECT * FROM asset_version ORDER BY id').all()).toEqual(oldRows)
         expect(reader.prepare('SELECT code,name FROM asset_category').all()).toEqual([{ code: 'inbox', name: '旧库自定义分类' }])
