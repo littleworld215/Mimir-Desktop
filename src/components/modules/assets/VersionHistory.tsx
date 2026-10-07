@@ -8,6 +8,8 @@ export function VersionHistory({ asset, scope, onRollback, onDownload, onClose }
   const [page, setPage] = useState(1), [versions, setVersions] = useState<VersionPage | null>(null), [version, setVersion] = useState<AssetVersion | null>(null), [diff, setDiff] = useState<VersionDiff | null>(null)
   const [from, setFrom] = useState(''), [to, setTo] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [reload, setReload] = useState(0)
   const alive = useRef(false), running = useRef(false)
+  let aiGenerated = false
+  try { aiGenerated = JSON.parse(version?.sourceJson ?? '{}').aiGenerated === true } catch { /* 无效历史来源仍按字面展示。 */ }
   useAssetsEditorGuard({ isDirty: () => false, isBusy: () => running.current, save: async () => false, discard: onClose })
   useEffect(() => { alive.current = true; let cancelled = false; setBusy(true); running.current = true
     assetsApi.listVersions({ ...scope, assetId: asset.id, page, pageSize: 10 }).then(result => { if (!cancelled) { setVersions(result.page); setError('') } }).catch(error => { if (!cancelled) setError(errorMessage(error)) }).finally(() => { if (!cancelled) { setBusy(false); running.current = false } })
@@ -28,6 +30,7 @@ export function VersionHistory({ asset, scope, onRollback, onDownload, onClose }
     {asset.archivedAt && <p className="text-sm text-muted-foreground">归档资产可读取和下载历史；回滚前请先恢复。</p>}
     {version && <section><h3 className="text-sm font-medium">v{version.version} 原文</h3><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border p-3 text-xs">{asset.storageType === 'file' ? version.fileName ?? '未记录文件名' : version.content}</pre></section>}
     {diff && <VersionCompare diff={diff} />}
+    {version && <details><summary className="cursor-pointer text-sm">{aiGenerated ? 'AI 生成版本 · 来源与模型快照保留' : '版本来源记录'}</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border p-3 text-xs">{version.sourceJson}</pre></details>}
     {busy && <p role="status" className="text-sm">正在处理版本…</p>}
   </AssetModal>
 }

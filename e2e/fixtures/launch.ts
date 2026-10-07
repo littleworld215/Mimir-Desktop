@@ -107,6 +107,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   const electronProcess = app.process()
 
   try {
+    // 冷启动期间CDP求值可能被初始化清理打断；等真实窗口就绪后再核对隔离路径。
+    const firstWindow = await app.firstWindow()
 
     // ── 隔离硬校验 ────────────────────────────────────────────────────────
     // 判据是「store.ts 实际用的路径」而非 app.getPath('home')。
@@ -131,7 +133,6 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     }
 
     // 等首个窗口就绪后，校验 store 真的落在临时 HOME（此时应用已完成 store 初始化）
-    const firstWindow = await app.firstWindow()
     const storeFile = join(tempHome.home, '.mimir', 'store.json')
     const contamination = await waitFor(() => existsSync(storeFile), 10_000)
     if (!contamination) {

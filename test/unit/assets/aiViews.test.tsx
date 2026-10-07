@@ -1,0 +1,163 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { AiAssist } from '../../../src/components/modules/assets/AiAssist'
+import { AiDrafts } from '../../../src/components/modules/assets/AiDrafts'
+import { AiTags } from '../../../src/components/modules/assets/AiTags'
+import { VersionHistory } from '../../../src/components/modules/assets/VersionHistory'
+import { assetsApi, AssetsApiError } from '../../../src/components/modules/assets/assetsApi'
+import { requestAssetsLeave } from '../../../src/lib/assetsEditGuard'
+import type { AssetDetail } from '../../../shared/assetsContracts'
+import type { AiDraft } from '../../../shared/assetsAiContracts'
+
+const scope = { workspaceId: 'test', spaceEpoch: 'test#1' }
+const asset = { id: 7, name: '论文笔记', category: 'inbox', revision: 2, currentVersionId: 12, currentContent: '当前正文', storageType: 'inline_text', archivedAt: null } as AssetDetail
+const draft = { id: 9, assetId: 7, mode: 'polish', content: '模型正文', sourceVersionId: 11, sourceRevision: 1, model: 'mock', promptSnapshot: '实际Prompt', usage: { totalTokens: 3 }, createdAt: '2026-10-08' } as AiDraft
+const props = { scope, asset, categories: [], write: <T,>(fn: (s: typeof scope) => Promise<T>) => fn(scope), onClose: vi.fn(), onChanged: vi.fn() }
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks() })
+function readMocks() {
+  vi.spyOn(assetsApi, 'list').mockResolvedValue({ page: { items: [], total: 0, page: 1, pageSize: 20 } })
+  vi.spyOn(assetsApi, 'listAiDrafts').mockResolvedValue({ page: { items: [draft as never], total: 1, page: 1, pageSize: 10 } })
+  vi.spyOn(assetsApi, 'getAiDraft').mockResolvedValue({ draft })
+  vi.spyOn(assetsApi, 'getVersion').mockResolvedValue({ version: { id: 11, content: '生成时原文', version: 1 } as never })
+  vi.spyOn(assetsApi, 'get').mockResolvedValue({ asset })
+}
+it('整理打开零模型调用，显式确认后发送；失败保留模式和Prompt变量，IME不提交', async () => {
+  readMocks()
+  const generate = vi.spyOn(assetsApi, 'generateAiDraft').mockRejectedValue(new AssetsApiError('AI_FAILED', '模型失败'))
+  render(<AiAssist {...props} onGenerated={vi.fn()} />)
+  await screen.findByText('当前正文')
+  expect(generate).not.toHaveBeenCalled()
+  expect((screen.getByRole('button', { name: '生成待采纳草稿' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.change(screen.getByLabelText('整理模式'), { target: { value: 'restructure' } })
+  fireEvent.click(screen.getByLabelText(/同意将原文/))
+  fireEvent.compositionStart(screen.getByLabelText('整理模式'))
+  fireEvent.keyDown(screen.getByLabelText('整理模式'), { key: 'Enter', ctrlKey: true, keyCode: 229 })
+  expect(generate).not.toHaveBeenCalled()
+  fireEvent.compositionEnd(screen.getByLabelText('整理模式'))
+  fireEvent.click(screen.getByRole('button', { name: '生成待采纳草稿' }))
+  await screen.findByText(/模型失败/)
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ ...scope, confirmSend: true, input: { assetId: 7, sourceVersionId: 12, mode: 'restructure', values: {} } }))
+  expect((screen.getByLabelText('整理模式') as HTMLSelectElement).value).toBe('restructure')
+})
+it('取消请求独立于忙碌写守卫，迟到结果不打开草稿，卸载时清理', async () => {
+  readMocks()
+  let finish!: (r: { draft: AiDraft }) => void
+  vi.spyOn(assetsApi, 'generateAiDraft').mockImplementation(() => new Promise(r => { finish = r }))
+  const cancel = vi.spyOn(assetsApi, 'cancelAiRequest').mockResolvedValue({ canceled: true }), generated = vi.fn()
+  render(<AiAssist {...props} onGenerated={generated} />)
+  fireEvent.click(screen.getByLabelText(/同意将原文/))
+  fireEvent.click(screen.getByRole('button', { name: '生成待采纳草稿' }))
+  await screen.findByRole('button', { name: '取消模型请求' })
+  expect(await requestAssetsLeave('discard')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '取消模型请求' }))
+  await waitFor(() => expect(cancel).toHaveBeenCalledWith(expect.objectContaining(scope)))
+  finish({ draft })
+  await screen.findByText(/已取消/)
+  expect(generated).not.toHaveBeenCalled()
+})
+it('草稿按来源版本对照，采纳冲突保留编辑；重新读取只更新承载revision，不覆盖输入', async () => {
+  readMocks()
+  const adopt = vi.spyOn(assetsApi, 'adoptAiDraft').mockRejectedValue(new AssetsApiError('VERSION_CONFLICT', '原文已修改，草稿保留'))
+  render(<AiDrafts {...props} initialDraft={draft} />)
+  await screen.findByLabelText('草稿来源原文')
+  fireEvent.change(screen.getByLabelText('编辑后采纳正文'), { target: { value: '人工修改结果\n\n' } })
+  expect(await requestAssetsLeave('cancel')).toBe(false)
+  fireEvent.click(screen.getByLabelText(/确认采纳此草稿/))
+  fireEvent.click(screen.getByRole('button', { name: '采纳草稿' }))
+  await screen.findByText(/原文已修改/)
+  expect((screen.getByLabelText('编辑后采纳正文') as HTMLTextAreaElement).value).toBe('人工修改结果\n\n')
+  fireEvent.click(screen.getByRole('button', { name: '重新读取来源资产' }))
+  await waitFor(() => expect(assetsApi.get).toHaveBeenCalled())
+  expect((screen.getByLabelText('编辑后采纳正文') as HTMLTextAreaElement).value).toBe('人工修改结果\n\n')
+  expect(adopt).toHaveBeenCalledWith(expect.objectContaining({ draftId: 9, confirm: true, input: { expectedRevision: 2, carry: 'version', content: '人工修改结果\n\n' } }))
+})
+it('丢弃必须确认，未确认不删除；失败草稿仍可读', async () => {
+  readMocks()
+  const discard = vi.spyOn(assetsApi, 'discardAiDraft').mockRejectedValue(new AssetsApiError('BAD_REQUEST', '丢弃失败'))
+  render(<AiDrafts {...props} initialDraft={draft} />)
+  await screen.findByLabelText('草稿来源原文')
+  fireEvent.click(screen.getByRole('button', { name: '丢弃草稿' }))
+  expect(discard).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '确认丢弃' }))
+  await screen.findByText(/丢弃失败/)
+  expect(screen.getByLabelText('编辑后采纳正文')).toBeTruthy()
+})
+it('标签建议只读，明确选择并确认才采纳，失败保留候选', async () => {
+  const suggest = vi.spyOn(assetsApi, 'suggestAiTags').mockResolvedValue({ suggestions: [{ name: '科研', existingTagId: null }, { name: 'Rust', existingTagId: 1 }], sourceVersionId: 12, sourceRevision: 2, model: 'mock', truncated: false, contentTruncated: true })
+  const adopt = vi.spyOn(assetsApi, 'adoptSuggestedTags').mockRejectedValue(new AssetsApiError('REVISION_CONFLICT', '标签已变化'))
+  render(<AiTags {...props} />)
+  expect(suggest).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByLabelText(/同意发送正文摘要/))
+  fireEvent.click(screen.getByRole('button', { name: '生成标签建议' }))
+  await screen.findByLabelText('选择标签 科研')
+  expect(adopt).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByLabelText('选择标签 科研'))
+  fireEvent.click(screen.getByLabelText(/确认添加所选标签/))
+  fireEvent.click(screen.getByRole('button', { name: '采纳所选标签' }))
+  await screen.findByText(/标签已变化/)
+  expect(adopt).toHaveBeenCalledWith({ ...scope, confirm: true, input: { assetId: 7, expectedRevision: 2, names: ['科研'] } })
+  expect((screen.getByLabelText('选择标签 科研') as HTMLInputElement).checked).toBe(true)
+})
+it('历史读取展示AI生成标记与版本级溯源，不用当前资产来源替代', async () => {
+  vi.spyOn(assetsApi, 'listVersions').mockResolvedValue({ page: { items: [{ id: 12, version: 2 }], total: 1, page: 1, pageSize: 10 } } as never)
+  vi.spyOn(assetsApi, 'getVersion').mockResolvedValue({ version: { id: 12, version: 2, content: 'AI正文', sourceJson: '{"aiGenerated":true,"model":"mock"}' } as never })
+  render(<VersionHistory asset={asset} scope={scope} onRollback={vi.fn()} onDownload={vi.fn()} onClose={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '读取版本 2' }))
+  await screen.findByText('AI 生成版本 · 来源与模型快照保留')
+})
+it('模板选择的迟到正文不能恢复旧选项，原文变量不允许手填', async () => {
+  readMocks()
+  vi.mocked(assetsApi.list).mockResolvedValue({ page: { items: [{ id: 20, name: '慢模板' }, { id: 21, name: '新模板' }], total: 2, page: 1, pageSize: 20 } } as never)
+  let finish!: (r: { asset: AssetDetail }) => void
+  vi.mocked(assetsApi.get).mockImplementation(({ assetId }) => assetId === 20 ? new Promise(r => { finish = r }) : Promise.resolve({ asset: { ...asset, id: 21, currentContent: '{{语气:正式}}\n{{原文}}' } }))
+  const generate = vi.spyOn(assetsApi, 'generateAiDraft').mockResolvedValue({ draft }), generated = vi.fn()
+  render(<AiAssist {...props} onGenerated={generated} />)
+  await screen.findByRole('option', { name: '慢模板' })
+  fireEvent.change(screen.getByLabelText('Prompt 模板'), { target: { value: '20' } })
+  fireEvent.change(screen.getByLabelText('Prompt 模板'), { target: { value: '21' } })
+  await screen.findByLabelText('语气')
+  finish({ asset: { ...asset, id: 20, currentContent: '{{旧变量}}' } })
+  await waitFor(() => expect(screen.queryByLabelText('旧变量')).toBeNull())
+  expect(screen.queryByLabelText('原文')).toBeNull()
+  fireEvent.click(screen.getByLabelText(/同意将原文/))
+  fireEvent.click(screen.getByRole('button', { name: '生成待采纳草稿' }))
+  await waitFor(() => expect(generated).toHaveBeenCalledWith(draft))
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ input: { assetId: 7, sourceVersionId: 12, mode: 'polish', promptAssetId: 21, values: { 语气: '正式' } } }))
+})
+it('卸载中的模型请求通知取消，随后返回不能触发旧窗口回调', async () => {
+  readMocks()
+  let finish!: (r: { draft: AiDraft }) => void
+  vi.spyOn(assetsApi, 'generateAiDraft').mockImplementation(() => new Promise(r => { finish = r }))
+  const cancel = vi.spyOn(assetsApi, 'cancelAiRequest').mockResolvedValue({ canceled: true }), generated = vi.fn()
+  const ui = render(<AiAssist {...props} onGenerated={generated} />)
+  fireEvent.click(screen.getByLabelText(/同意将原文/)); fireEvent.click(screen.getByRole('button', { name: '生成待采纳草稿' }))
+  await screen.findByRole('button', { name: '取消模型请求' })
+  ui.unmount()
+  await waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+  finish({ draft }); await new Promise(r => setTimeout(r, 0))
+  expect(generated).not.toHaveBeenCalled()
+})
+it('保存后离开不能绕过空白正文限制，不采纳或消费草稿', async () => {
+  readMocks()
+  const adopt = vi.spyOn(assetsApi, 'adoptAiDraft').mockResolvedValue({ asset, carry: 'version' })
+  render(<AiDrafts {...props} initialDraft={draft} />)
+  await screen.findByLabelText('草稿来源原文')
+  fireEvent.change(screen.getByLabelText('编辑后采纳正文'), { target: { value: ' \n\n' } })
+  fireEvent.click(screen.getByLabelText(/确认采纳此草稿/))
+  expect((screen.getByRole('button', { name: '采纳草稿' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(await requestAssetsLeave('save')).toBe(false)
+  expect(adopt).not.toHaveBeenCalled()
+  expect((screen.getByLabelText('编辑后采纳正文') as HTMLTextAreaElement).value).toBe(' \n\n')
+})
+it('冒号前空格的保留变量没有原文控件，预览与服务端去除手填原文规则一致', async () => {
+  readMocks()
+  vi.mocked(assetsApi.list).mockResolvedValue({ page: { items: [{ id: 20, name: '保留变量模板' }], total: 1, page: 1, pageSize: 20 } } as never)
+  vi.mocked(assetsApi.get).mockResolvedValue({ asset: { ...asset, id: 20, currentContent: '{{原文 :默认内容}}\n{{语气:正式}}' } })
+  render(<AiAssist {...props} onGenerated={vi.fn()} />)
+  await screen.findByRole('option', { name: '保留变量模板' })
+  fireEvent.change(screen.getByLabelText('Prompt 模板'), { target: { value: '20' } })
+  await screen.findByLabelText('语气')
+  expect(screen.queryByLabelText('原文')).toBeNull()
+  expect(screen.getByLabelText('发送内容预览').textContent).toContain('默认内容\n正式\n\n---\n\n当前正文')
+})

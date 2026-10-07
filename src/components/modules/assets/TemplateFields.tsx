@@ -2,8 +2,8 @@ import type {TemplateValues} from '@/lib/assets/template'
 import {variableControls} from '@/lib/assets/template'
 import {AssetField,controlClass} from './assetsUi'
 
-export function TemplateFields({template,config,values,onChange,disabled=false}:{template:string;config?:unknown;values:TemplateValues;onChange:(values:TemplateValues)=>void;disabled?:boolean}) {
-  return <fieldset disabled={disabled} className="space-y-3">{variableControls(template,config).map(v=>{
+export function TemplateFields({template,config,values,onChange,disabled=false,excludeNames=[]}:{template:string;config?:unknown;values:TemplateValues;onChange:(values:TemplateValues)=>void;disabled?:boolean;excludeNames?:readonly string[]}) {
+  return <fieldset disabled={disabled} className="space-y-3">{variableControls(template,config).filter(v=>!excludeNames.includes(v.name)).map(v=>{
     const value=values[v.name]??'', update=(next:string|string[])=>onChange({...values,[v.name]:next})
     if(v.type==='multi') {
       const selected=Array.isArray(value)?value:[],options=[...new Set([...v.options,...selected])]
