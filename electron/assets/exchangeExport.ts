@@ -32,7 +32,7 @@ function bound(content: string): string {
   if (Buffer.byteLength(content, 'utf8') > ASSET_TRANSFER_MAX_BYTES) bad('导出超过200MiB，请缩小筛选范围或分批导出。')
   return content
 }
-function portable(s: AssetsWriteSession, id: number, originalOnly: boolean): ExchangeAsset | null {
+export function portable(s: AssetsWriteSession, id: number, originalOnly: boolean): ExchangeAsset | null {
   const row = selectAsset(s, id)
   if (!row) throw new AssetsStoreError('NOT_FOUND', '资产已不存在，请刷新选择。')
   if (originalOnly && aiGenerated(row.source_json)) return null

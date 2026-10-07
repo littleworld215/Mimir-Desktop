@@ -673,3 +673,9 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - 全筛选或最多500所选ID，空选择导出零条，缺失/筛选外ID拒绝；普通列表ID上限仍200。保留分类路径、标签、参见code、模板配置、来源与原文空白；文件只元信息，无数据库ID/托管路径。
 - original-only严格布尔true，最新非AI版本没有则回退当前；JSON/Markdown最终UTF8上限200MiB，超限拒绝，不截断。
 - 定向29/29，全量881通过/9既有跳过，typecheck/test/build exit0；来源证据docs/verification-integration-i3-export-20261007.md。I3-01没有IPC、落盘授权或UI，下一主题JSON预览/条件导入；I3整体尚未验收。
+## 科研资产整合 I3-02（2026-10-07）
+
+- `exchangeParse`纯验证、`exchangePreview`只读计划与六表/输入/scope HMAC、`exchangeImport`单守卫事务提交；新固定exportAssets/previewImport/importJson方法，旧32保留共35。渲染AssetsApi/env沿用共享类型。
+- skip/overwrite/copy，中文路径重建；显式跳过普通坏行但坏模板始终整批拒绝。副本code确定且保持语法，参见优先映射同批副本；同形态覆盖保留文件版本，正文变化才追加版本， SQL失败整批回滚。共享现有标签颜色保留。
+- 令牌失效报PREVIEW_STALE，进程重启需重新预览；无文件路径/二进制能力。定向58/58，全量895通过/9既有跳过，三闸门exit0，真实合成Electron IPC最终串行1/1并退出只读重开SQLite验证。来源证据docs/verification-integration-i3-import-20261007.md；首次修复后夹具启动失败单独留档。
+- I3-03待：批量整理、文件夹队列、导入/导出UI与目录包终验；filesMissing现含所有交换文件行，不能当磁盘缺失数，需UI阶段调整计数/标签。旧测试标题32的文案minor另登记。I3尚未整体验收。

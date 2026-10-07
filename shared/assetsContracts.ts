@@ -21,6 +21,7 @@ export type TagMode = 'and' | 'or'
 /** 资产域统一错误码（IPC 捕获业务错误后回传，未知异常另行兜底）。 */
 export type AssetsErrorCode =
   | 'BAD_REQUEST'
+  | 'PREVIEW_STALE'
   | 'NOT_FOUND'
   | 'DUPLICATE_CODE'
   | 'BAD_CATEGORY'
@@ -148,6 +149,32 @@ export interface AssetExportRequest {
 export interface AssetExportResult { format: 'json' | 'markdown'; count: number; fileName: string; content: string }
 /** Mirrors the source application's transfer-file limit; never silently truncates. */
 export const ASSET_TRANSFER_MAX_BYTES = 200 * 1024 * 1024
+
+export type AssetImportMode = 'skip' | 'overwrite' | 'copy'
+export interface AssetImportRequest { raw: string; mode?: AssetImportMode; skipIndexes?: number[] }
+export interface AssetImportRowPreview {
+  index: number
+  code: string
+  targetCode: string
+  action: 'create' | 'update' | 'skip' | 'error'
+  before: ExchangeAsset | null
+  after: ExchangeAsset | null
+  warnings: string[]
+}
+export interface AssetImportPreview {
+  previewToken: string
+  canCommit: boolean
+  created: number
+  updated: number
+  skipped: number
+  filesMissing: number
+  categoriesMissing: string[]
+  referencesMissing: string[]
+  errors: Array<{ index: number; message: string }>
+  duplicates: Array<{ index: number; code: string; matches: string[] }>
+  rows: AssetImportRowPreview[]
+}
+export interface AssetImportResult { created: number; updated: number; skipped: number; assetIds: number[] }
 
 export interface AssetListQuery {
   q?: string
@@ -352,6 +379,9 @@ export interface AssetDeleteImpact {
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
 export interface AssetsApi {
+  exportAssets(req: WorkspaceRequest & AssetExportRequest): Promise<AssetsResult<{ result: AssetExportResult }>>
+  previewImport(req: WorkspaceRequest & AssetImportRequest): Promise<AssetsResult<{ preview: AssetImportPreview }>>
+  importJson(req: WorkspaceRequest & AssetImportRequest & { previewToken: string }): Promise<AssetsResult<{ result: AssetImportResult }>>
   references(req: AssetRef): Promise<AssetsResult<{ references: AssetReferences }>>
   addReference(req: AssetReferenceWrite): Promise<AssetsResult<AssetReferenceChange>>
   removeReference(req: AssetReferenceWrite): Promise<AssetsResult<AssetReferenceChange>>
@@ -452,6 +482,9 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  exportAssets: 'assets:exportAssets',
+  previewImport: 'assets:previewImport',
+  importJson: 'assets:importJson',
   references: 'assets:references',
   addReference: 'assets:addReference',
   removeReference: 'assets:removeReference',

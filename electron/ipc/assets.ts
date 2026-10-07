@@ -21,6 +21,8 @@ import { assetsStoreManager } from '../assets/store'
 import { AssetsStoreError, type AssetsContext } from '../assets/types'
 import { createAsset, getAsset, listAssets, updateAsset } from '../assets/assetService'
 import { getReferences, addReference, removeReference, getReferenceGraph } from '../assets/referenceService'
+import { exportAssets } from '../assets/exchangeExport'
+import { previewImport, commitImport } from '../assets/exchangeImport'
 import { archiveAsset, restoreAsset, deletePreview, deleteAsset } from '../assets/archiveService'
 import { listCategories, createCategory, updateCategory, categoryImpact, removeCategory } from '../assets/categoryService'
 import { listTags, createTag, addTags, removeTags, tagImpact, renameTag, mergeTags, deleteTag } from '../assets/tagService'
@@ -150,6 +152,21 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
 
 /** 完整资产域固定通道（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
+  const exchangeServices = {
+    exportAssets: (ctx: AssetsContext, query: unknown) => ({ result: exportAssets(ctx,query) }),
+    previewImport: (ctx: AssetsContext, query: unknown) => ({ preview: previewImport(ctx,query) }),
+    importJson: (ctx: AssetsContext, query: unknown) => ({ result: commitImport(ctx,query) })
+  }
+  for (const method of Object.keys(exchangeServices) as (keyof typeof exchangeServices)[]) {
+    ipcMain.handle(ASSETS_CHANNELS[method],async (_event,request: unknown) => {
+      try {
+        const scope=assertWorkspaceRequest(request)
+        const ctx=await assetsStoreManager.getForRequest(scope)
+        const { workspaceId: _workspace, spaceEpoch: _epoch, ...query }=request as Record<string,unknown>
+        return { ok:true,...exchangeServices[method](ctx,query) }
+      } catch (error) { return failure(error) }
+    })
+  }
   const referenceServices = {
     references: (ctx: AssetsContext, query: unknown) => ({ references: getReferences(ctx, query) }),
     addReference,

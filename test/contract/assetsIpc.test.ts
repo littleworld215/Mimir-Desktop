@@ -65,12 +65,38 @@ beforeEach(() => {
 })
 
 describe('注册面', () => {
+  it('固定导出与JSON预览/提交三个入口保留旧32方法', () => {
+    for (const channel of ['assets:exportAssets','assets:previewImport','assets:importJson']) expect(hoisted.handlers.has(channel)).toBe(true)
+    expect(hoisted.handlers.size).toBe(35)
+  })
   it('增量注册四个参见通道，旧方法继续保留', () => {
     for (const channel of ['assets:references', 'assets:addReference', 'assets:removeReference', 'assets:referenceGraph']) expect(hoisted.handlers.has(channel)).toBe(true)
   })
   it('完整注册合同32条通道（旧28加参见4），不注册任意通道', () => {
     const expected = Object.values(ASSETS_CHANNELS).sort()
     expect([...hoisted.handlers.keys()].sort()).toEqual(expected)
+  })
+})
+
+describe('交换通道运行时合同', () => {
+  const channels=['assets:exportAssets','assets:previewImport','assets:importJson']
+  it('三个入口拒绝无效scope、未知字段与路径，跨空间/未知异常不泄露', async () => {
+    hoisted.getForRequest.mockResolvedValue(fakeContext(0))
+    for(const channel of channels) {
+      for(const payload of [null,[],{}, {...SCOPE,path:'secret'}, {...SCOPE,raw:'[]',unknown:true}]) expect(await handler(channel)({},payload)).toMatchObject({ok:false,code:'BAD_REQUEST'})
+      hoisted.getForRequest.mockRejectedValueOnce(new AssetsStoreError('SPACE_CHANGED','changed'))
+      expect(await handler(channel)({},SCOPE)).toMatchObject({ok:false,code:'SPACE_CHANGED'})
+      hoisted.getForRequest.mockRejectedValueOnce(new Error('SQLITE secret stack'))
+      const failed=await handler(channel)({},SCOPE)
+      expect(failed).toMatchObject({ok:false,code:'WRITE_FAILED'})
+      expect(JSON.stringify(failed)).not.toContain('secret')
+    }
+  })
+  it('陈旧预览有专用错误码；空集导出不能变成全库', async () => {
+    const ctx={scope:SCOPE,write:(fn:(s:unknown)=>unknown)=>fn({all:()=>[],get:()=>undefined})}
+    hoisted.getForRequest.mockResolvedValue(ctx)
+    expect(await handler('assets:importJson')({}, {...SCOPE,raw:'[]',previewToken:'bad'})).toMatchObject({ok:false,code:'PREVIEW_STALE'})
+    expect(await handler('assets:exportAssets')({}, {...SCOPE,ids:[]})).toMatchObject({ok:true,result:{count:0}})
   })
 })
 
