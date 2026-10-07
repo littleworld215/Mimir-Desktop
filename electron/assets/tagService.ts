@@ -96,6 +96,15 @@ export function mergeTags(ctx: AssetsContext, sourceId: unknown, targetId: unkno
     if (source === target) return tag(s, target)
     bumpAssets(s, source)
     s.run('INSERT OR IGNORE INTO asset_tag(asset_id,tag_id) SELECT asset_id,? FROM asset_tag WHERE tag_id=?', target, source)
+    // Repair both positive and negative references within the same transaction.
+    for(const f of s.all<{id:number;query_json:string}>('SELECT id,query_json FROM saved_filter')) {
+      const query=JSON.parse(f.query_json) as {tagIds?:number[];excludeTagIds?:number[]}
+      let changed=false
+      for(const key of ['tagIds','excludeTagIds'] as const) if(query[key]?.includes(source)) {
+        query[key]=[...new Set(query[key]!.map(id=>id===source?target:id))].sort((a,b)=>a-b);changed=true
+      }
+      if(changed)s.run('UPDATE saved_filter SET query_json=?,revision=revision+1,updated_at=? WHERE id=?',JSON.stringify(query),new Date().toISOString(),f.id)
+    }
     s.run('DELETE FROM tag WHERE id=?', source)
     s.run('UPDATE tag SET revision=revision+1 WHERE id=?', target)
     return tag(s, target)

@@ -7,6 +7,7 @@ import { AssetsStoreManager } from '../../../electron/assets/store'
 import type { AssetsContext } from '../../../electron/assets/types'
 import { createAsset, getAsset, updateAsset } from '../../../electron/assets/assetService'
 import { listTags, createTag, addTags, removeTags, tagImpact, renameTag, mergeTags, deleteTag } from '../../../electron/assets/tagService'
+import { createSavedFilter, listSavedFilters } from '../../../electron/assets/collectionService'
 
 let root: string, manager: AssetsStoreManager, ctx: AssetsContext
 beforeEach(async () => {
@@ -16,6 +17,23 @@ beforeEach(async () => {
 })
 afterEach(async () => { await manager.close(); rmSync(root, { recursive: true, force: true }) })
 const asset = (tagNames: string[] = []) => createAsset(ctx, { name: 'Text', category: 'inbox', storageType: 'inline_text', content: 'original', tagNames })
+
+it('合并原子修复包含/排除筛选并递增筛选revision；删除保留失效条件避免扩大范围', () => {
+  const a=createTag(ctx,'source').tag,b=createTag(ctx,'target').tag
+  const f=createSavedFilter(ctx,{name:'conditions',query:{tagIds:[a.id,b.id],excludeTagIds:[a.id]}})
+  mergeTags(ctx,a.id,b.id,1,1,true)
+  expect(listSavedFilters(ctx)[0]).toMatchObject({id:f.id,revision:2,query:{tagIds:[b.id],excludeTagIds:[b.id]}})
+  deleteTag(ctx,b.id,2,true)
+  expect(listSavedFilters(ctx)[0].query.tagIds).toEqual([b.id])
+})
+it('筛选修复SQL失败时合并与资产标签一起回滚', () => {
+  const a=asset(['source']),source=a.tags[0],target=createTag(ctx,'target').tag
+  createSavedFilter(ctx,{name:'conditions',query:{tagIds:[source.id]}})
+  ctx.write(s=>s.run("CREATE TRIGGER filter_merge_fail BEFORE UPDATE ON saved_filter BEGIN SELECT RAISE(ABORT,'fault'); END"))
+  expect(()=>mergeTags(ctx,source.id,target.id,source.revision,target.revision,true)).toThrow()
+  expect(getAsset(ctx,a.id)).toMatchObject({revision:a.revision,tags:[source]})
+  expect(listSavedFilters(ctx)[0]).toMatchObject({revision:1,query:{tagIds:[source.id]}})
+})
 
 it('独立创建归一复用；非法名称和颜色不写入', () => {
   const a = createTag(ctx, '  Rust   Lang ', '#abc')

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssetCategory, AssetDetail, AssetListQuery, AssetPage, AssetTag, WorkspaceRequest } from '../../../../shared/assetsContracts'
 import { assetsApi } from './assetsApi'
 import { errorMessage, useAssetsEditorGuard } from './assetsUi'
+import {assetQueryUrl,readAssetQuery} from './assetQueryUrl'
 
 export function useAssets() {
   const [scope, setScope] = useState<WorkspaceRequest | null>(null)
   const scopeRef = useRef<WorkspaceRequest | null>(null)
-  const [query, setQuery] = useState<AssetListQuery>({ page: 1, pageSize: 30, archived: 'exclude' })
+  const [query, setQuery] = useState<AssetListQuery>(()=>readAssetQuery(window.location.href))
+  useEffect(()=>{window.history.replaceState(window.history.state,'',assetQueryUrl(window.location.href,query))},[query])
   const [page, setPage] = useState<AssetPage>({ items: [], total: 0, page: 1, pageSize: 30 })
   const [categories, setCategories] = useState<AssetCategory[]>([])
   const [tags, setTags] = useState<AssetTag[]>([])

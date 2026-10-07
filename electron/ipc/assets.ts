@@ -18,6 +18,7 @@ import {
 } from '../../shared/assetsContracts'
 import type { ArchiveScope, AssetsErrorCode, WorkspaceRequest } from '../../shared/assetsContracts'
 import { assetsStoreManager } from '../assets/store'
+import { setFavorite, recordUsage, listSavedFilters, createSavedFilter, updateSavedFilter, deleteSavedFilter } from '../assets/collectionService'
 import { AssetsStoreError, type AssetsContext } from '../assets/types'
 import { createAsset, getAsset, listAssets, updateAsset } from '../assets/assetService'
 import { getReferences, addReference, removeReference, getReferenceGraph } from '../assets/referenceService'
@@ -211,6 +212,11 @@ export function registerAssetsHandlers(): void {
     })
   }
   const referenceServices = {
+    setFavorite, recordUsage,
+    listSavedFilters:(ctx:AssetsContext,query:unknown)=>({filters:listSavedFilters(ctx,query)}),
+    createSavedFilter:(ctx:AssetsContext,query:unknown)=>({filter:createSavedFilter(ctx,query)}),
+    updateSavedFilter:(ctx:AssetsContext,query:unknown)=>({filter:updateSavedFilter(ctx,query)}),
+    deleteSavedFilter,
     references: (ctx: AssetsContext, query: unknown) => ({ references: getReferences(ctx, query) }),
     addReference,
     removeReference,

@@ -413,6 +413,12 @@ export interface AssetDeleteImpact {
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
 export interface AssetsApi {
+  setFavorite(req: AssetRef & {favorite:boolean}):Promise<AssetsResult<{favorite:boolean}>>
+  recordUsage(req:WorkspaceRequest & {assetIds:number[]}):Promise<AssetsResult<{recordedAt:string}>>
+  listSavedFilters(req:WorkspaceRequest):Promise<AssetsResult<{filters:SavedAssetFilter[]}>>
+  createSavedFilter(req:WorkspaceRequest & {name:string;query:AssetListQuery}):Promise<AssetsResult<{filter:SavedAssetFilter}>>
+  updateSavedFilter(req:WorkspaceRequest & {filterId:number;expectedRevision:number;name:string;query:AssetListQuery}):Promise<AssetsResult<{filter:SavedAssetFilter}>>
+  deleteSavedFilter(req:WorkspaceRequest & {filterId:number;expectedRevision:number}):Promise<AssetsResult<{deletedId:number}>>
   adaptPromptImport(req:WorkspaceRequest & {raw:string;convertVariables:boolean}):Promise<AssetsResult<{adaptation:AssetPromptAdaptation}>>
   scanFolder(req:WorkspaceRequest & AssetFolderOptions & { folderPath:string }):Promise<AssetsResult<{queue:AssetFolderQueue}>>
   nextFolderFile(req:WorkspaceRequest & {queueId:string;retryFailed?:boolean}):Promise<AssetsResult<{queue:AssetFolderQueue}>>
@@ -524,6 +530,12 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  setFavorite:'assets:setFavorite',
+  recordUsage:'assets:recordUsage',
+  listSavedFilters:'assets:listSavedFilters',
+  createSavedFilter:'assets:createSavedFilter',
+  updateSavedFilter:'assets:updateSavedFilter',
+  deleteSavedFilter:'assets:deleteSavedFilter',
   adaptPromptImport:'assets:adaptPromptImport',
   scanFolder:'assets:scanFolder',
   nextFolderFile:'assets:nextFolderFile',

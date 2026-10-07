@@ -65,7 +65,8 @@ function filter(s: AssetsWriteSession, id: number, expectedRevision: number): Fi
   if (row.revision !== expectedRevision) throw new AssetsStoreError('REVISION_CONFLICT', '筛选已修改，请重新加载。', { currentRevision: row.revision })
   return row
 }
-export function listSavedFilters(ctx: AssetsContext): SavedAssetFilter[] {
+export function listSavedFilters(ctx: AssetsContext, input:unknown = {}): SavedAssetFilter[] {
+  object(input, [])
   return ctx.write(s => s.all<FilterRow>('SELECT * FROM saved_filter ORDER BY updated_at DESC,id DESC').map(dto))
 }
 export function createSavedFilter(ctx: AssetsContext, input: unknown): SavedAssetFilter {

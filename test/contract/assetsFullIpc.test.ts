@@ -32,6 +32,21 @@ async function create() {
   const result = await call<{ asset: AssetDetail }>('create', { input: { name: 'Text', category: 'inbox', storageType: 'inline_text', content: 'original' } })
   expect(result.ok).toBe(true); return result.asset
 }
+it('六个取用固定合同执行、未知字段拒绝、陈旧scope与筛选revision零写', async()=>{
+  const a=await create()
+  for(const method of ['setFavorite','recordUsage','listSavedFilters','createSavedFilter','updateSavedFilter','deleteSavedFilter'] as const) {
+    expect(await call(method,{unknown:true})).toMatchObject({ok:false,code:'BAD_REQUEST'})
+    expect(await call(method,{spaceEpoch:'old'})).toMatchObject({ok:false,code:'SPACE_CHANGED'})
+  }
+  expect(await call('setFavorite',{assetId:a.id,favorite:true})).toMatchObject({ok:true,favorite:true})
+  expect(await call('recordUsage',{assetIds:[a.id]})).toMatchObject({ok:true,recordedAt:expect.any(String)})
+  expect(await call('get',{assetId:a.id})).toMatchObject({asset:{revision:1,versionCount:1,isFavorite:1}})
+  const f=await call<{filter:{id:number;revision:number}}>('createSavedFilter',{name:'saved',query:{view:'favorites',page:3}})
+  expect(f.ok).toBe(true)
+  expect(await call('updateSavedFilter',{filterId:f.filter.id,expectedRevision:2,name:'stale',query:{}})).toMatchObject({ok:false,code:'REVISION_CONFLICT'})
+  expect(await call('listSavedFilters')).toMatchObject({ok:true,filters:[{name:'saved',revision:1}]})
+  expect(await call('deleteSavedFilter',{filterId:f.filter.id,expectedRevision:1})).toMatchObject({ok:true,deletedId:f.filter.id})
+})
 it('真实创建分页详情更新版本归档恢复删除闭环，列表不再假空态', async () => {
   const a = await create()
   const list = await call<{ page: { total: number; items: AssetDetail[] } }>('list')

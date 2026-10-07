@@ -86,3 +86,5 @@ I3-02 JSON预览与条件导入服务/IPC已交付：35固定方法、三策略/
 I3-03与I3 Windows x64 Codex阶段验收完成（D-052）：43固定方法、批量/文件夹/4个lazy交换窗口/显式Prompt格式；916通过9既有跳过、三闸门exit0、开发/打包Electron13/13（0重试）、原生各7/7、包内23729项审计PASS。用户真实使用另验；下一步I4取用能力，详见来源docs/verification-integration-i3-ui-20261007.md。
 
 I4-01 schema3与收藏/使用/保存筛选服务基础完成（D-053），三闸门与合成Electron旧库升级通过；详见来源docs/verification-integration-i4-foundation-20261007.md。I4-02固定IPC/取用与筛选界面、I4-03任务包变量逻辑、I4-04界面及阶段目录包终验仍待，I4整体未验收。
+
+I4-02收藏/最近/保存筛选/快速取用界面及固定6方法已实现（共49，D-054），标签治理修复引用/失效提示，复制和原生下载成功才记使用。结果与运行日志见来源docs/verification-integration-i4-collection-ui-20261007.md；下一步I4-03变量/任务包纯逻辑，I4-04界面与新目录包终验。I4整体尚未验收，用户真实使用另验。

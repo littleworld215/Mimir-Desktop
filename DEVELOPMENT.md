@@ -693,3 +693,11 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - collectionService纯服务：收藏幂等、最多500使用ID同事务验证，取用状态不改编辑revision/updatedAt/历史；保存筛选条件CRUD，严格查询校验，不存分页/选择，键序/集合序/默认值规范化。
 - 查询view all/favorites/recent，最近默认使用时间倒序、ID稳定排序，显式旧排序保留。已有43固定方法保持；新取用IPC/UI在I4-02实施，不把服务主题或旧I3目录包当I4整阶段验收。
 - 原始证据与完整结果见来源docs/verification-integration-i4-foundation-20261007.md（D-053）、计划INTEGRATION-PLAN-I4.md；真实Electron仅合成schema1/2升级，不访问用户库。
+
+## 科研资产整合 I4-02（2026-10-07）
+
+- 固定6个取用/保存筛选方法，旧43保留共49；可信scope、未知字段拒绝和筛选revision冲突回传。收藏/最近不改资产编辑revision、更新时间或正文历史。
+- 收藏/最近/全库筛选与URL、保存筛选、导出使用同一查询；保存筛选不含页码或选择ID。标签合并在同事务修复包含/排除条件，删除保留失效条件并阻止应用，避免静默扩大范围。
+- 两个lazy窗口：保存筛选与快速取用；分页摘要、选中才读正文，三形态复制/下载成功后才记使用，取消/失败不记。记录失败独立提示，复制成功不撤销。
+- 页面内Ctrl/Cmd+Shift+K快速取用；方向键/Enter/Ctrl+Enter/IME/Esc与焦点恢复。本机空间置顶20项，localStorage，不随空间同步。原文逐字保留，不执行HTML。
+- 验证与复核见来源docs/verification-integration-i4-collection-ui-20261007.md（D-054）。I4-03变量/任务包纯逻辑与I4-04界面/阶段目录包终验仍待；旧I3目录包不代表本主题。

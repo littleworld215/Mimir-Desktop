@@ -7,8 +7,9 @@ export function AssetField({ label, children }: { label: string; children: React
   const id = useId()
   return <div className="flex flex-col gap-1 text-sm"><label htmlFor={id}>{label}</label>{isValidElement<{ id?: string }>(children) ? cloneElement(children, { id }) : children}</div>
 }
-export function AssetModal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+export function AssetModal({ title, children, onClose, onEscape }: { title: string; children: React.ReactNode; onClose: () => void;onEscape?:()=>boolean }) {
+  const previousFocus=useRef(document.activeElement)
+  return <Dialog open onOpenChange={open => { if (!open) onClose() }}><DialogContent onEscapeKeyDown={e=>{if(onEscape?.())e.preventDefault()}} onCloseAutoFocus={e=>{e.preventDefault();const element=previousFocus.current;if(element instanceof HTMLElement&&element.isConnected)element.focus()}} className="max-h-[90vh] max-w-3xl overflow-y-auto">
     <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>当前科研空间的资产库</DialogDescription></DialogHeader>{children}
   </DialogContent></Dialog>
 }

@@ -451,6 +451,12 @@ const electronAPI: ElectronAPI = {
 
   // 资产库（`assets:*`）：逐方法固定通道 invoke，**不**暴露任意通道调用。
   assets: {
+    setFavorite:request=>ipcRenderer.invoke(ASSETS_CHANNELS.setFavorite,request),
+    recordUsage:request=>ipcRenderer.invoke(ASSETS_CHANNELS.recordUsage,request),
+    listSavedFilters:request=>ipcRenderer.invoke(ASSETS_CHANNELS.listSavedFilters,request),
+    createSavedFilter:request=>ipcRenderer.invoke(ASSETS_CHANNELS.createSavedFilter,request),
+    updateSavedFilter:request=>ipcRenderer.invoke(ASSETS_CHANNELS.updateSavedFilter,request),
+    deleteSavedFilter:request=>ipcRenderer.invoke(ASSETS_CHANNELS.deleteSavedFilter,request),
     references: request => ipcRenderer.invoke(ASSETS_CHANNELS.references, request),
     addReference: request => ipcRenderer.invoke(ASSETS_CHANNELS.addReference, request),
     removeReference: request => ipcRenderer.invoke(ASSETS_CHANNELS.removeReference, request),
