@@ -95,6 +95,18 @@ export interface TemplateConfig {
   variables: Record<string, TemplateConfigVariable>
 }
 
+export interface TemplateVariable { name: string; defaultValue: string }
+export type TemplateValues = Record<string, string | string[]>
+export type TaskPackSectionKey = 'thought' | 'rule' | 'prompt' | 'file' | 'ordinary'
+export interface TaskPackTemplate {
+  includeHeader: boolean
+  includeSource: boolean
+  includeNotes: boolean
+  includeTags: boolean
+  sections: Array<{key:TaskPackSectionKey;title:string}>
+}
+export interface TaskPackResult { text:string; assetIds:number[]; excludedIds:number[] }
+
 export interface AssetCreateInput {
   code?: string
   name: string

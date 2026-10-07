@@ -701,3 +701,10 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - 两个lazy窗口：保存筛选与快速取用；分页摘要、选中才读正文，三形态复制/下载成功后才记使用，取消/失败不记。记录失败独立提示，复制成功不撤销。
 - 页面内Ctrl/Cmd+Shift+K快速取用；方向键/Enter/Ctrl+Enter/IME/Esc与焦点恢复。本机空间置顶20项，localStorage，不随空间同步。原文逐字保留，不执行HTML。
 - 验证与复核见来源docs/verification-integration-i4-collection-ui-20261007.md（D-054）。I4-03变量/任务包纯逻辑与I4-04界面/阶段目录包终验仍待；旧I3目录包不代表本主题。
+
+## 科研资产整合 I4-03（2026-10-07）
+
+- src/lib/assets/template.ts：旧变量语法/默认值/空值/非法占位符、可选配置初值/控件描述/渲染、普通原文多行描述与旧AI字面注入；shared/templateConfig.ts浏览器安全配置读取，原型隔离和独立候选副本。
+- bundleTemplate.ts：默认五节/三形态逐字来源一致、模板节序/标题/开关、选择顺序/去重/500边界；仅原文显式解析，AI资产严格布尔排除，原文选择沿用导出规则。copyTaskPack冻结文本和实际ID，成功后使用记录。
+- textBudget.ts共用200MiB最终UTF8预算，超过明确拒绝不截断，跨片段代理对与1000组TextEncoder对照。冻结源输出夹具含SHA256，目标测试不导入来源工作树。
+- 完整955通过9既有跳过、typecheck/test/build exit0，详见来源docs/verification-integration-i4-template-20261007.md（D-055）。新函数尚无UI入口；固定49方法/schema3不变。I4-04界面/偏好/帮助/安全阅读与阶段目录包仍待，I4整体未验收。

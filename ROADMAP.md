@@ -88,3 +88,5 @@ I3-03与I3 Windows x64 Codex阶段验收完成（D-052）：43固定方法、批
 I4-01 schema3与收藏/使用/保存筛选服务基础完成（D-053），三闸门与合成Electron旧库升级通过；详见来源docs/verification-integration-i4-foundation-20261007.md。I4-02固定IPC/取用与筛选界面、I4-03任务包变量逻辑、I4-04界面及阶段目录包终验仍待，I4整体未验收。
 
 I4-02收藏/最近/保存筛选/快速取用界面及固定6方法已实现（共49，D-054），标签治理修复引用/失效提示，复制和原生下载成功才记使用。结果与运行日志见来源docs/verification-integration-i4-collection-ui-20261007.md；下一步I4-03变量/任务包纯逻辑，I4-04界面与新目录包终验。I4整体尚未验收，用户真实使用另验。
+
+I4-03变量与任务包纯函数完成（D-055），955通过9既有跳过、三闸门exit0，旧来源兼容与最终UTF8预算已验证。没有新增UI/IPC/schema；下一步I4-04填写/编写/任务包界面、偏好/帮助/阅读与阶段目录包终验。I4整体未验收；证据见来源docs/verification-integration-i4-template-20261007.md。

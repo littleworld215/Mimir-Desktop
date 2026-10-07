@@ -1,0 +1,231 @@
+{
+  "sourceBaseline": "bd01d91",
+  "sourceHashes": {
+    "client/src/lib/template.ts": "1de9c6d8a4e58087689aeecfb08f9f538c1b128655f9766d6c84af988fc58b48",
+    "client/src/lib/template-controls.ts": "ca37fc8e078425fc5d86b2cc8e6497324c9baecf3d4f09906089a09e3bfafb49",
+    "client/src/lib/asset-content.ts": "d4147a33649a57a6cd9bbaf6756f1a4e245be9aa13cd11786ebf537629728c9c",
+    "shared/src/template-config.ts": "4172e578c85a32c9c12bcd82766508bab267c0559186587b0c9ba5d406e82bbc"
+  },
+  "templates": [
+    {
+      "input": "",
+      "values": {},
+      "parsed": {
+        "variables": [],
+        "invalid": 0
+      },
+      "rendered": "",
+      "final": "\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [],
+        "invalid": 0
+      },
+      "rendered": "",
+      "final": "\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{变量}} {{ 变量:默认 }} {{变量:后值}}",
+      "values": {},
+      "parsed": {
+        "variables": [
+          {
+            "name": "变量",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": " 默认  后值",
+      "final": " 默认  后值\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{变量}} {{ 变量:默认 }} {{变量:后值}}",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [
+          {
+            "name": "变量",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": "  ",
+      "final": "  \n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{}} {{:x}} {{未闭合",
+      "values": {},
+      "parsed": {
+        "variables": [],
+        "invalid": 3
+      },
+      "rendered": "{{}} {{:x}} {{未闭合",
+      "final": "{{}} {{:x}} {{未闭合\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{}} {{:x}} {{未闭合",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [],
+        "invalid": 3
+      },
+      "rendered": "{{}} {{:x}} {{未闭合",
+      "final": "{{}} {{:x}} {{未闭合\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{a:b:c}} {{a}}",
+      "values": {},
+      "parsed": {
+        "variables": [
+          {
+            "name": "a",
+            "defaultValue": "b:c"
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": "b:c ",
+      "final": "b:c \n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{a:b:c}} {{a}}",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [
+          {
+            "name": "a",
+            "defaultValue": "b:c"
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": "$&\r\n $&\r\n",
+      "final": "$&\r\n $&\r\n\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{{内层}}}",
+      "values": {},
+      "parsed": {
+        "variables": [
+          {
+            "name": "内层",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": "{}",
+      "final": "{}\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{{内层}}}",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [
+          {
+            "name": "内层",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": "{}",
+      "final": "{}\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}",
+      "values": {},
+      "parsed": {
+        "variables": [],
+        "invalid": 1
+      },
+      "rendered": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}",
+      "final": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [],
+        "invalid": 1
+      },
+      "rendered": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}",
+      "final": "{{xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}}\n\n---\n\n x\r\n\n"
+    },
+    {
+      "input": "{{原文}} {{ 原文:旧值 }}",
+      "values": {},
+      "parsed": {
+        "variables": [
+          {
+            "name": "原文",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": " 旧值 ",
+      "final": " x\r\n\n  x\r\n\n"
+    },
+    {
+      "input": "{{原文}} {{ 原文:旧值 }}",
+      "values": {
+        "变量": "",
+        "a": "$&\r\n",
+        "原文": " 原文\r\n\n"
+      },
+      "parsed": {
+        "variables": [
+          {
+            "name": "原文",
+            "defaultValue": ""
+          }
+        ],
+        "invalid": 0
+      },
+      "rendered": " 原文\r\n\n  原文\r\n\n",
+      "final": " x\r\n\n  x\r\n\n"
+    }
+  ],
+  "configured": {
+    "initial": {
+      "语言": "中",
+      "格式": [
+        "表"
+      ],
+      "原文": "",
+      "旧": "默认"
+    },
+    "rendered": "英 段\n表 \r\n 默认"
+  },
+  "bundle": "# 任务包（5 条）\n\n## 任务思路\n\n### 资产2\n> 来源任务：任务\n\n> 备注：备注\n\n 原文\r\n\n\n\n## 规则与约束\n\n### 资产1\n> 来源任务：任务\n\n> 备注：备注\n\n 原文\r\n\n\n\n## 可复用 Prompt\n\n### 资产4\n> 来源任务：任务\n\n> 备注：备注\n\nhttps://example.org\n\n## 相关文件\n\n### 资产3\n> 来源任务：任务\n\n> 备注：备注\n\n文件：数据.csv\n附件\n（文件本体需另行下载并附上）\n\n## 其他资产\n\n### 资产5\n> 来源任务：任务\n\n> 备注：备注\n\n 原文\r\n\n\n"
+}
