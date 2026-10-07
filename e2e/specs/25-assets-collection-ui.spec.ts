@@ -3,8 +3,9 @@ import {readFileSync,writeFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {launchApp} from '../fixtures/launch'
 import {gotoModule} from '../helpers/nav'
-test('real Electron favorites/recent, saved filters, quick clipboard/file/link and native cancellation',async()=>{
-  const launched=await launchApp(),{page,app}=launched
+for(const runtime of ['development',...(process.env.MIMIR_E2E_PACKAGED?['packaged']:[])]) {
+test(`real Electron favorites/recent, saved filters, quick clipboard/file/link and native cancellation (${runtime})`,async()=>{
+  const launched=await launchApp(runtime==='packaged'?{executablePath:process.env.MIMIR_E2E_PACKAGED}:{}),{page,app}=launched
   try{
     await gotoModule(page,'assets')
     const input=join(launched.tempHome.root,'take-input.txt'),output=join(launched.tempHome.root,'take-output.txt')
@@ -60,3 +61,4 @@ test('real Electron favorites/recent, saved filters, quick clipboard/file/link a
     await page.screenshot({path:'../../.git/codex-integration/i4-02-native-ui.png'})
   }finally{await launched.cleanup()}
 })
+}

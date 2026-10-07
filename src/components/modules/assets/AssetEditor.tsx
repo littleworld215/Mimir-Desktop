@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import {TemplateTools} from './TemplateTools'
 import { Button } from '@/components/ui/button'
 import type { AssetCategory, AssetCreateInput, AssetDetail, AssetKind, AssetPatch, StorageType } from '../../../../shared/assetsContracts'
 import { requestAssetsLeave } from '@/lib/assetsEditGuard'
@@ -16,7 +17,7 @@ export function AssetEditor({ asset, categories, defaultCategory, onSave, onClos
     description: asset?.description ?? '', content: asset?.currentContent ?? '', externalUrl: asset?.externalUrl ?? '', notes: asset?.notes ?? '', sourceTask: asset?.sourceTask ?? '',
     kind: asset?.kind ?? '', tagNames: asset?.tags.map(t => t.name).join(', ') ?? '', source: asset?.sourceJson ?? '{}', templateConfig: JSON.stringify(asset?.templateConfig ?? { version: 1, variables: {} }, null, 2), changelog: '' })
   const [form, setForm] = useState(initial.current), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-  const saving = useRef(false)
+  const saving = useRef(false),bodyRef=useRef<HTMLTextAreaElement>(null)
   const dirty = JSON.stringify(form) !== JSON.stringify(initial.current)
   async function save(): Promise<boolean> {
     if (saving.current) return false
@@ -41,7 +42,7 @@ export function AssetEditor({ asset, categories, defaultCategory, onSave, onClos
           <AssetField label="存储形态"><select className={controlClass} value={form.storageType} disabled={Boolean(asset)} onChange={e => change('storageType', e.target.value)}><option value="inline_text">文本</option><option value="file">文件</option><option value="external_link">外链</option></select></AssetField>
           <AssetField label="条目类型"><select className={controlClass} value={form.kind} onChange={e => change('kind', e.target.value)}><option value="">普通</option><option value="thought">思路</option><option value="rule">规则</option><option value="file">文件</option><option value="prompt">Prompt</option></select></AssetField></div>
         <AssetField label="摘要"><textarea className={controlClass} value={form.description} onChange={e => change('description', e.target.value)} /></AssetField>
-        {form.storageType === 'inline_text' && <AssetField label="正文"><textarea className={`${controlClass} min-h-56 font-mono`} value={form.content} onChange={e => change('content', e.target.value)} /></AssetField>}
+        {form.storageType === 'inline_text' && <><AssetField label="正文"><textarea ref={bodyRef} className={`${controlClass} min-h-56 font-mono`} value={form.content} onChange={e => change('content', e.target.value)} /></AssetField><TemplateTools content={form.content} configRaw={form.templateConfig} bodyRef={bodyRef} onContent={value=>change('content',value)} onConfig={value=>change('templateConfig',value)}/></>}
         {form.storageType === 'external_link' && <AssetField label="外链地址"><input className={controlClass} value={form.externalUrl} type="url" required onChange={e => change('externalUrl', e.target.value)} /></AssetField>}
         {form.storageType === 'file' && <p className="text-sm text-muted-foreground">保存后在详情中导入文件；再次导入会新增版本。</p>}
         <AssetField label="标签（逗号分隔）"><input className={controlClass} value={form.tagNames} onChange={e => change('tagNames', e.target.value)} /></AssetField>

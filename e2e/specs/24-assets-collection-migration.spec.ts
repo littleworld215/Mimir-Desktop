@@ -6,9 +6,10 @@ import { ASSETS_V2_DDL } from '../../electron/assets/schema'
 import { launchApp } from '../fixtures/launch'
 import { gotoModule } from '../helpers/nav'
 
-test('real Electron schema2 upgrade keeps favorites, recent, current history and snapshot',async()=>{
+for(const runtime of ['development',...(process.env.MIMIR_E2E_PACKAGED?['packaged']:[])]) {
+test(`real Electron schema2 upgrade keeps favorites, recent, current history and snapshot (${runtime})`,async()=>{
   let dir='',before:unknown
-  const launched=await launchApp({transformSeed:seed=>{
+  const launched=await launchApp({executablePath:runtime==='packaged'?process.env.MIMIR_E2E_PACKAGED:undefined,transformSeed:seed=>{
     dir=join(seed.workspaces[0]!.path,'.mimir','assets');mkdirSync(dir,{recursive:true})
     const db=new Database(join(dir,'assets.db'))
     try{
@@ -31,3 +32,4 @@ test('real Electron schema2 upgrade keeps favorites, recent, current history and
     try{expect(snapshot.pragma('user_version',{simple:true})).toBe(2);expect(snapshot.prepare('SELECT * FROM asset_version').all()).toEqual(before)}finally{snapshot.close()}
   }finally{await launched.cleanup()}
 })
+}

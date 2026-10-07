@@ -708,3 +708,10 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - bundleTemplate.ts：默认五节/三形态逐字来源一致、模板节序/标题/开关、选择顺序/去重/500边界；仅原文显式解析，AI资产严格布尔排除，原文选择沿用导出规则。copyTaskPack冻结文本和实际ID，成功后使用记录。
 - textBudget.ts共用200MiB最终UTF8预算，超过明确拒绝不截断，跨片段代理对与1000组TextEncoder对照。冻结源输出夹具含SHA256，目标测试不导入来源工作树。
 - 完整955通过9既有跳过、typecheck/test/build exit0，详见来源docs/verification-integration-i4-template-20261007.md（D-055）。新函数尚无UI入口；固定49方法/schema3不变。I4-04界面/偏好/帮助/安全阅读与阶段目录包仍待，I4整体未验收。
+
+## 科研资产整合 I4-04与阶段验收（2026-10-07）
+
+- 变量编写/插入/配置/试填、详情及快速取用填值复制、任务包预览/分节/顺序/原文、显式本机偏好、安全Markdown和主动指南已接入。49固定方法/schema3保持，无新依赖或模型调用。
+- 原文默认展示，阅读不执行HTML/不创建图片和外链入口；管道表格有限解析，单元格原文。低频窗口lazy；深浅主题沿用现有token，窄屏主内容独立滚动。
+- 完整962通过9既有跳过、typecheck/test/build exit0，开发/打包Electron19/19（0重试）、原生各7/7、目录包23735项审计PASS，来源check通过。日志与静态复核整改见来源docs/verification-integration-i4-ui-20261007.md（D-056）。
+- I4-01～04 Windows x64 Codex阶段验收完成，用户真实使用另验；下一步I5 AI。仅提交自有origin，官方upstream不推。

@@ -1,0 +1,65 @@
+import {test,expect} from '@playwright/test'
+import {launchApp} from '../fixtures/launch'
+import {gotoModule} from '../helpers/nav'
+
+for(const runtime of ['development',...(process.env.MIMIR_E2E_PACKAGED?['packaged']:[])]) {
+  test(`I4 template fill / safe reading / task pack / preferences (${runtime})`,async()=>{
+    const launched=await launchApp(runtime==='packaged'?{executablePath:process.env.MIMIR_E2E_PACKAGED}:{}),{page,app}=launched
+    try {
+      await gotoModule(page,'assets')
+      const id=await page.evaluate(async()=>{
+        const api=window.electronAPI!.assets,c=await api.context();if(!c.ok)throw Error(c.message)
+        const result=await api.create({...c.context,input:{name:'变量试验',code:'template-native',category:'inbox',kind:'prompt',storageType:'inline_text',content:'# 结果\n{{语言:中文}}\n{{原文}}\n{{风格}}\n\n| 列 | 值 |\n| --- | --- |\n| A | B |\n\n<img src="https://example.org/unsafe">\n![图片](https://example.org/unsafe)',templateConfig:{version:1,variables:{语言:{type:'single',options:['中文','英文']},风格:{type:'multi',options:['简洁','正式'],separator:' / '}}}}});if(!result.ok)throw Error(result.message)
+        await api.setFavorite({...c.context,assetId:result.asset.id,favorite:true});return result.asset.id
+      })
+      await page.getByRole('button',{name:'刷新',exact:true}).click()
+      await page.getByLabel('资产列表').getByRole('button',{name:/变量试验/}).click()
+      await page.getByRole('button',{name:'填值复制',exact:true}).click()
+      await page.getByLabel('原文', {exact:true}).fill(' 原文\n\n')
+      await page.getByLabel('语言',{exact:true}).selectOption('英文')
+      await page.getByLabel('简洁',{exact:true}).check();await page.getByLabel('正式',{exact:true}).check()
+      await page.getByRole('button',{name:'复制并关闭',exact:true}).click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      const copied=await app.evaluate(({clipboard})=>clipboard.readText())
+      expect(copied.replace(/\r\n/g,'\n')).toContain('英文\n 原文\n\n\n简洁 / 正式')
+      await expect(page.getByRole('button',{name:'填值复制',exact:true})).toBeFocused()
+      const requests:string[]=[];page.on('request',request=>{if(request.url().includes('example.org/unsafe'))requests.push(request.url())})
+      await page.getByRole('button',{name:'阅读预览',exact:true}).click()
+      await expect(page.getByRole('table')).toBeVisible();await expect(page.getByRole('heading',{name:'结果',exact:true})).toBeVisible()
+      expect(await page.getByLabel('资产详情').locator('img,script,iframe,a[href]').count()).toBe(0);expect(requests).toEqual([])
+      await page.getByRole('button',{name:'选择／取消当前页',exact:true}).click()
+      await page.getByRole('button',{name:'组合任务包',exact:true}).click()
+      await expect(page.getByLabel('任务包预览')).toContainText('变量试验')
+      await page.getByText('任务包模板设置',{exact:true}).click()
+      await page.getByLabel('prompt 节标题',{exact:true}).fill('自定义提示词')
+      await page.getByRole('button',{name:'保存模板设置',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'本机任务包模板已保存。'})).toBeVisible()
+      await page.getByRole('button',{name:'复制任务包',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'取用成功。'})).toBeVisible()
+      expect(await app.evaluate(({clipboard})=>clipboard.readText())).toContain('自定义提示词')
+      await page.getByRole('button',{name:'关闭',exact:true}).click()
+      await page.getByRole('button',{name:'组合任务包',exact:true}).click()
+      await expect(page.getByLabel('任务包预览')).toContainText('自定义提示词')
+      await page.getByRole('button',{name:'关闭',exact:true}).click()
+      const quick=page.getByRole('button',{name:'快速取用（Ctrl/Cmd+Shift+K）'})
+      await quick.click();await page.getByRole('button',{name:'变量试验 · inline_text',exact:true}).click()
+      const quickFill=page.getByRole('button',{name:'填值复制',exact:true});await quickFill.click()
+      await page.getByRole('button',{name:'关闭',exact:true}).click();await expect(quickFill).toBeFocused()
+      await page.getByRole('button',{name:'关闭',exact:true}).click();await expect(quick).toBeFocused()
+      await page.getByRole('button',{name:'编辑资产',exact:true}).click()
+      await expect(page.getByLabel('语言 输入类型',{exact:true})).toHaveValue('single')
+      await page.getByRole('button',{name:'试填预览',exact:true}).click();await expect(page.getByLabel('原文',{exact:true})).toBeVisible()
+      await page.getByRole('button',{name:'取消',exact:true}).click()
+      await page.setViewportSize({width:390,height:780})
+      await page.evaluate(()=>document.documentElement.classList.add('dark'))
+      await page.getByRole('button',{name:'填值复制',exact:true}).click()
+      await expect(page.getByLabel('原文',{exact:true})).toBeVisible()
+      const widths=await page.getByRole('dialog').evaluate(el=>({width:el.clientWidth,scroll:el.scrollWidth}))
+      expect(widths.scroll).toBeLessThanOrEqual(widths.width+1)
+      await page.screenshot({path:`../../.git/codex-integration/i4-04-${runtime}-dark-narrow.png`})
+      await page.keyboard.press('Escape')
+      const asset=await page.evaluate(async id=>{const api=window.electronAPI!.assets,c=await api.context();if(!c.ok)throw Error(c.message);return api.get({...c.context,assetId:id})},id)
+      expect(asset).toMatchObject({ok:true,asset:{revision:1,versionCount:1}})
+    }finally{await launched.cleanup()}
+  })
+}

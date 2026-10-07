@@ -10,6 +10,14 @@ let api:Record<string,ReturnType<typeof vi.fn>>,clipboard:ReturnType<typeof vi.f
 beforeEach(()=>{window.history.replaceState({},'','/');localStorage.clear();clipboard=vi.fn().mockResolvedValue(undefined);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:clipboard}});api={context:vi.fn().mockResolvedValue({ok:true,context:scope}),list:vi.fn().mockResolvedValue({ok:true,page:{items:[detail],total:1,page:1,pageSize:20}}),get:vi.fn().mockResolvedValue({ok:true,asset:detail}),recordUsage:vi.fn().mockResolvedValue({ok:true,recordedAt:'now'}),listTags:vi.fn().mockResolvedValue({ok:true,tags:[]}),listCategories:vi.fn().mockResolvedValue({ok:true,categories:[]}),listSavedFilters:vi.fn().mockResolvedValue({ok:true,filters:[]})};Object.defineProperty(window,'electronAPI',{configurable:true,value:{assets:api}})})
 afterEach(()=>{cleanup();window.history.replaceState({},'','/')})
 const quick=(onClose=vi.fn())=>render(<QuickUse scope={scope} write={write} onChanged={()=>{}} onClose={onClose}/> )
+it('快速取用进入填值再关闭，两级窗口保留原触发焦点链',async()=>{
+  const trigger=document.createElement('button');document.body.append(trigger);trigger.focus()
+  const view=quick(()=>view.unmount());fireEvent.click(await screen.findByRole('button',{name:/多行原文 ·/}));await screen.findByLabelText('快速取用详情')
+  const fill=screen.getByRole('button',{name:'填值复制',exact:true});fill.focus();fireEvent.click(fill)
+  await screen.findByLabelText('填值预览');fireEvent.click(screen.getByRole('button',{name:'关闭',exact:true}))
+  await waitFor(()=>expect(document.activeElement).toBe(fill))
+  fireEvent.click(screen.getByRole('button',{name:'关闭',exact:true}));await waitFor(()=>expect(document.activeElement).toBe(trigger));trigger.remove()
+})
 it('快速取用只读摘要，剪贴板失败不记使用且保留详情；成功复制逐字与资产ID一致',async()=>{
   quick();await screen.findByRole('button',{name:/多行原文 ·/});expect(api.get).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button',{name:/多行原文 ·/}));await screen.findByLabelText('快速取用详情');await new Promise(r=>setTimeout(r,350));expect(screen.getByLabelText('快速取用详情')).toBeTruthy()
