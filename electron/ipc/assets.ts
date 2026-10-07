@@ -43,6 +43,7 @@ import {
 import { assertRendererPath, assertRendererFilePath, pickedPaths, claimAssetSavePath, type AssetSaveLease } from './rendererPathGuards'
 import { resolve } from 'node:path'
 import log from '../logger'
+import { registerAssetsAiHandlers } from './assetsAi'
 
 type Failure = {
   ok: false
@@ -158,6 +159,7 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
 
 /** 完整资产域固定通道（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
+  registerAssetsAiHandlers({ failure })
   ipcMain.handle(ASSETS_CHANNELS.scanFolder,async (_event,request:unknown)=>{
     try{
       const scope=assertWorkspaceRequest(request),r=request as Record<string,unknown>

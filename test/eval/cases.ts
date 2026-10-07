@@ -74,6 +74,7 @@ export interface EvalCase {
  * 注意：这是一份**只读快照**，不是运行时事实来源；运行时事实来源仍是 capabilityDomains.ts。
  */
 export const KNOWN_TOOL_IDS = [
+  'asset_search', 'asset_read', 'asset_ai', 'asset_draft', 'asset_tags',
   'paper_search',
   'arxiv_fetch_paper',
   'web_search',

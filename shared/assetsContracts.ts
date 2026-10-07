@@ -10,6 +10,8 @@
  * 本文件由 tsconfig.node.json 与 tsconfig.web.json 同时 include。
  */
 
+import type { AssetsAiApi } from './assetsAiContracts'
+
 export type StorageType = 'inline_text' | 'file' | 'external_link'
 
 export type AssetKind = 'thought' | 'rule' | 'file' | 'prompt'
@@ -21,6 +23,7 @@ export type TagMode = 'and' | 'or'
 /** 资产域统一错误码（IPC 捕获业务错误后回传，未知异常另行兜底）。 */
 export type AssetsErrorCode =
   | 'BAD_REQUEST'
+  | 'APPROVAL_DENIED'
   | 'AI_NO_MODEL'
   | 'AI_ABORTED'
   | 'AI_TIMEOUT'
@@ -429,7 +432,7 @@ export interface AssetDeleteImpact {
 }
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
-export interface AssetsApi {
+export interface AssetsApi extends AssetsAiApi {
   setFavorite(req: AssetRef & {favorite:boolean}):Promise<AssetsResult<{favorite:boolean}>>
   recordUsage(req:WorkspaceRequest & {assetIds:number[]}):Promise<AssetsResult<{recordedAt:string}>>
   listSavedFilters(req:WorkspaceRequest):Promise<AssetsResult<{filters:SavedAssetFilter[]}>>
@@ -547,6 +550,14 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  generateAiDraft: 'assets:generateAiDraft',
+  suggestAiTags: 'assets:suggestAiTags',
+  cancelAiRequest: 'assets:cancelAiRequest',
+  listAiDrafts: 'assets:listAiDrafts',
+  getAiDraft: 'assets:getAiDraft',
+  adoptAiDraft: 'assets:adoptAiDraft',
+  discardAiDraft: 'assets:discardAiDraft',
+  adoptSuggestedTags: 'assets:adoptSuggestedTags',
   setFavorite:'assets:setFavorite',
   recordUsage:'assets:recordUsage',
   listSavedFilters:'assets:listSavedFilters',

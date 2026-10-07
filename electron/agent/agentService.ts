@@ -4,7 +4,7 @@ import { ChatOpenAI } from '@langchain/openai'
 import { tool } from 'langchain/tools'
 import { z } from 'zod'
 import { loadMemoryTool } from './tools/memory'
-import { getStoreValue } from '../library/store'
+import { getStoreValue, getActiveWorkspace, currentSpaceEpoch } from '../library/store'
 import { loadSkillRegistry } from './skills'
 import { candidatesToContext, routeSkills, SKILL_TOP_K } from './skillRouter'
 import type { RouterCandidate } from './skillRouter'
@@ -28,7 +28,7 @@ import {
   endAgentTurnSpan,
   failAgentTurnSpan
 } from './otelTrace'
-import { withApprovalSource, type ApprovalSource } from './approval'
+import { withToolTrace } from './toolTrace'
 import { assertNoDelegationTools, guardSubagentTools } from './delegationFirewall'
 import {
   SUBAGENT_RETURN_CONTRACT,
@@ -225,37 +225,6 @@ interface ToolLike {
   description?: string
   schema?: unknown
   invoke(input: unknown): Promise<unknown>
-}
-
-/** 包装工具：调用前 / 返回 / 出错三处打点（每个工具/用途实例化一份，避免并发互串）；返回/出错附带耗时（ms）。
- *  C3：可选 `source` 会把整条调用链标记为某能力域发起，使链内 `requireUserApproval` 的批准卡带上来源。 */
-function withToolTrace(
-  base: ToolLike,
-  hooks: {
-    onCall?: (name: string, args: unknown) => void
-    onDone?: (name: string, out: unknown, durationMs: number) => void
-    onError?: (name: string, error: unknown, durationMs: number) => void
-    source?: ApprovalSource
-  }
-): ToolLike {
-  const proxied = Object.create(base) as ToolLike
-  proxied.invoke = async (input: unknown) => {
-    hooks.onCall?.(base.name, input)
-    const t0 = Date.now()
-    const run = async () => {
-      const out = await base.invoke.call(proxied, input)
-      hooks.onDone?.(base.name, out, Date.now() - t0)
-      return out
-    }
-    try {
-      if (hooks.source !== undefined) return await withApprovalSource(hooks.source, run)
-      return await run()
-    } catch (error) {
-      hooks.onError?.(base.name, error, Date.now() - t0)
-      throw error
-    }
-  }
-  return proxied
 }
 
 /**
@@ -461,7 +430,7 @@ interface MimirAgent {
   invoke(input: { messages: Array<{ role: string; content: string }> }): Promise<{ messages: unknown[] }>
   streamEvents(
     state: { messages: Array<{ role: string; content: string }> },
-    config: { version: 'v3' }
+    config: { version: 'v3'; signal?: AbortSignal }
   ): Promise<{
     messages: AsyncIterable<{ text: AsyncIterable<string>; reasoning?: AsyncIterable<string> }>
     /**
@@ -1105,6 +1074,8 @@ export class AgentService {
     } | undefined
   ): Promise<string> {
     const controller = new AbortController()
+    // 在路由/模型异步工作之前绑定本轮空间，后续排队工具不能跟随新空间指针。
+    const assetsScope = { workspaceId: getActiveWorkspace()?.id ?? '', spaceEpoch: currentSpaceEpoch() }
     /** 本次回复的轨迹外发器；主流程各阶段用它补齐 Agent 自身的节点。 */
     // 所有过程事件都从这里出去 —— 因此 `phase` 在这里统一补全，各 emit 站点无需重复标注。
     // 过程事件与正文增量共用同一个 onEvent 出口（协议统一），不再区分两条回调。
@@ -1257,7 +1228,7 @@ export class AgentService {
       try {
         const run = await (agent.streamEvents as unknown as (
           state: { messages: Array<{ role: string; content: string }> },
-          config: { version: 'v3' },
+          config: { version: 'v3'; signal?: AbortSignal; configurable?: { assetsScope: { workspaceId: string; spaceEpoch: string } } },
         ) => Promise<{
           messages: AsyncIterable<{ text: AsyncIterable<string>; reasoning?: AsyncIterable<string> }>
           toolCalls?: AsyncIterable<ToolCallStream>
@@ -1271,7 +1242,7 @@ export class AgentService {
           output?: Promise<{ messages?: Array<{ content?: unknown }> }>
         }>)(
           { messages: inputMessages },
-          { version: 'v3' },
+          { version: 'v3', signal: controller.signal, configurable: { assetsScope } },
         )
 
         // 委派子代理事件由 collectSubagentEvents 采集（与正文流并行）。

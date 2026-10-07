@@ -1,5 +1,6 @@
 import type { AssetDetail } from './assetsContracts'
 import type { TemplateValues } from './assetsContracts'
+import type { AssetsResult, WorkspaceRequest } from './assetsContracts'
 
 export type AiAssistMode = 'polish' | 'restructure'
 export interface AiUsage {
@@ -51,4 +52,16 @@ export interface AiTagsResult {
   model: string
   sourceVersionId: number
   sourceRevision: number
+}
+
+/** 显式 UI 动作的固定门面；不接受 Provider、密钥、任意路径或客户端草稿快照。 */
+export interface AssetsAiApi {
+  generateAiDraft(req: WorkspaceRequest & { requestId: string; confirmSend: true; input: AiGenerateRequest }): Promise<AssetsResult<{ draft: AiDraft }>>
+  suggestAiTags(req: WorkspaceRequest & { requestId: string; confirmSend: true; input: AiTagsRequest }): Promise<AssetsResult<AiTagsResult>>
+  cancelAiRequest(req: WorkspaceRequest & { requestId: string }): Promise<AssetsResult<{ canceled: boolean }>>
+  listAiDrafts(req: WorkspaceRequest & { query?: AiDraftQuery }): Promise<AssetsResult<{ page: { items: AiDraftSummary[]; total: number; page: number; pageSize: number } }>>
+  getAiDraft(req: WorkspaceRequest & { draftId: number }): Promise<AssetsResult<{ draft: AiDraft }>>
+  adoptAiDraft(req: WorkspaceRequest & { draftId: number; confirm: true; input: AiAdoptInput }): Promise<AssetsResult<AiAdoptResult>>
+  discardAiDraft(req: WorkspaceRequest & { draftId: number; confirm: true }): Promise<AssetsResult<{ discarded: boolean }>>
+  adoptSuggestedTags(req: WorkspaceRequest & { confirm: true; input: { assetId: number; expectedRevision: number; names: string[] } }): Promise<AssetsResult<{ asset: AssetDetail }>>
 }

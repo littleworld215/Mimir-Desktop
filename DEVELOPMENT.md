@@ -1,5 +1,16 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-03（2026-10-08）
+
+- 验证：1011通过、9既有跳过（1020项），类型/构建exit0；真实Electron固定AI接口/主Agent模拟模型/旧模板回归3/3，0重试。新上下文静态复核P3批准来源已失败后修复；非独立运行QA。
+
+- 新增 `assets` 能力域与五个固定工具：`asset_search/read/ai/draft/tags`；主 Agent 和委派白名单同源，旧能力域保持。正文按需最多 20000 字符读取，不开放任意 SQL/路径/Provider。
+- Agent 外发另走 `requireUserApproval`，全权档仍确认；采纳/标签写入沿用业务批准，丢弃以删除摘要始终弹卡。批准后复验空间与取消，拒绝零模型/零写入。
+- 本轮 Agent 在异步路由前绑定 `assetsScope`，通过内部 RunnableConfig 传给所有资产工具，防止旧会话的后续工具绑定新空间。追踪包装抽到 `toolTrace` 并保留 signal/metadata/configurable；主图也传取消信号。
+- 固定 AI IPC 增加八个方法，共 57 个；不暴露客户端保存草稿、模型凭据或动态 invoke。直接界面沿用原渲染写入口，`confirmSend/confirm=true` 表达显式动作，不是外部认证或安全令牌。
+- 请求ID与窗口/空间绑定，每窗口最多四项；重复拒绝，关闭窗口取消，晚返回无草稿。生成/标签建议/取消以及草稿分页/读取/采纳/丢弃复用现有服务。
+- schema4/依赖/来源 Web v8 不变；新 AI 界面、外部 MCP 和阶段目录包待 I5-04/05。证据见来源 `docs/verification-integration-i5-agent-20261008.md`，I5 整体未验收。
+
 ## 科研资产整合 I5-02（2026-10-07）
 
 - aiProvider读取已有settings.models/selectedModelId，沿用首项与deepseek-flash兜底、modelId/baseUrl/apiKey，不新建配置/复制密钥；ChatOpenAI只做text结果，maxRetries=0。项目没有公共模型工厂，本批独立适配器不改既有Agent模型行为。

@@ -1,5 +1,7 @@
 # 路线图
 
+> 最新（2026-10-08）：I5-03 Agent/批准/固定 IPC 已实现，57 个方法、五个资产工具；外发明确确认，写入沿用批准策略，取消与轮次空间快照贯穿。完整验证见来源 docs/verification-integration-i5-agent-20261008.md；I5-04 界面、I5-05 外部 MCP/阶段目录包和真实模型验收仍待，I5 整体未验收。以下条目为历史快照。
+
 > 科研资产最新进度：I5-02模型动作与只读标签建议服务已验证（998通过9既有跳过、三闸门exit0），支持既有模型配置、取消/deadline、可选Prompt与条件标签采纳。未接Agent/IPC/UI/MCP；下一步I5-03，I5整体未验收。证据见来源docs/verification-integration-i5-actions-20261007.md；以下历史状态保留。
 
 > 科研资产最新状态（2026-10-07）：I0–I4已完成Windows x64 Codex阶段验收；I5-01草稿服务/schema4基础完成（979通过9既有跳过、三闸门exit0、真实Electron旧库迁移3/3）。I5模型/Agent/界面/MCP与阶段新目录包仍待；见来源docs/INTEGRATION-PLAN-I5.md、verification-integration-i5-foundation-20261007.md。历史条目保留当时状态。
