@@ -52,6 +52,7 @@ it('文件覆盖保留版本指针/文件名，外链导入可用，JSON导出�
   const file = createAsset(ctx,{ code: 'file', name: 'file', category: 'inbox', storageType: 'file' })
   ctx.write(s=>{ s.run("INSERT INTO asset_version(asset_id,version,content,changelog,source_json,file_path,file_name,created_at) VALUES (?,1,'','','{}','protected.bin','名字.pdf','now')",file.id); s.run('UPDATE asset SET current_version_id=(SELECT id FROM asset_version WHERE asset_id=?) WHERE id=?',file.id,file.id) })
   const prior = getAsset(ctx,file.id)
+  expect(previewImport(ctx,request([row('file',{ storageType:'file',content:null })],'overwrite')).filesMissing).toBe(0)
   commit(request([row('file',{ storageType: 'file', content: null }),row('link',{ storageType: 'external_link', content: null, externalUrl: 'https://example.com' })],'overwrite'))
   expect(getAsset(ctx,file.id)).toMatchObject({ currentVersionId: prior.currentVersionId, currentFileName: '名字.pdf', versionCount: 1 })
   const r = { raw: exportAssets(ctx,{}).content, mode: 'copy', skipIndexes: [] }

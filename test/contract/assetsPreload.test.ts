@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
 }))
 import '../../electron/preload'
 import { ASSETS_CHANNELS } from '../../shared/assetsContracts'
-it('实际preload暴露32个固定方法（旧28加参见4），原样传递请求且context无参数', async () => {
+it('实际preload暴露完整固定方法（包含旧32及交换入口），原样传递请求且context无参数', async () => {
   const api = (state.exposed.get('electronAPI') as { assets: AssetsApi }).assets
   expect(Object.keys(api).sort()).toEqual(Object.keys(ASSETS_CHANNELS).sort())
   const request = { workspaceId: 'A', spaceEpoch: 'A#1', expectedRevision: 1, expectedCurrentVersionId: null, patch: { content: '' } }

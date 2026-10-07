@@ -7,8 +7,9 @@ import { portable } from './exchangeExport'
 import type { AssetRow } from './assetRepository'
 
 const tokenKey = randomBytes(32)
-export function importToken(ctx: AssetsContext,s: AssetsWriteSession,r: ParsedImport): string {
+export function importToken(ctx: AssetsContext,s: AssetsWriteSession,r: ParsedImport,domain = 'import'): string {
   const hash = createHmac('sha256',tokenKey)
+  hash.update(domain).update('\n')
   for (const value of [ctx.scope,r.raw,r.mode,r.skipIndexes]) hash.update(JSON.stringify(value)).update('\n')
   for (const [table,order] of [['asset','id'],['asset_version','id'],['asset_category','code'],['tag','id'],['asset_tag','asset_id,tag_id'],['asset_reference','source_asset_id,target_asset_id']]) {
     hash.update(table)
@@ -61,7 +62,10 @@ export function previewInSession(ctx: AssetsContext,s: AssetsWriteSession,r: Par
     if (action==='skip') { p.skipped++; continue }
     if (!a) continue
     if (action==='create') p.created++; else p.updated++
-    if (a.storageType==='file') { p.filesMissing++; p.rows[p.rows.length-1].warnings.push(action==='update' ? '交换不含文件字节，保留本地文件版本。' : '交换不含文件字节，创建文件空壳。') }
+    if (a.storageType==='file') {
+      if (action==='create') p.filesMissing++
+      p.rows[p.rows.length-1].warnings.push(action==='update' ? '交换不含文件字节，保留本地文件版本。' : '交换不含文件字节，创建文件空壳。')
+    }
     if (!s.get('SELECT code FROM asset_category WHERE code=?',a.category) && !categoryPathExists(s,a.categoryPath)) p.categoriesMissing.push((a.categoryPath.length ? a.categoryPath : [a.category]).join(' / '))
     const matches = [...new Set([...(byContent.get(signature(a)) ?? []),...(old ? [old.code] : [])])]
     if (matches.length) p.duplicates.push({index:row.index,code:a.code,matches})

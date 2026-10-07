@@ -10,7 +10,8 @@ vi.mock('../../electron/assets/store', async original => ({
   ...await original<typeof import('../../electron/assets/store')>(),
   assetsStoreManager: {
     context: () => state.manager!.context(),
-    getForRequest: (scope: Parameters<import('../../electron/assets/store').AssetsStoreManager['getForRequest']>[0]) => state.manager!.getForRequest(scope)
+    getForRequest: (scope: Parameters<import('../../electron/assets/store').AssetsStoreManager['getForRequest']>[0]) => state.manager!.getForRequest(scope),
+    run: (scope: import('../../shared/assetsContracts').WorkspaceRequest, operation:(ctx:import('../../electron/assets/types').AssetsContext)=>Promise<unknown>) => state.manager!.run(scope,operation)
   }
 }))
 vi.mock('../../electron/logger', () => ({ default: { error: vi.fn() } }))
@@ -73,7 +74,7 @@ it('所有空间绑定通道都捕获失效scope；非法shape不reject', async 
     // import/save validate paths before manager; missing path still returns a structured error.
     const result = await state.handlers.get(channel)!({}, { workspaceId: 'A', spaceEpoch: 'A#1' }) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
-    if (!['importFile', 'saveFile', 'listVersions', 'getVersion', 'diffVersions', 'rollbackVersion'].includes(method)) expect(result.code).toBe('SPACE_CHANGED')
+    if (!['importFile', 'saveFile', 'readExchangeFile', 'saveExchange', 'scanFolder', 'listVersions', 'getVersion', 'diffVersions', 'rollbackVersion'].includes(method)) expect(result.code).toBe('SPACE_CHANGED')
     expect(await state.handlers.get(channel)!({}, [])).toMatchObject({ ok: false, code: 'BAD_REQUEST' })
   }
 })

@@ -67,7 +67,7 @@ beforeEach(() => {
 describe('注册面', () => {
   it('固定导出与JSON预览/提交三个入口保留旧32方法', () => {
     for (const channel of ['assets:exportAssets','assets:previewImport','assets:importJson']) expect(hoisted.handlers.has(channel)).toBe(true)
-    expect(hoisted.handlers.size).toBe(35)
+    expect(hoisted.handlers.size).toBe(Object.keys(ASSETS_CHANNELS).length)
   })
   it('增量注册四个参见通道，旧方法继续保留', () => {
     for (const channel of ['assets:references', 'assets:addReference', 'assets:removeReference', 'assets:referenceGraph']) expect(hoisted.handlers.has(channel)).toBe(true)

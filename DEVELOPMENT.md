@@ -679,3 +679,10 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - skip/overwrite/copy，中文路径重建；显式跳过普通坏行但坏模板始终整批拒绝。副本code确定且保持语法，参见优先映射同批副本；同形态覆盖保留文件版本，正文变化才追加版本， SQL失败整批回滚。共享现有标签颜色保留。
 - 令牌失效报PREVIEW_STALE，进程重启需重新预览；无文件路径/二进制能力。定向58/58，全量895通过/9既有跳过，三闸门exit0，真实合成Electron IPC最终串行1/1并退出只读重开SQLite验证。来源证据docs/verification-integration-i3-import-20261007.md；首次修复后夹具启动失败单独留档。
 - I3-03待：批量整理、文件夹队列、导入/导出UI与目录包终验；filesMissing现含所有交换文件行，不能当磁盘缺失数，需UI阶段调整计数/标签。旧测试标题32的文案minor另登记。I3尚未整体验收。
+## 科研资产整合 I3-03 与阶段终验（2026-10-07）
+
+- 多选最多500，批量分类/标签通过每资产revision与HMAC域隔离条件事务；全筛选或选择JSON/Markdown导出，原生一次性保存授权+wx拒绝覆盖。JSON读取descriptor限制200MiB。
+- 4个lazy窗口：导出、JSON导入、批量整理、文件夹导入。显式外部Prompt格式默认保留变量，转换展示差异，不自动导入内置素材。固定方法共43，旧35保留。
+- 文件夹由原生授权；私有队列、扫描identity传给descriptor导入，创建资产并入最终文件事务，失败无空壳。逐文件进度/暂停等待当前文件/继续/失败重试；卸载释放队列、晚响应不写页面。拖拽读取立即撤销旧预览。
+- 全量916通过9既有跳过（925项、78文件），typecheck/test/build exit0；Windows x64目录包23729项审计PASS，Node→打包Electron→Node各7/7，开发/打包Electron13/13、0重试，来源check通过。新上下文只读复核2项P2经实际RED后修复，不冒充外部QA。
+- I3-01～03 Windows x64 Codex阶段验收通过，来源报告docs/verification-integration-i3-ui-20261007.md（D-052）。用户真实使用独立登记；下一步I4收藏/最近使用/保存筛选/任务包/变量配置。历史I3-02的计数/标题minor本主题已修复。

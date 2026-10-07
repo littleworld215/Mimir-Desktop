@@ -23,6 +23,10 @@ import { createAsset, getAsset, listAssets, updateAsset } from '../assets/assetS
 import { getReferences, addReference, removeReference, getReferenceGraph } from '../assets/referenceService'
 import { exportAssets } from '../assets/exchangeExport'
 import { previewImport, commitImport } from '../assets/exchangeImport'
+import { previewBatch, commitBatch } from '../assets/batchService'
+import { readExchangeFile, saveExchange } from '../assets/exchangeFiles'
+import { scanFolder, nextFolderFile, cancelFolder } from '../assets/folderImport'
+import { adaptPromptImport } from '../assets/promptImport'
 import { archiveAsset, restoreAsset, deletePreview, deleteAsset } from '../assets/archiveService'
 import { listCategories, createCategory, updateCategory, categoryImpact, removeCategory } from '../assets/categoryService'
 import { listTags, createTag, addTags, removeTags, tagImpact, renameTag, mergeTags, deleteTag } from '../assets/tagService'
@@ -35,7 +39,8 @@ import {
   diffVersions,
   rollbackVersion
 } from '../assets/fileService'
-import { assertRendererFilePath, claimAssetSavePath, type AssetSaveLease } from './rendererPathGuards'
+import { assertRendererPath, assertRendererFilePath, pickedPaths, claimAssetSavePath, type AssetSaveLease } from './rendererPathGuards'
+import { resolve } from 'node:path'
 import log from '../logger'
 
 type Failure = {
@@ -152,11 +157,49 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
 
 /** 完整资产域固定通道（`assets:*`）。 */
 export function registerAssetsHandlers(): void {
+  ipcMain.handle(ASSETS_CHANNELS.scanFolder,async (_event,request:unknown)=>{
+    try{
+      const scope=assertWorkspaceRequest(request),r=request as Record<string,unknown>
+      if(Object.keys(r).some(k=>!['workspaceId','spaceEpoch','folderPath','category','tagNames'].includes(k)))throw new AssetsStoreError('BAD_REQUEST','含未知字段。')
+      if(typeof r.folderPath!=='string'||!pickedPaths.has(resolve(r.folderPath)))throw new AssetsStoreError('PATH_REJECTED','请在原生对话框选择文件夹。')
+      const path=assertRendererPath(r.folderPath,'read'),{workspaceId:_w,spaceEpoch:_e,folderPath:_p,...input}=r
+      return {ok:true,queue:await assetsStoreManager.run(scope,async ctx=>scanFolder(ctx,path,input,p=>{assertRendererPath(p,'read')}))}
+    }catch(error){return failure(error)}
+  })
+  ipcMain.handle(ASSETS_CHANNELS.nextFolderFile,async (_event,request:unknown)=>{
+    try{const scope=assertWorkspaceRequest(request),{workspaceId:_w,spaceEpoch:_e,...input}=request as Record<string,unknown>;return {ok:true,queue:await assetsStoreManager.run(scope,ctx=>nextFolderFile(ctx,input))}}catch(error){return failure(error)}
+  })
+  ipcMain.handle(ASSETS_CHANNELS.cancelFolder,async (_event,request:unknown)=>{
+    try{const scope=assertWorkspaceRequest(request),ctx=await assetsStoreManager.getForRequest(scope),{workspaceId:_w,spaceEpoch:_e,...input}=request as Record<string,unknown>;return {ok:true,...cancelFolder(ctx,input)}}catch(error){return failure(error)}
+  })
   const exchangeServices = {
+    adaptPromptImport:(ctx:AssetsContext,query:unknown)=>{ctx.assertCurrent();return {adaptation:adaptPromptImport(query)}},
+    previewBatch:(ctx:AssetsContext,query:unknown)=>({preview:previewBatch(ctx,query)}),
+    commitBatch:(ctx:AssetsContext,query:unknown)=>({result:commitBatch(ctx,query)}),
     exportAssets: (ctx: AssetsContext, query: unknown) => ({ result: exportAssets(ctx,query) }),
     previewImport: (ctx: AssetsContext, query: unknown) => ({ preview: previewImport(ctx,query) }),
     importJson: (ctx: AssetsContext, query: unknown) => ({ result: commitImport(ctx,query) })
   }
+  ipcMain.handle(ASSETS_CHANNELS.readExchangeFile,async (_event,request:unknown)=>{
+    try {
+      const scope=assertWorkspaceRequest(request),r=request as Record<string,unknown>
+      if(Object.keys(r).some(k=>!['workspaceId','spaceEpoch','sourcePath'].includes(k)))throw new AssetsStoreError('BAD_REQUEST','含未知字段。')
+      let path:string
+      try {path=assertRendererFilePath(r.sourcePath,'read')}catch{throw new AssetsStoreError('PATH_REJECTED','请通过文件选择器重新选择JSON。')}
+      return {ok:true,...await assetsStoreManager.run(scope,async ctx=>readExchangeFile(ctx,path))}
+    }catch(error){return failure(error)}
+  })
+  ipcMain.handle(ASSETS_CHANNELS.saveExchange,async (_event,request:unknown)=>{
+    let lease:AssetSaveLease|undefined
+    try {
+      const scope=assertWorkspaceRequest(request),r=request as Record<string,unknown>
+      if(Object.keys(r).some(k=>!['workspaceId','spaceEpoch','destinationPath','query','ids','format','ai'].includes(k)))throw new AssetsStoreError('BAD_REQUEST','含未知字段。')
+      try{lease=claimAssetSavePath(r.destinationPath)}catch{throw new AssetsStoreError('PATH_REJECTED','请通过保存对话框选择新路径。')}
+      const {workspaceId:_w,spaceEpoch:_e,destinationPath:_p,...input}=r,claimed=lease
+      const result=await assetsStoreManager.run(scope,async ctx=>{const out=saveExchange(ctx,input,claimed.path);claimed.commit();return out})
+      return {ok:true,...result}
+    }catch(error){return failure(error)}finally{lease?.release()}
+  })
   for (const method of Object.keys(exchangeServices) as (keyof typeof exchangeServices)[]) {
     ipcMain.handle(ASSETS_CHANNELS[method],async (_event,request: unknown) => {
       try {

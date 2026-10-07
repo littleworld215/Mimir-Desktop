@@ -176,6 +176,27 @@ export interface AssetImportPreview {
 }
 export interface AssetImportResult { created: number; updated: number; skipped: number; assetIds: number[] }
 
+export interface AssetBatchRequest {
+  assets: Array<{ assetId: number; expectedRevision: number }>
+  category?: string
+  addTagNames?: string[]
+  removeTagIds?: number[]
+}
+export interface AssetBatchPreview {
+  previewToken: string
+  changed: number
+  rows: Array<{ assetId: number; name: string; beforeCategory: string; afterCategory: string; beforeTags: string[]; afterTags: string[] }>
+}
+export interface AssetBatchResult { changed: number; assetIds: number[] }
+export interface AssetFolderOptions { category?:string;tagNames?:string[] }
+export interface AssetPromptAdaptation {raw:string;changes:Array<{name:string;before:string;after:string;warnings:string[]}>;warnings:string[]}
+export interface AssetFolderQueue {
+  queueId:string
+  total:number
+  completed:number
+  entries:Array<{index:number;name:string;state:'pending'|'processing'|'done'|'failed';error?:string;assetId?:number}>
+}
+
 export interface AssetListQuery {
   q?: string
   searchIn?: 'all' | 'title' | 'body' | 'source' | 'organization'
@@ -379,6 +400,14 @@ export interface AssetDeleteImpact {
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
 export interface AssetsApi {
+  adaptPromptImport(req:WorkspaceRequest & {raw:string;convertVariables:boolean}):Promise<AssetsResult<{adaptation:AssetPromptAdaptation}>>
+  scanFolder(req:WorkspaceRequest & AssetFolderOptions & { folderPath:string }):Promise<AssetsResult<{queue:AssetFolderQueue}>>
+  nextFolderFile(req:WorkspaceRequest & {queueId:string;retryFailed?:boolean}):Promise<AssetsResult<{queue:AssetFolderQueue}>>
+  cancelFolder(req:WorkspaceRequest & {queueId:string}):Promise<AssetsResult<{canceled:true}>>
+  previewBatch(req: WorkspaceRequest & AssetBatchRequest): Promise<AssetsResult<{ preview: AssetBatchPreview }>>
+  commitBatch(req: WorkspaceRequest & AssetBatchRequest & { previewToken:string }): Promise<AssetsResult<{ result: AssetBatchResult }>>
+  readExchangeFile(req: WorkspaceRequest & { sourcePath:string }): Promise<AssetsResult<{ raw:string }>>
+  saveExchange(req: WorkspaceRequest & AssetExportRequest & { destinationPath:string }): Promise<AssetsResult<{ saved:true;count:number }>>
   exportAssets(req: WorkspaceRequest & AssetExportRequest): Promise<AssetsResult<{ result: AssetExportResult }>>
   previewImport(req: WorkspaceRequest & AssetImportRequest): Promise<AssetsResult<{ preview: AssetImportPreview }>>
   importJson(req: WorkspaceRequest & AssetImportRequest & { previewToken: string }): Promise<AssetsResult<{ result: AssetImportResult }>>
@@ -482,6 +511,14 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  adaptPromptImport:'assets:adaptPromptImport',
+  scanFolder:'assets:scanFolder',
+  nextFolderFile:'assets:nextFolderFile',
+  cancelFolder:'assets:cancelFolder',
+  previewBatch:'assets:previewBatch',
+  commitBatch:'assets:commitBatch',
+  readExchangeFile:'assets:readExchangeFile',
+  saveExchange:'assets:saveExchange',
   exportAssets: 'assets:exportAssets',
   previewImport: 'assets:previewImport',
   importJson: 'assets:importJson',

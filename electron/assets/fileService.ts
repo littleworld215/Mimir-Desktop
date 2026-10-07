@@ -167,9 +167,11 @@ export async function importFile(
   assetId: number,
   condition: unknown,
   sourcePath: string,
-  changelog?: string
+  changelog?: string,
+  createTarget?: (session: AssetsWriteSession, now: string) => number,
+  expectedSource?: Stats
 ): Promise<AssetDetail> {
-  const id = positive(assetId)
+  let id = positive(assetId)
   if (typeof sourcePath !== 'string' || sourcePath.trim() === '') {
     throw new AssetsStoreError('BAD_REQUEST', 'sourcePath 必须是非空字符串。')
   }
@@ -202,6 +204,7 @@ export async function importFile(
   }
   if (!srcStat.isFile()) throw new AssetsStoreError('BAD_REQUEST', '源路径不是普通文件。')
   assertFileBytes(srcStat.size)
+  if(expectedSource&&!unchangedFile(expectedSource,srcStat))throw new AssetsStoreError('FILE_UNAVAILABLE','源文件在扫描后发生变化。')
 
   // 拷贝到 staging（与 files/ 同卷，后续排他 hardlink 落盘）；文件名用唯一 blobId，绝不覆盖他人 blob。
   const fileName = basename(sourcePath)
@@ -242,6 +245,8 @@ export async function importFile(
     closeSync(stagingFd)
     stagingFd = null
     const asset = ctx.write(s => {
+      // A collected file creates its asset only after descriptor validation, in this same blob/version transaction.
+      if(createTarget)id=createTarget(s,now)
       const row = selectAsset(s, id)
       if (row === undefined) throw new AssetsStoreError('NOT_FOUND', '资产不存在。')
       if (row.archived_at !== null) throw new AssetsStoreError('ASSET_ARCHIVED', '请先恢复归档资产。')
