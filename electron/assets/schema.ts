@@ -10,7 +10,7 @@
  * - I4 加 saved_filter；I5 加 ai_draft。后续能力不预建空表。
  */
 
-export const ASSETS_SCHEMA_VERSION = 3
+export const ASSETS_SCHEMA_VERSION = 4
 
 /**
  * 预置分类（与来源 `server/src/db/seed.ts` 的 CATEGORIES / AI_TREE / inbox 语义对齐，共 15 项）。
@@ -182,4 +182,24 @@ export const ASSETS_I4_DDL: readonly string[] = [
   `CREATE INDEX idx_asset_last_used ON asset(last_used_at DESC,id DESC)`,
   `CREATE INDEX idx_asset_favorite ON asset(is_favorite,id)`
 ]
-export const ASSETS_DDL: readonly string[] = [...ASSETS_V2_DDL, ...ASSETS_I4_DDL]
+export const ASSETS_V3_DDL: readonly string[] = [...ASSETS_V2_DDL, ...ASSETS_I4_DDL]
+export const ASSETS_I5_DDL: readonly string[] = [
+  `CREATE TABLE ai_draft (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL,
+    source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
+    mode TEXT NOT NULL CHECK (mode IN ('polish','restructure')),
+    content TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_asset_id INTEGER,
+    prompt_snapshot TEXT NOT NULL,
+    usage_json TEXT NOT NULL CHECK (json_valid(usage_json)),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status = 'pending'),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (asset_id,source_version_id) REFERENCES asset_version(asset_id,id)
+  )`,
+  // Prompt标识为历史追溯值：删除模板不应删除或改写实际请求快照。
+  `CREATE INDEX idx_ai_draft_asset_id ON ai_draft(asset_id,id DESC)`
+]
+export const ASSETS_DDL: readonly string[] = [...ASSETS_V3_DDL, ...ASSETS_I5_DDL]

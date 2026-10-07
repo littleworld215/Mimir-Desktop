@@ -1,5 +1,7 @@
 # 路线图
 
+> 科研资产最新状态（2026-10-07）：I0–I4已完成Windows x64 Codex阶段验收；I5-01草稿服务/schema4基础完成（979通过9既有跳过、三闸门exit0、真实Electron旧库迁移3/3）。I5模型/Agent/界面/MCP与阶段新目录包仍待；见来源docs/INTEGRATION-PLAN-I5.md、verification-integration-i5-foundation-20261007.md。历史条目保留当时状态。
+
 本文记录 Mimir-Desktop 的演进方向。分为两类：
 
 - **已识别的待办**：有明确依据（代码 TODO、归档决策、已知缺口），列在下方并标注来源。

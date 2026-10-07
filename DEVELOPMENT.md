@@ -1,5 +1,14 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-01（2026-10-07）
+
+- 资产schema4新增ai_draft；schema1/2/3按冻结DDL预检，升级前不可变SQLite备份，失败事务回滚。来源Web v8不变。
+- aiDraftService提供保存/分页摘要/读取/幂等丢弃/条件采纳；未采纳不进历史。润色默认追加版本，重构默认派生资产+参见，版本/revision冲突保留草稿，明确派生才可继续。
+- 保留来源版本/revision/模型/实际Prompt快照/usage与生成时间；删除模板仍能读快照。沿用64KiB溯源预算，超限拒绝不截断；相同正文采纳不增版本。
+- include导出合并当前AI版本来源并标记，原库资产级来源不变；original-only仍选非AI历史。合并超过64KiB明确拒绝，避免导出不可导入的来源。
+- 完整979通过/9既有跳过、三闸门exit0；真实Electron旧1/2/3迁移3/3，Node→Electron→Node草稿探针各5/5。静态复核两项已RED→GREEN整改，见来源docs/verification-integration-i5-foundation-20261007.md。
+- 49固定方法保持。本批未接模型/Agent/IPC/UI/MCP；I5-02～05与新目录包终验仍待，不代表I5阶段验收。
+
 面向参与开发 / 维护的工程师。用户向文档见 [README.md](./README.md)。
 
 ---

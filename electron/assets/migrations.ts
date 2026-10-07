@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import { closeSync, openSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ASSETS_DDL, ASSETS_V1_DDL, ASSETS_V2_DDL, ASSETS_I2_DDL, ASSETS_I4_DDL, ASSETS_SCHEMA_VERSION, BUILTIN_CATEGORIES } from './schema'
+import { ASSETS_DDL, ASSETS_V1_DDL, ASSETS_V2_DDL, ASSETS_V3_DDL, ASSETS_I2_DDL, ASSETS_I4_DDL, ASSETS_I5_DDL, ASSETS_SCHEMA_VERSION, BUILTIN_CATEGORIES } from './schema'
 import { AssetsStoreError } from './types'
 import type { Clock, DatabaseFactory } from './types'
 
@@ -14,7 +14,7 @@ function schemaObjects(db: Database.Database): Array<{ name: string; type: strin
 export function validateSchema(db: Database.Database, factory: DatabaseFactory, version = ASSETS_SCHEMA_VERSION): void {
   const reference = factory(':memory:', {})
   try {
-    for (const ddl of version === 1 ? ASSETS_V1_DDL : version === 2 ? ASSETS_V2_DDL : ASSETS_DDL) reference.exec(ddl)
+    for (const ddl of version === 1 ? ASSETS_V1_DDL : version === 2 ? ASSETS_V2_DDL : version === 3 ? ASSETS_V3_DDL : ASSETS_DDL) reference.exec(ddl)
     const normalize = (sql: string): string => sql.replace(/\s+/g, ' ').trim().toLowerCase()
     const expected = schemaObjects(reference)
     const actual = schemaObjects(db)
@@ -38,7 +38,7 @@ export function inspectStore(db: Database.Database, factory: DatabaseFactory): n
   if (db.pragma('integrity_check', { simple: true }) !== 'ok') {
     throw new AssetsStoreError('STORE_CORRUPT', '资产库完整性检查失败，请保留原文件。')
   }
-  if (version === 1 || version === 2 || version === ASSETS_SCHEMA_VERSION) validateSchema(db, factory, version)
+  if (version >= 1 && version <= ASSETS_SCHEMA_VERSION) validateSchema(db, factory, version)
   else if (schemaObjects(db).length !== 0) {
     // 0→1 只支持空库；没有定义过的旧业务结构不得猜测迁移。
     throw new AssetsStoreError('STORE_CORRUPT', '版本 0 资产库含未知结构，不能自动迁移。')
@@ -69,9 +69,14 @@ export async function snapshotBeforeMigration(db: Database.Database, backupsDir:
 export function initializeSchema(db: Database.Database, clock: Clock): void {
   const version = db.pragma('user_version', { simple: true }) as number
   if (version === ASSETS_SCHEMA_VERSION) return
-  if (version !== 0 && version !== 1 && version !== 2) throw new AssetsStoreError('SCHEMA_UNSUPPORTED', '不能迁移未知资产结构。')
+  if (version !== 0 && version !== 1 && version !== 2 && version !== 3) throw new AssetsStoreError('SCHEMA_UNSUPPORTED', '不能迁移未知资产结构。')
   db.transaction(() => {
-    for (const ddl of version === 0 ? ASSETS_DDL : version === 1 ? [...ASSETS_I2_DDL,...ASSETS_I4_DDL] : ASSETS_I4_DDL) db.exec(ddl)
+    const upgrade = version === 0 ? ASSETS_DDL : [
+      ...(version < 2 ? ASSETS_I2_DDL : []),
+      ...(version < 3 ? ASSETS_I4_DDL : []),
+      ...ASSETS_I5_DDL
+    ]
+    for (const ddl of upgrade) db.exec(ddl)
     if (version === 0) {
       const insert = db.prepare(`INSERT INTO asset_category
         (code,name,icon,default_storage_type,parent_code,sort_order,builtin,created_at)

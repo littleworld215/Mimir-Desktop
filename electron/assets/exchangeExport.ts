@@ -5,6 +5,7 @@ import { detail, selectAsset } from './assetRepository'
 import { readSearchQuery } from './searchQuery'
 import { searchAssetsInSession } from './searchService'
 import { AssetsStoreError, type AssetsContext, type AssetsWriteSession } from './types'
+import { assertSourceObject } from './validation'
 
 function bad(message = '导出参数非法。'): never { throw new AssetsStoreError('BAD_REQUEST', message) }
 function object(input: unknown): Record<string, unknown> {
@@ -42,17 +43,26 @@ export function portable(s: AssetsWriteSession, id: number, originalOnly: boolea
     `SELECT content,version FROM asset_version WHERE asset_id=? AND
       (CASE WHEN json_valid(source_json) THEN json_type(source_json,'$.aiGenerated') ELSE NULL END) IS NOT 'true'
       ORDER BY version DESC LIMIT 1`, id) : undefined
+  // JSON交换只带一个正文快照：含AI时把本版溯源带出，避免再导入后AI正文变成原文。
+  // 不更改库内资产级来源；仅原文分支仍沿用资产级元信息。
+  const versionSource = originalOnly || row.current_version_id === null ? undefined : s.get<{ source_json: string }>(
+    'SELECT source_json FROM asset_version WHERE id=? AND asset_id=?', row.current_version_id, id)?.source_json
+  let sourceJson = asset.sourceJson
+  if (versionSource && aiGenerated(versionSource)) {
+    try { sourceJson = assertSourceObject({ ...JSON.parse(asset.sourceJson), ...JSON.parse(versionSource) }) }
+    catch { bad('导出AI版本来源超过64KiB或格式非法，请缩小来源信息。') }
+  }
   return {
     code: asset.code, name: asset.name, category: asset.category, categoryPath: asset.categoryPath,
     description: asset.description, storageType: asset.storageType, externalUrl: asset.externalUrl,
-    sourceJson: asset.sourceJson, sourceTask: asset.sourceTask, notes: asset.notes, kind: asset.kind,
+    sourceJson, sourceTask: asset.sourceTask, notes: asset.notes, kind: asset.kind,
     templateConfig: asset.templateConfig, tags: asset.tags.map(tag => ({ name: tag.name, color: tag.color })),
     references: s.all<{ code: string }>('SELECT a.code FROM asset_reference r JOIN asset a ON a.id=r.target_asset_id WHERE r.source_asset_id=? ORDER BY a.code', id).map(ref => ref.code),
     content: asset.storageType === 'file' ? null : original?.content ?? asset.currentContent,
     contentVersion: original?.version ?? asset.currentVersion,
     currentFileName: asset.currentFileName, isFavorite: asset.isFavorite,
     lastUsedAt: asset.lastUsedAt, archivedAt: asset.archivedAt,
-    ...(aiGenerated(row.source_json) ? { aiGenerated: true as const } : {})
+    ...(aiGenerated(sourceJson) ? { aiGenerated: true as const } : {})
   }
 }
 function markdown(document: ExchangeDocument): string {

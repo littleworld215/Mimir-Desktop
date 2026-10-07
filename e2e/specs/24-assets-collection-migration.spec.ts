@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import Database from 'better-sqlite3'
 import { mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { ASSETS_V2_DDL } from '../../electron/assets/schema'
+import { ASSETS_V2_DDL, ASSETS_SCHEMA_VERSION } from '../../electron/assets/schema'
 import { launchApp } from '../fixtures/launch'
 import { gotoModule } from '../helpers/nav'
 
@@ -26,7 +26,7 @@ test(`real Electron schema2 upgrade keeps favorites, recent, current history and
     expect(result).toMatchObject({ok:true,page:{total:1,items:[{isFavorite:1,lastUsedAt:'2026-01-01T00:00:00.000Z'}]}})
     await launched.app.close()
     const db=new Database(join(dir,'assets.db'),{readonly:true})
-    try{expect(db.pragma('user_version',{simple:true})).toBe(3);expect(db.prepare('SELECT * FROM asset_version').all()).toEqual(before);expect(db.prepare('SELECT * FROM saved_filter').all()).toEqual([]);expect(db.pragma('integrity_check',{simple:true})).toBe('ok')}finally{db.close()}
+    try{expect(db.pragma('user_version',{simple:true})).toBe(ASSETS_SCHEMA_VERSION);expect(db.prepare('SELECT * FROM asset_version').all()).toEqual(before);expect(db.prepare('SELECT * FROM saved_filter').all()).toEqual([]);expect(db.pragma('integrity_check',{simple:true})).toBe('ok')}finally{db.close()}
     const backups=readdirSync(join(dir,'backups'));expect(backups).toHaveLength(1)
     const snapshot=new Database(join(dir,'backups',backups[0]),{readonly:true})
     try{expect(snapshot.pragma('user_version',{simple:true})).toBe(2);expect(snapshot.prepare('SELECT * FROM asset_version').all()).toEqual(before)}finally{snapshot.close()}
