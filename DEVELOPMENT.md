@@ -1,5 +1,12 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-05B1（2026-10-08）
+
+- I5-05B1完成14工具业务适配及真实SQLite/管道反例；历史文件可用性P2实际RED修复，宿主残留任务与模拟服务异常清理两P3已处理。05B2的SDK/stdio、资源/Prompt、发现凭据、应用生命周期与专门批准UI尚待，不是可用外部MCP，I5整体未验收。
+- 注入现有context，numeric baseVersion映射条件写、事务内取消回滚，历史文件按指定blob受控解析后只输出可用性。外部草稿明确未知模型/Prompt和保存时来源快照。
+- 未结束宿主操作跨连接最多32，超时/断连不提前释放；e2e模拟server嵌套finally覆盖启动/cleanup异常。长sourceTask前2000字符且无标志P3留05B2。
+- 1049通过9既有跳过、三闸门exit0、28定向、开发Electron1/1（0重试）；schema4/57接口/依赖不变。证据在来源docs/verification-integration-i5-mcp-adapter-20261008.md。
+
 ## 科研资产整合 I5-05A（2026-10-08）
 
 - electron/assets/mcp/broker.ts 与 localTransport.ts提供纯本机传输/会话接缝；尚未挂main、未发布凭据/接业务或SDK，现有HTTP只读bridge保持。不能据此配置可用MCP。

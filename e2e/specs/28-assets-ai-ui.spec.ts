@@ -1,14 +1,14 @@
 import { createServer } from 'node:http'
-import type { Socket } from 'node:net'
 import { test, expect } from '@playwright/test'
 import { launchApp } from '../fixtures/launch'
+import { withLoopbackServer } from '../fixtures/withLoopbackServer'
 import { gatewayModelSeed } from '../fixtures/seed'
 import { gotoModule } from '../helpers/nav'
 
 for (const runtime of ['development', ...(process.env.MIMIR_E2E_PACKAGED ? ['packaged'] : [])]) {
   test(`I5 AI界面：确认发送、原文对照、编辑采纳、溯源、标签、取消与焦点 (${runtime})`, async () => {
     let calls = 0, delay = false
-    const sockets = new Set<Socket>(), prompts: string[] = []
+    const prompts: string[] = []
     const server = createServer(async (req, res) => {
       let body = ''; for await (const chunk of req) body += chunk.toString()
       const prompt = JSON.parse(body).messages.map((m: { content: string }) => m.content).join('\n')
@@ -17,12 +17,7 @@ for (const runtime of ['development', ...(process.env.MIMIR_E2E_PACKAGED ? ['pac
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ id: 'mock', object: 'chat.completion', model: 'fake-model', choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: prompt.includes('标签助手') ? '["Rust","科研"]' : '模型结果\n\n保留空白' } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }))
     })
-    server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)) })
-    await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
-    const address = server.address(); if (!address || typeof address === 'string') throw Error('no port')
-    const launched = await launchApp({ ...(runtime === 'packaged' ? { executablePath: process.env.MIMIR_E2E_PACKAGED } : {}), transformSeed: seed => ({ ...seed, settings: gatewayModelSeed(`http://127.0.0.1:${address.port}/v1`) }) })
-    const { page } = launched
-    try {
+    await withLoopbackServer(server, port => launchApp({ ...(runtime === 'packaged' ? { executablePath: process.env.MIMIR_E2E_PACKAGED } : {}), transformSeed: seed => ({ ...seed, settings: gatewayModelSeed(`http://127.0.0.1:${port}/v1`) }) }), async ({ page }) => {
       await gotoModule(page, 'assets')
       const ids = await page.evaluate(async () => {
         const api = window.electronAPI!.assets, c = await api.context(); if (!c.ok) throw Error(c.message)
@@ -104,10 +99,6 @@ for (const runtime of ['development', ...(process.env.MIMIR_E2E_PACKAGED ? ['pac
       await page.getByRole('button', { name: 'AI 标签建议', exact: true }).click()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       await page.screenshot({ path: `../../.git/codex-integration/i5-04-${runtime}-dark-narrow.png` })
-    } finally {
-      await launched.cleanup()
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>(r => server.close(() => r()))
-    }
+    })
   })
 }

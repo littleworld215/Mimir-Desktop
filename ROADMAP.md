@@ -1,5 +1,7 @@
 # 路线图
 
+> 最新（2026-10-08）：I5-05B1完成14工具业务适配及真实SQLite/管道反例；历史文件可用性P2实际RED修复，宿主残留任务与模拟服务异常清理两P3已处理。05B2的SDK/stdio、资源/Prompt、发现凭据、应用生命周期与专门批准UI尚待，不是可用外部MCP，I5整体未验收。 1049通过9既有跳过、三闸门exit0，开发Electron1/1；sourceTask截断P3留05B2。证据在来源docs/verification-integration-i5-mcp-adapter-20261008.md，独立运行QA/用户真实模型另验。以下保留历史快照。
+
 > 最新（2026-10-08）：I5-05A本机传输/会话基础完成，16真实Node管道反例通过；未接app/SDK/14工具业务/发现凭据/批准UI，不是可用外部MCP。后续05B接通并修复超时残留任务P3、05C完整阶段验收。来源docs/verification-integration-i5-mcp-transport-20261008.md；I5整体未验收，以下为历史交付。
 
 > 最新（2026-10-08）：I5-04 AI整理/草稿/标签界面已完成；1021通过9既有跳过、三闸门exit0、修复后Windows x64目录包审计PASS。静态复核两P2修复，测试模拟服务异常清理P3延期，证据见来源docs/verification-integration-i5-ui-20261008.md。I5-05外部MCP/整阶段矩阵、独立运行QA及真实模型验收仍待；I5整体未验收。以下保留历史快照。

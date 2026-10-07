@@ -10,7 +10,9 @@ const messages = {
   METHOD_NOT_FOUND: '不支持此方法。', CONFIRM_REQUIRED: '写操作需要 confirm=true。',
   APPROVAL_DENIED: '外部写请求未获用户批准。', SPACE_CHANGED: '科研空间已变化，请重新连接。',
   DISCONNECTED: '本机连接已关闭。', TIMEOUT: '本机请求已超时。',
-  PAYLOAD_TOO_LARGE: '请求或结果超过传输上限。', INTERNAL_ERROR: '资产请求失败。', BUSY: '当前连接已有请求。'
+  PAYLOAD_TOO_LARGE: '请求或结果超过传输上限。', INTERNAL_ERROR: '资产请求失败。', BUSY: '当前连接已有请求。',
+  NOT_FOUND: '资产或条目不存在。', VERSION_CONFLICT: '正文版本已变化，请重新读取。',
+  REVISION_CONFLICT: '资产已修改，请重新读取。', ASSET_ARCHIVED: '请先恢复归档资产。', BAD_CATEGORY: '分类不存在。'
 } as const
 export type BrokerErrorCode = keyof typeof messages
 export class BrokerError extends Error {

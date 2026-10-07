@@ -24,12 +24,15 @@ export interface AssetsBrokerOptions {
   approve?: (request: BrokerRequest) => Promise<boolean>
   timeoutMs?: number
   maxBytes?: number
+  maxHostOperations?: number
 }
 /** 只提供传输接缝；尚未挂到主应用、发布发现凭据或代替 MCP SDK。 */
 export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{ endpoint: string; token: string; close: () => Promise<void> }> {
   assertLocalEndpoint(options.endpoint)
   const maxBytes = options.maxBytes ?? MAX_FRAME_BYTES, timeoutMs = options.timeoutMs ?? 120_000
+  const maxHostOperations = options.maxHostOperations ?? 32
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1024 || maxBytes > MAX_FRAME_BYTES || !Number.isSafeInteger(timeoutMs) || timeoutMs < 10 || timeoutMs > 120_000) throw new BrokerError('BAD_REQUEST')
+  if (!Number.isSafeInteger(maxHostOperations) || maxHostOperations < 1 || maxHostOperations > 32) throw new BrokerError('BAD_REQUEST')
   if (process.platform !== 'win32') {
     // Unix socket 路径必须位于仅当前用户可访问的目录；Windows后续发现文件继承用户目录ACL。
     const parent = statSync(dirname(options.endpoint))
@@ -38,6 +41,7 @@ export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{
   const token = randomBytes(32).toString('base64url')
   const sockets = new Set<Socket>()
   let closed = false
+  let hostOperations = 0
   const server = createServer(socket => {
     if (closed || sockets.size >= 16) { socket.destroy(); return }
     sockets.add(socket)
@@ -77,6 +81,7 @@ export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{
         return
       }
       if (controller) { rejectSession(typeof v.id === 'number' ? v.id : -1, new BrokerError('BUSY')); return }
+      if (hostOperations >= maxHostOperations) { rejectSession(typeof v.id === 'number' ? v.id : -1, new BrokerError('BUSY')); return }
       if (Object.keys(v).some(k => !['id', 'method', 'args'].includes(k)) || v.id !== sequence + 1 || sequence >= 1024) { destroy(); return }
       sequence++
       const id = sequence
@@ -103,7 +108,11 @@ export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{
         guard(active.signal)
         return result
       }
-      void Promise.race([operation(), aborted]).then(data => {
+      // race结束并不意味着忽略signal的宿主已结束；跨连接也占容量，实际settle才释放。
+      hostOperations++
+      const host = operation()
+      void host.then(() => { hostOperations-- }, () => { hostOperations-- })
+      void Promise.race([host, aborted]).then(data => {
         if (!terminal && !socket.destroyed) send({ id, ok: true, data })
       }).catch(error => { if (!terminal && !socket.destroyed) failure(id, error) }).finally(() => {
         clearTimeout(timer); removeAbort()
