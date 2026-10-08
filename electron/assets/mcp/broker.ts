@@ -80,6 +80,10 @@ export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{
         send({ id: 0, ok: true, scope })
         return
       }
+      if (v.type === 'ping' && Object.keys(v).length === 1) {
+        try { guard(new AbortController().signal); send({ type: 'pong' }) } catch (error) { rejectSession(-1, safeBrokerError(error)) }
+        return
+      }
       if (controller) { rejectSession(typeof v.id === 'number' ? v.id : -1, new BrokerError('BUSY')); return }
       if (hostOperations >= maxHostOperations) { rejectSession(typeof v.id === 'number' ? v.id : -1, new BrokerError('BUSY')); return }
       if (Object.keys(v).some(k => !['id', 'method', 'args'].includes(k)) || v.id !== sequence + 1 || sequence >= 1024) { destroy(); return }

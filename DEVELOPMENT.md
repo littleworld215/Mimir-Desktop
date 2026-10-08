@@ -772,3 +772,11 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 - 原文默认展示，阅读不执行HTML/不创建图片和外链入口；管道表格有限解析，单元格原文。低频窗口lazy；深浅主题沿用现有token，窄屏主内容独立滚动。
 - 完整962通过9既有跳过、typecheck/test/build exit0，开发/打包Electron19/19（0重试）、原生各7/7、目录包23735项审计PASS，来源check通过。日志与静态复核整改见来源docs/verification-integration-i4-ui-20261007.md（D-056）。
 - I4-01～04 Windows x64 Codex阶段验收完成，用户真实使用另验；下一步I5 AI。仅提交自有origin，官方upstream不推。
+
+## I5-05B2b 本机宿主连接（2026-10-08）
+
+显式 --assets-mcp 启用；默认关闭。发现凭据在Electron userData/assets-mcp，目录当前SID FullControl+Network Deny，固定.NET权限校验、拒绝链接和宽权限，独占发布，不覆盖旧实例。out/main/assetsMcpCli.js 为独立stdio连接入口，只读发现文件、连接已有主应用，不新开writer/model。完整生产客户端配置暂不发布。
+
+原生批准独立于Agent，默认/取消拒绝、单窗口、全文JSON48,000字节上限、草稿正文/来源/承载预览；旧scope与取消失效。CLI已认证ping/pong保活不触发业务，不跨空间重绑或重放。退出先关闭broker再排空writer，只有本次会话可清发现文件。
+
+Windows原生pipe远程访问限制/安全终验、真实原生按钮及48KB可读性、新目录包和完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。

@@ -58,31 +58,39 @@ export function encodeFrame(value: unknown, maxBytes: number): string {
 }
 export interface LocalAssetsClient {
   readonly scope: Readonly<WorkspaceRequest>
+  readonly closed?: Promise<void>
   call(method: string, args: Record<string, unknown>): Promise<unknown>
   close(): Promise<void>
 }
 /** 仅连接已运行应用；不导入数据库、Electron、模型或 seed。 */
-export function connectAssetsBroker(options: { endpoint: string; token: string; client: string; timeoutMs?: number }): Promise<LocalAssetsClient> {
+export function connectAssetsBroker(options: { endpoint: string; token: string; client: string; timeoutMs?: number; keepAliveMs?: number }): Promise<LocalAssetsClient> {
   return new Promise((resolve, reject) => {
-    try { assertLocalEndpoint(options.endpoint) } catch (e) { reject(e); return }
+    const keepAliveMs = options.keepAliveMs ?? 0
+    try { assertLocalEndpoint(options.endpoint); if (!Number.isSafeInteger(keepAliveMs) || (keepAliveMs !== 0 && (keepAliveMs < 10 || keepAliveMs > 60000))) throw new BrokerError('BAD_REQUEST') } catch (e) { reject(e); return }
     const socket = connect(options.endpoint)
+    let heartbeat: NodeJS.Timeout | undefined
+    let notifyClosed!: () => void
+    const closed = new Promise<void>(done => { notifyClosed = done })
     let established = false, id = 0
     let waiting: { id: number; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout } | null = null
     const timeoutMs = options.timeoutMs ?? 125_000
     const helloTimer = setTimeout(() => { reject(new BrokerError('TIMEOUT')); socket.destroy() }, Math.min(timeoutMs, 5000))
     const fail = (error: BrokerError) => {
       clearTimeout(helloTimer)
+      if (heartbeat) clearInterval(heartbeat)
       if (!established) reject(error)
       if (waiting) { clearTimeout(waiting.timer); waiting.reject(error); waiting = null }
       socket.destroy()
     }
     socket.on('error', () => fail(new BrokerError(established ? 'DISCONNECTED' : 'APP_NOT_RUNNING')))
-    socket.on('close', () => fail(new BrokerError('DISCONNECTED')))
+    socket.on('close', () => { fail(new BrokerError('DISCONNECTED')); notifyClosed() })
     socket.once('connect', () => {
       try { socket.write(encodeFrame({ type: 'hello', token: options.token, client: options.client }, MAX_FRAME_BYTES)) } catch { fail(new BrokerError('BAD_REQUEST')) }
     })
     receiveFrames(socket, MAX_FRAME_BYTES, value => {
       const reply = object(value)
+      // 保活是已认证会话的控制帧，不占工具序号、不触发业务、不重放写入。
+      if (established && reply.type === 'pong' && Object.keys(reply).length === 1) return
       if (typeof reply.ok !== 'boolean') { fail(new BrokerError('BAD_REQUEST')); return }
       const code = typeof reply.code === 'string' && Object.hasOwn(messages, reply.code) ? reply.code as BrokerErrorCode : 'INTERNAL_ERROR'
       if (!established) {
@@ -90,7 +98,14 @@ export function connectAssetsBroker(options: { endpoint: string; token: string; 
         const scope = object(reply.scope)
         if (typeof scope.workspaceId !== 'string' || typeof scope.spaceEpoch !== 'string') { fail(new BrokerError('BAD_REQUEST')); return }
         established = true; clearTimeout(helloTimer)
+        if (keepAliveMs) {
+          heartbeat = setInterval(() => {
+            try { if (!socket.destroyed) socket.write(encodeFrame({ type: 'ping' }, MAX_FRAME_BYTES)) } catch { fail(new BrokerError('DISCONNECTED')) }
+          }, keepAliveMs)
+          heartbeat.unref?.()
+        }
         resolve({
+          closed,
           scope: Object.freeze({ workspaceId: scope.workspaceId, spaceEpoch: scope.spaceEpoch }),
           call(method, args) {
             if (socket.destroyed) return Promise.reject(new BrokerError('DISCONNECTED'))

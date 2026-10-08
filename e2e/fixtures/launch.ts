@@ -52,6 +52,8 @@ export interface LaunchOptions {
   saveDialogPath?: string
   /** 额外环境变量 */
   env?: Record<string, string>
+  /** 受控测试场景启动参数；数据隔离参数仍最后写入。 */
+  extraArgs?: string[]
   /** 应用启动超时（毫秒）。默认 60s：主进程要装载 LangChain 全家桶，冷启慢。 */
   timeout?: number
 }
@@ -99,7 +101,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   let app: ElectronApplication
   try { app = await electron.launch({
     executablePath: options.executablePath,
-    args: [...(options.executablePath ? [] : [mainEntry]), `--user-data-dir=${tempHome.userData}`],
+    args: [...(options.executablePath ? [] : [mainEntry]), ...(options.extraArgs ?? []), `--user-data-dir=${tempHome.userData}`],
     cwd: repoRoot,
     env,
     timeout: options.timeout ?? 60_000

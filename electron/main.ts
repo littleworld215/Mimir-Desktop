@@ -21,6 +21,12 @@ import { stopBridge } from './plugins/bridge'
 import log, { initLogger } from './logger'
 import { assetsStoreManager } from './assets/store'
 import { createQuitFlow } from './quitFlow'
+import { startAssetsMcpHost, externalApprovalPreview } from './assets/mcp/host'
+import { createExternalApproval } from './assets/mcp/approval'
+import { safeBrokerError } from './assets/mcp/localTransport'
+
+// 仅显式启动参数启用外部MCP；默认运行方式保持不变。
+let assetsMcpStartup: Promise<Awaited<ReturnType<typeof startAssetsMcpHost>> | null> | null = null
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -285,6 +291,18 @@ app.whenReady().then(async () => {
   setupIpcHandlers(windowRef)
 
   createWindow()
+  if (process.argv.includes('--assets-mcp')) {
+    const approve = createExternalApproval({ window: () => mainWindow, currentScope: () => assetsStoreManager.context(),
+      preview: request => externalApprovalPreview(request, scope => assetsStoreManager.getForRequest(scope)),
+      show: (window, options) => dialog.showMessageBox(window, options) })
+    assetsMcpStartup = startAssetsMcpHost({ userData: app.getPath('userData'), currentScope: () => assetsStoreManager.context(),
+      context: scope => assetsStoreManager.getForRequest(scope), approve }).catch(error => {
+      const safe = safeBrokerError(error)
+      log.warn(`[assets-mcp] 启用失败：${safe.code}`)
+      dialog.showErrorBox('外部资产 MCP 未启用', `${safe.message}\n桌面其它功能仍可使用。若有崩溃残留，请确认其它实例退出后再处理 assets-mcp/session.json。`)
+      return null
+    })
+  }
 }).catch((error: unknown) => {
   // 启动链兜底：协议注册 / store 装载 / IPC 注册 / 建窗任一步抛错都会落到这里。
   // 不静默 —— 弹框告知用户，并显式退出（否则会留下一个没有窗口的僵尸进程）。
@@ -377,6 +395,8 @@ const quitFlow = createQuitFlow({
   closeWindow: () => mainWindow?.close(),
   quit: () => app.quit(),
   shutdown: async () => {
+    // 先撤销外部请求和原生批准，再排空唯一writer；启动中的ACL操作也必须收口。
+    try { await (await assetsMcpStartup)?.close() } catch { log.warn('[assets-mcp] 退出清理失败，凭据残留须确认后手动处理。') }
     // ① 先排空资产写入：独立预算，不被通用超时截断——保证在途事务落定后才继续退出。
     await drainAssetsBeforeQuit()
     // ② 再做通用清理：共享 3 秒预算，某个清理卡住时也要保证进程能退出。

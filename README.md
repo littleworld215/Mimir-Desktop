@@ -139,6 +139,14 @@ killall Dock && killall Finder
 
 - [dsh-Mimir-Academic-research](https://github.com/1692775560/dsh-Mimir-Academic-research) —— 本项目的前身：以 DeepSeek Harness 为宿主的科研工作台插件。Mimir Desktop 是其工程化重写的独立桌面版。
 
+## 科研资产整合进度（自有 fork，2026-10-08）
+
+I0–I4已完成Windows阶段验证，I5已接通草稿、模型动作/标签建议、Agent、资产AI界面及外部MCP协议。本机MCP宿主连接已实现：共用当前科研空间唯一资产writer，独立CLI连接已有桌面，凭据位于Electron用户配置目录的 `assets-mcp/session.json`；默认不开启，不进入同步资产或Git。
+
+外部写请求有独立原生单次确认，默认拒绝，不继承Agent全权权限；完整拟写入参数与草稿采纳正文可审阅，合计超过48,000 UTF-8字节拒绝。取消、空间切换和断连使批准失效；CLI通过纯控制帧保活，不重放写请求。崩溃残留文件不会自动覆盖，须确认所有实例退出后再处理。
+
+**外部MCP仍是开发预览，尚不发布生产客户端配置。** Windows发现文件ACL已实际验证，但管道原生远程拒绝/每实例DACL、真实原生点击和48KB可读性、新目录包及阶段终验尚待；I5整体未验收。自动测试对原生按钮使用返回值替身，不冒充用户验收。源码开发检查入口为 `pnpm typecheck`、`pnpm test`、`pnpm build`；真实桌面连接回归为构建后 `pnpm exec playwright test e2e/specs/30-assets-mcp-host.spec.ts --retries=0`，仅使用临时数据。
+
 ## License
 
-[MIT](https://opensource.org/licenses/MIT)（见 `package.json` 的 `license` 字段）
+[GPL-3.0-only](LICENSE)（与 `package.json` 的 `license` 字段一致）。本整合仅提交用户自有 fork，不推官方 upstream。

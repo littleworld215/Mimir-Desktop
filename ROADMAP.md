@@ -106,3 +106,11 @@ I4-02收藏/最近/保存筛选/快速取用界面及固定6方法已实现（�
 I4-03变量与任务包纯函数完成（D-055），955通过9既有跳过、三闸门exit0，旧来源兼容与最终UTF8预算已验证。没有新增UI/IPC/schema；下一步I4-04填写/编写/任务包界面、偏好/帮助/阅读与阶段目录包终验。I4整体未验收；证据见来源docs/verification-integration-i4-template-20261007.md。
 
 I4-04及I4-01～04 Windows x64 Codex阶段验收完成（D-056）：编写/填值/任务包/偏好/安全阅读/帮助，962通过9既有跳过，三闸门exit0，开发/打包Electron19/19（0重试）、原生各7/7、23735项包审计PASS，来源check通过。历史段落保留当时状态，以本条最新结论为准。用户真实使用另验，下一步I5 AI；I6备份恢复/自检与I7 UI打磨仍待。详情见来源docs/verification-integration-i4-ui-20261007.md。
+
+## I5-05B2b 本机宿主连接（2026-10-08）
+
+显式 --assets-mcp 启用；默认关闭。发现凭据在Electron userData/assets-mcp，目录当前SID FullControl+Network Deny，固定.NET权限校验、拒绝链接和宽权限，独占发布，不覆盖旧实例。out/main/assetsMcpCli.js 为独立stdio连接入口，只读发现文件、连接已有主应用，不新开writer/model。完整生产客户端配置暂不发布。
+
+原生批准独立于Agent，默认/取消拒绝、单窗口、全文JSON48,000字节上限、草稿正文/来源/承载预览；旧scope与取消失效。CLI已认证ping/pong保活不触发业务，不跨空间重绑或重放。退出先关闭broker再排空writer，只有本次会话可清发现文件。
+
+Windows原生pipe远程访问限制/安全终验、真实原生按钮及48KB可读性、新目录包和完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。

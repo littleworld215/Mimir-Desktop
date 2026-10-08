@@ -53,7 +53,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'electron/main.ts'),
-          assetsMcp: resolve(__dirname, 'electron/assets/mcp/sdk.ts')
+          assetsMcp: resolve(__dirname, 'electron/assets/mcp/sdk.ts'),
+          assetsMcpCli: resolve(__dirname, 'electron/assets/mcp/cli.ts')
         },
         // 协议模块供后续受保护CLI调用；不能在桌面main入口自动启动stdio。
         preserveEntrySignatures: 'strict',

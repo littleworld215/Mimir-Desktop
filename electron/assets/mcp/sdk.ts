@@ -89,7 +89,7 @@ export function createAssetsMcpServer(client: LocalAssetsClient): Server {
   return server
 }
 
-/** 调用者负责认证连接和生命周期；尚无自动发现或生产CLI入口。stdout仅供SDK协议使用。 */
+/** 调用者负责认证连接和生命周期；生产CLI从受保护发现文件连接。stdout仅供SDK协议使用。 */
 export async function startAssetsMcpStdio(client: LocalAssetsClient, streams: { input?: Readable; output?: Writable } = {}): Promise<Server> {
   const server = createAssetsMcpServer(client)
   const input = streams.input ?? process.stdin, output = streams.output ?? process.stdout
