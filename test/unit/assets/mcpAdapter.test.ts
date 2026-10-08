@@ -50,6 +50,21 @@ it('创建kind/sourceTask及标签真正写入；v1/v2/旧baseVersion冲突与�
   await expect(call('update_metadata', { assetCode: code, baseVersion: 1, name: '不能覆盖', confirm: true })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' })
 })
 
+it('来源任务截断明确标记且不拆Unicode', async () => {
+  const sourceTask = 'a'.repeat(1999) + '😀末尾'
+  const made = await call('create_asset', { name: '长任务', categoryCode: 'inbox', content: 'x', sourceTask, confirm: true })
+  const read = (await call('get_asset', { assetCode: made.data.assetCode })).data
+  expect(read.sourceTaskTruncated).toBe(true)
+  expect(read.sourceTask).toBe('a'.repeat(1999))
+  const short = seed('short-source')
+  expect((await call('get_asset', { assetCode: short.code })).data.sourceTaskTruncated).toBe(false)
+})
+
+it('kind显式null不是合法外部参数', async () => {
+  await expect(call('create_asset', { name: '无效', content: 'x', categoryCode: 'inbox', kind: null, confirm: true })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  await expect(call('search_assets', { kind: null })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+})
+
 it('全部七读工具可用，标签名搜索与保存筛选输出不泄露路径', async () => {
   const a = seed('a'); await call('add_tags', { assetCode: 'a', tags: ['科学'], confirm: true })
   await call('remove_tags', { assetCode: 'a', tags: ['不存在'], confirm: true })

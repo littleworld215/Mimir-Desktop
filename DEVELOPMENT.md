@@ -1,5 +1,12 @@
 # 开发文档（DEVELOPMENT）
 
+## 科研资产整合 I5-05B2a（2026-10-08）
+
+- I5-05B2a完成官方SDK1.32.1协议：14严格工具schema、三资源模板、安全URI投影与两个Prompt；独立stdio模块不自动启动。05B2b发现凭据/ACL、生产CLI、桌面生命周期与专门批准UI仍待，外部MCP不可配置使用，I5整体未验收。
+- SDK1.32.1精确依赖、pnpm9.15.9声明；既有锁importer不改版本，无原生postinstall。out/main/assetsMcp.js保留导出，不在main自动启动stdio，不开第二SQLite writer。
+- SDK Server/Ajv/stdio统一协议，资源模板专门列表、安全URI投影；Prompt完整参数/正确工具名，sourceTaskTruncated解决P3。EOF/close/error由生产封装清理，不依赖fixture；宿主收到取消后晚批准零写，不撤销已提交操作。
+- 1060通过9既有跳过、三闸门exit0；真实Node stdio4/4、开发Electron2/2（0重试，含内置Node20的stdio假宿主探针），来源check通过；完整记录在来源docs/verification-integration-i5-mcp-sdk-20261008.md。schema4/57接口保持，生产接通与阶段目录包尚待。
+
 ## 科研资产整合 I5-05B1（2026-10-08）
 
 - I5-05B1完成14工具业务适配及真实SQLite/管道反例；历史文件可用性P2实际RED修复，宿主残留任务与模拟服务异常清理两P3已处理。05B2的SDK/stdio、资源/Prompt、发现凭据、应用生命周期与专门批准UI尚待，不是可用外部MCP，I5整体未验收。

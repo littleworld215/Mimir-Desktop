@@ -55,6 +55,7 @@ export async function dispatchAssetTool(request: ExternalToolRequest, context: (
     if (![...MCP_READ_TOOLS, ...MCP_WRITE_TOOLS].includes(request.method as typeof MCP_READ_TOOLS[number])) throw new BrokerError('METHOD_NOT_FOUND')
     const args = request.args
     if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => !fields[request.method].includes(k))) bad()
+    if (args.kind !== undefined && !['thought', 'rule', 'file', 'prompt'].includes(args.kind as string)) bad()
     if ((MCP_WRITE_TOOLS as readonly string[]).includes(request.method) && args.confirm !== true) throw new BrokerError('CONFIRM_REQUIRED')
     const assertSignal = () => { if (request.signal.aborted) throw new BrokerError('DISCONNECTED') }
     assertSignal()
@@ -103,7 +104,8 @@ export async function dispatchAssetTool(request: ExternalToolRequest, context: (
         data = { assetCode: a.code, version: number, content: clamp(a.storageType === 'inline_text' ? v?.content ?? '' : '', max),
           storageType: a.storageType, fileName: v?.file_name ?? null,
           fileAvailable,
-          ...(request.method === 'get_asset' ? { name: a.name, category: a.category, kind: a.kind, sourceTask: clamp(a.sourceTask, 2000).content, tags: a.tags.map(t => t.name), externalUrl: a.externalUrl } : {}) }
+          ...(request.method === 'get_asset' ? { name: a.name, category: a.category, kind: a.kind, sourceTask: clamp(a.sourceTask, 2000).content,
+            sourceTaskTruncated: clamp(a.sourceTask, 2000).truncated, tags: a.tags.map(t => t.name), externalUrl: a.externalUrl } : {}) }
         break
       }
       case 'list_categories': data = listCategories(ctx); break

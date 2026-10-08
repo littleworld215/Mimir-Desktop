@@ -52,8 +52,13 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'electron/main.ts')
+          index: resolve(__dirname, 'electron/main.ts'),
+          assetsMcp: resolve(__dirname, 'electron/assets/mcp/sdk.ts')
         },
+        // 协议模块供后续受保护CLI调用；不能在桌面main入口自动启动stdio。
+        preserveEntrySignatures: 'strict',
+        // main.ts用import.meta.url定位../preload和../renderer；多入口共享块必须仍在out/main。
+        output: { chunkFileNames: '[name]-[hash].js' },
         // 原生 / 二进制依赖必须外置。externalizeDepsPlugin 已覆盖 dependencies，
         // 这里显式再列一次，防止将来被误移到 devDependencies 导致构建悄悄回归。
         external: ['electron', 'node-pty', 'sherpa-onnx', 'ffmpeg-static', 'better-sqlite3']
