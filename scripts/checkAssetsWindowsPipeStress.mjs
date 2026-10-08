@@ -12,8 +12,36 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const exec = promisify(execFile)
 
-export function probeEcho(endpoint, payload, timeoutMs = 5000) {
+const connectionEvent = (event, code) => ({ event, code, atMs: Date.now(), monotonicNs: process.hrtime.bigint().toString() })
+
+export function stressProfile(flag) {
+  assert(flag === undefined || ['--connection-events', '--connection-window'].includes(flag), 'BAD_ARGUMENTS')
+  return { trace: flag !== undefined, roundDelayMs: flag === '--connection-window' ? 0 : 250,
+    scope: flag === '--connection-window' ? 'diagnostic-connection-window' : 'synthetic-native-relay-only' }
+}
+
+export function createConnectionTrace(limit = 128) {
+  assert(Number.isSafeInteger(limit) && limit >= 1 && limit <= 1024, 'BAD_TRACE_LIMIT')
+  const events = []
+  let nextId = 0
+  return {
+    begin() {
+      const clientId = ++nextId
+      return event => {
+        assert(['start', 'connect', 'error', 'close'].includes(event.event) && Number.isSafeInteger(event.atMs), 'BAD_TRACE_EVENT')
+        const code = event.code == null ? null : ['ENOENT', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'EACCES', 'ETIMEDOUT'].includes(event.code) ? event.code : 'OTHER'
+        const monotonicNs = typeof event.monotonicNs === 'string' && /^\d{1,30}$/.test(event.monotonicNs) ? event.monotonicNs : null
+        events.push({ clientId, event: event.event, atMs: event.atMs, monotonicNs, code })
+        if (events.length > limit) events.shift()
+      }
+    },
+    snapshot() { return events.map(event => ({ ...event })) }
+  }
+}
+
+export function probeEcho(endpoint, payload, timeoutMs = 5000, onEvent) {
   return new Promise((accept, reject) => {
+    onEvent?.(connectionEvent('start'))
     const socket = createConnection(endpoint)
     let offset = 0, finished = false, failure
     const finish = error => {
@@ -22,8 +50,8 @@ export function probeEcho(endpoint, payload, timeoutMs = 5000) {
       clearTimeout(timer); socket.destroy()
     }
     const timer = setTimeout(() => finish(new Error('ECHO_TIMEOUT')), timeoutMs)
-    socket.once('connect', () => socket.write(payload))
-    socket.on('error', error => finish(error))
+    socket.once('connect', () => { onEvent?.(connectionEvent('connect')); socket.write(payload) })
+    socket.on('error', error => { onEvent?.(connectionEvent('error', error.code)); finish(error) })
     socket.on('data', bytes => {
       if (finished) return
       if (!bytes.equals(payload.subarray(offset, offset + bytes.length))) return finish(new Error('ECHO_MISMATCH'))
@@ -31,6 +59,7 @@ export function probeEcho(endpoint, payload, timeoutMs = 5000) {
       if (offset === payload.length) finish()
     })
     socket.once('close', () => {
+      onEvent?.(connectionEvent('close'))
       clearTimeout(timer)
       if (finished && !failure) accept(offset)
       else reject(failure ?? new Error('ECHO_INCOMPLETE'))
@@ -66,20 +95,23 @@ async function readMetrics(pid) {
   return sample
 }
 
-async function abortConnection(endpoint) {
+async function abortConnection(endpoint, onEvent) {
   await new Promise((accept, reject) => {
+    onEvent?.(connectionEvent('start'))
     const socket = createConnection(endpoint)
     let connected = false, error
     const timer = setTimeout(() => { error = new Error('ABORT_TIMEOUT'); socket.destroy() }, 5000)
-    socket.once('connect', () => { connected = true; socket.destroy() })
-    socket.on('error', e => { error = e; socket.destroy() })
-    socket.once('close', () => { clearTimeout(timer); connected && !error ? accept() : reject(error ?? new Error('ABORT_CONNECT')) })
+    socket.once('connect', () => { onEvent?.(connectionEvent('connect')); connected = true; socket.destroy() })
+    socket.on('error', e => { onEvent?.(connectionEvent('error', e.code)); error = e; socket.destroy() })
+    socket.once('close', () => { onEvent?.(connectionEvent('close')); clearTimeout(timer); connected && !error ? accept() : reject(error ?? new Error('ABORT_CONNECT')) })
   })
 }
 
 async function main() {
   assert.equal(process.platform, 'win32', 'WINDOWS_ONLY')
-  assert(process.argv.length <= 5, 'BAD_ARGUMENTS')
+  assert(process.argv.length <= 6, 'BAD_ARGUMENTS')
+  const profile = stressProfile(process.argv[5])
+  const trace = profile.trace ? createConnectionTrace() : undefined
   const root = resolve(process.argv[2] ?? '.')
   const seconds = Number(process.argv[3] ?? 120)
   const warmupSeconds = Number(process.argv[4] ?? 120)
@@ -99,7 +131,7 @@ async function main() {
   const payload = Buffer.alloc(256 * 1024)
   for (let i = 0; i < payload.length; i++) payload[i] = i % 251
   async function round() {
-    const results = await Promise.allSettled(Array.from({ length: 8 }, () => probeEcho(endpoint, payload)))
+    const results = await Promise.allSettled(Array.from({ length: 8 }, () => probeEcho(endpoint, payload, 5000, trace?.begin())))
     const failure = results.find(result => result.status === 'rejected')
     if (failure) throw failure.reason
     for (const result of results) bytes += result.value
@@ -118,8 +150,8 @@ async function main() {
     let warmupRounds = 0, warmupAborted = 0, nextWarmSample = 20000
     while (performance.now() - warmStart < warmupSeconds * 1000) {
       await round(); warmupRounds++
-      if (warmupRounds % 10 === 0) { await abortConnection(endpoint); warmupAborted++ }
-      await sleep(250)
+      if (warmupRounds % 10 === 0) { await abortConnection(endpoint, trace?.begin()); warmupAborted++ }
+      await sleep(profile.roundDelayMs)
       if (performance.now() - warmStart >= nextWarmSample) {
         const sample = { atMs: Math.round(performance.now() - warmStart), ...await readMetrics(relay.pid) }
         warmupSamples.push(sample)
@@ -136,8 +168,8 @@ async function main() {
     let nextSample = 20000
     while (performance.now() - start < seconds * 1000) {
       await round(); rounds++
-      if (rounds % 10 === 0) { await abortConnection(endpoint); aborted++ }
-      await sleep(250)
+      if (rounds % 10 === 0) { await abortConnection(endpoint, trace?.begin()); aborted++ }
+      await sleep(profile.roundDelayMs)
       if (performance.now() - start >= nextSample) {
         await sleep(100)
         samples.push({ atMs: Math.round(performance.now() - start), phase: 'between-rounds', ...await readMetrics(relay.pid) })
@@ -148,7 +180,7 @@ async function main() {
     await sleep(3000)
     samples.push({ atMs: Math.round(performance.now() - start), phase: 'cooled-idle', ...await readMetrics(relay.pid) })
     const resources = assessResources(samples[0], samples.at(-1))
-    report = { result: 'PASS', scope: 'synthetic-native-relay-only', runtime: process.versions.node,
+    report = { result: 'PASS', scope: profile.scope, runtime: process.versions.node,
       root, requestedSeconds: seconds, elapsedMs, concurrency: 8, payloadBytes: payload.length,
       warmup: { requestedSeconds: warmupSeconds, elapsedMs: warmupElapsedMs, rounds: warmupRounds,
         abortedConnections: warmupAborted, verifiedBytesPerDirection: warmupBytes, samples: warmupSamples },
@@ -164,6 +196,9 @@ async function main() {
     assert(resources.pass, 'RESOURCE_GROWTH_LIMIT')
     assert.equal(clients.size, 0, 'BACKEND_SOCKETS_REMAIN')
     assert(rounds > 0 && aborted > 0 && audits >= 8 * (rounds + warmupRounds + 10), 'INSUFFICIENT_LOAD')
+  } catch (error) {
+    if (trace) console.error(JSON.stringify({ result: 'TRACE_ON_FAILURE', atMs: Date.now(), events: trace.snapshot() }))
+    throw error
   } finally {
     try {
       await relay?.close()

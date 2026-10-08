@@ -1,6 +1,42 @@
 import { createServer, type Server, type Socket } from 'node:net'
 import { afterEach, expect, it } from 'vitest'
-import { probeEcho, assessResources } from '../../../scripts/checkAssetsWindowsPipeStress.mjs'
+import { probeEcho, assessResources, createConnectionTrace, stressProfile } from '../../../scripts/checkAssetsWindowsPipeStress.mjs'
+
+it('连续连接定位显式区分正式压力协议，默认250ms节奏保持', () => {
+  expect(stressProfile()).toEqual({ trace: false, roundDelayMs: 250, scope: 'synthetic-native-relay-only' })
+  expect(stressProfile('--connection-events').roundDelayMs).toBe(250)
+  expect(stressProfile('--connection-window')).toEqual({ trace: true, roundDelayMs: 0, scope: 'diagnostic-connection-window' })
+  expect(() => stressProfile('--retry')).toThrow('BAD_ARGUMENTS')
+})
+
+it('连接事件有界且仅投影时刻、标识与固定错误码', () => {
+  const trace = createConnectionTrace(3)
+  const first = trace.begin(), second = trace.begin()
+  first({ event: 'start', atMs: 1, secret: 'never log' })
+  first({ event: 'connect', atMs: 2 })
+  first({ event: 'close', atMs: 3 })
+  second({ event: 'error', atMs: 4, code: 'ENOENT', message: 'private path' })
+  expect(trace.snapshot()).toEqual([
+    { clientId: 1, event: 'connect', atMs: 2, monotonicNs: null, code: null },
+    { clientId: 1, event: 'close', atMs: 3, monotonicNs: null, code: null },
+    { clientId: 2, event: 'error', atMs: 4, monotonicNs: null, code: 'ENOENT' }
+  ])
+  second({ event: 'error', atMs: 5, code: 'private path' })
+  expect(trace.snapshot().at(-1)?.code).toBe('OTHER')
+  expect(() => createConnectionTrace(0)).toThrow('BAD_TRACE_LIMIT')
+})
+
+it('实际socket的事件能关联失败与关闭，原失败仍拒绝', async () => {
+  const trace = createConnectionTrace()
+  const endpoint = await fixture(socket => socket.destroy())
+  await expect(probeEcho(endpoint, Buffer.from('x'), 1000, trace.begin())).rejects.toThrow()
+  const events = trace.snapshot()
+  expect(events[0].event).toBe('start')
+  expect(events.at(-1)?.event).toBe('close')
+  expect(new Set(events.map(event => event.clientId)).size).toBe(1)
+  expect(events.every(event => Number.isSafeInteger(event.atMs))).toBe(true)
+  expect(events.every(event => /^\d{1,30}$/.test(event.monotonicNs))).toBe(true)
+})
 
 const servers: Server[] = [], sockets = new Set<Socket>()
 async function fixture(handle: (socket: Socket) => void) {

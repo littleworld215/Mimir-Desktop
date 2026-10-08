@@ -24,7 +24,29 @@ const snapshot = `
   }
 `
 
-export function instrumentRelayBundle(original, mode) {
+const eventsSource = `
+  static readonly Queue<string> diagnosticEvents = new Queue<string>();
+  static readonly Dictionary<IDisposable, int> diagnosticPipes = new Dictionary<IDisposable, int>();
+  static long diagnosticSequence;
+  static void DiagnosticEvent(string kind, NamedPipeServerStream pipe, int ordinal) {
+    lock(gate) {
+      if (kind == "created") diagnosticPipes.Add(pipe, ordinal);
+      diagnosticEvents.Enqueue("DIAG event="+kind+" seq="+(++diagnosticSequence)+" ticksUtc="+DateTime.UtcNow.Ticks+" qpc="+System.Diagnostics.Stopwatch.GetTimestamp()+" frequency="+System.Diagnostics.Stopwatch.Frequency+" highRes="+(System.Diagnostics.Stopwatch.IsHighResolution ? 1 : 0)+" ordinal="+ordinal+" live="+diagnosticPipes.Count);
+      while (diagnosticEvents.Count > 128) diagnosticEvents.Dequeue();
+    }
+  }
+  static void DiagnosticDisposed(IDisposable value) {
+    lock(gate) {
+      int ordinal;
+      if (!diagnosticPipes.TryGetValue(value, out ordinal)) return;
+      diagnosticPipes.Remove(value);
+      DiagnosticEvent("disposed", null, ordinal);
+    }
+  }
+  static void DiagnosticDump() { lock(gate) { foreach(var line in diagnosticEvents) Emit(line); } }
+`
+
+export function instrumentRelayBundle(original, mode, { events = false } = {}) {
   assert(['baseline', 'pipe-only', 'connect-only'].includes(mode), 'BAD_MODE')
   assert(!original.includes('  static void Snapshot()') && !original.includes('line.startsWith("DIAG ")'), 'ALREADY_DIAGNOSTIC')
   let code = replaceOnce(original, '  static async Task RunAsync(string endpoint, int port) {', snapshot + '\n  static async Task RunAsync(string endpoint, int port) {')
@@ -60,6 +82,17 @@ export function instrumentRelayBundle(original, mode) {
 `
     code = code.slice(0, start) + body + code.slice(end)
   }
+  if (events) {
+    code = replaceOnce(code, '  static void Snapshot()', eventsSource + '\n  static void Snapshot()')
+    code = replaceOnce(code, '      var handle = CreateNamedPipeW', '      DiagnosticEvent("native-create-start", null, ordinal);\n      var handle = CreateNamedPipeW')
+    code = replaceOnce(code, '      NamedPipeServerStream pipe = null;', '      DiagnosticEvent("native-created", null, ordinal);\n      NamedPipeServerStream pipe = null;')
+    code = replaceOnce(code, '          diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;', '          DiagnosticEvent("create-start", null, ordinal + 1);\n          diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;')
+    code = replaceOnce(code, '          diagnosticOrdinal = ordinal;', '          diagnosticOrdinal = ordinal;\n          DiagnosticEvent("created", pipe, ordinal);')
+    code = replaceOnce(code, 'try { await pipe.WaitForConnectionAsync(stop.Token); }', 'try { await pipe.WaitForConnectionAsync(stop.Token); DiagnosticEvent("accepted", pipe, ordinal); }')
+    code = replaceOnce(code, 'value.Dispose(); }', 'value.Dispose(); DiagnosticDisposed(value); }')
+    if (mode === 'baseline') code = replaceOnce(code, 'pipe.Dispose(); tcp.Close();', 'pipe.Dispose(); DiagnosticDisposed(pipe); tcp.Close();')
+    code = replaceOnce(code, '      } finally {\n        stop.Cancel();', '      } finally {\n        DiagnosticDump();\n        stop.Cancel();')
+  }
   return code
 }
 
@@ -71,14 +104,15 @@ export function assertOutsideApp(root, parent) {
 
 function main() {
   assert.equal(process.platform, 'win32', 'WINDOWS_ONLY')
-  assert.equal(process.argv.length, 4, 'USAGE: appRoot existingOutputParent')
+  assert(process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === '--events'), 'USAGE: appRoot existingOutputParent [--events]')
+  const events = process.argv[4] === '--events'
   const root = resolve(process.argv[2]), parent = resolve(process.argv[3])
   assertOutsideApp(root, parent)
   const original = readFileSync(join(root, 'out/main/assetsWindowsPipe.js'), 'utf8')
   const dependencies = [...original.matchAll(/from "(\.\/localTransport-[\w-]+\.js)"/g)].map(match => match[1].slice(2))
   assert.equal(dependencies.length, 1, 'BUNDLE_DEPENDENCY')
   // Resolve all transformations before creating a directory, and never overwrite an existing app.
-  const variants = ['baseline', 'pipe-only', 'connect-only'].map(mode => ({ mode, code: instrumentRelayBundle(original, mode) }))
+  const variants = ['baseline', 'pipe-only', 'connect-only'].map(mode => ({ mode, code: instrumentRelayBundle(original, mode, { events }) }))
   const destination = mkdtempSync(join(parent, 'mimir-pipe-isolation-'))
   for (const { mode, code } of variants) {
     const app = join(destination, mode), output = join(app, 'out/main')
@@ -86,7 +120,7 @@ function main() {
     writeFileSync(join(app, 'package.json'), '{"type":"module"}\n')
     for (const dependency of dependencies) copyFileSync(join(root, 'out/main', dependency), join(output, dependency))
     writeFileSync(join(output, 'assetsWindowsPipe.js'), code)
-    console.log(JSON.stringify({ diagnosticOnly: true, mode, appRoot: app }))
+    console.log(JSON.stringify({ diagnosticOnly: true, mode, events, appRoot: app }))
   }
 }
 

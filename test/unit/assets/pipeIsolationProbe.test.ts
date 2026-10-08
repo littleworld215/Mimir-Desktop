@@ -7,6 +7,23 @@ import { instrumentRelayBundle, assertOutsideApp } from '../../../scripts/prepar
 
 const bundle = () => `${WINDOWS_PIPE_SOURCE}\nchild.stderr.resume();\n  const fail = () => {\n  const onClosed = () => {\n  child.on("close", onClosed);\n      try {\n        const message = JSON.parse(line);`
 
+it('实例事件按需启用、有界保留，覆盖创建接受及真正Dispose后的关闭', () => {
+  expect(instrumentRelayBundle(bundle(), 'connect-only')).not.toContain('DiagnosticEvent(')
+  const result = instrumentRelayBundle(bundle(), 'connect-only', { events: true })
+  expect(result).toContain('diagnosticEvents.Count > 128')
+  expect(result).toContain('DiagnosticEvent("create-start", null, ordinal + 1)')
+  expect(result).toContain('DiagnosticEvent("created", pipe, ordinal)')
+  expect(result).toContain('DiagnosticEvent("native-create-start", null, ordinal)')
+  expect(result).toContain('DiagnosticEvent("native-created", null, ordinal)')
+  expect(result).toContain('DiagnosticEvent("accepted", pipe, ordinal)')
+  expect(result).toContain('value.Dispose(); DiagnosticDisposed(value);')
+  expect(result).toContain('DiagnosticDump();\n        stop.Cancel();')
+  expect(result).toContain('DateTime.UtcNow.Ticks')
+  expect(result).toContain('System.Diagnostics.Stopwatch.GetTimestamp()')
+  expect(result).toContain('System.Diagnostics.Stopwatch.Frequency')
+  expect(result).not.toContain('Thread.Sleep(')
+})
+
 it('退出诊断仅记录阶段、实例序号和数值错误，不泄露异常正文', () => {
   const result = instrumentRelayBundle(bundle(), 'connect-only')
   expect(result).toContain('int nativeError = Marshal.GetLastWin32Error(); handle.Dispose();')

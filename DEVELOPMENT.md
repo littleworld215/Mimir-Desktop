@@ -15,6 +15,19 @@ node scripts/checkAssetsWindowsPipeStress.mjs <输出的appRoot> 120 120
 
 6项专项已亲见新增退出元信息RED→GREEN；既有真实junction拒绝继续通过（输入/输出父目录先解析实际路径）。结果/哈希/后续闸门见[来源调查记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-isolation-20261008.md)。生产relay未改，I5未验收。
 
+连接窗口调查可显式启用有界事件记录（两端各最近128条）：
+
+```powershell
+node scripts/prepareAssetsWindowsPipeIsolation.mjs . ../../.git/codex-integration --events
+node scripts/checkAssetsWindowsPipeStress.mjs <输出的appRoot> 120 120 --connection-events
+# 短时连续连接定位：零额外热身、轮间零毫秒定时让出，仍核对字节和原资源阈值；不代替正式压力协议。
+node scripts/checkAssetsWindowsPipeStress.mjs <输出的appRoot> 30 0 --connection-window
+```
+
+默认仍250ms轮间节奏，不记录连接事件；`--connection-window`报告scope为`diagnostic-connection-window`。失败时先输出中性`TRACE_ON_FAILURE`，再执行原清理，原错误仍使退出失败；资源失败不是连接失败。记录仅含序号、状态、时刻和固定错误码，不含路径、正文或端点。C#在清理前输出事件环，原生创建前/后、审计登记、接受、Dispose后的关闭分别记录；`live`仅为已审计登记且未记录Dispose的实例数，创建中的句柄可能尚未登记，不能当成原子内核计数。
+
+高精度对齐需确认`highRes=1`，按`qpc * 1000000000 / frequency`换算并与客户端字符串`monotonicNs`比较，避免整数精度丢失。当前本机Node22.22.2/libuv1.51.0与.NET Stopwatch均使用QPC，不能未经核查跨运行时/机器比较。时间戳是调用前后的用户态观测，不能据一次计数归零或未重现就确认/排除原生空窗；保留创建中区间及采样扰动。专项现14/14（含事件投影、界限、真实socket失败/关闭、默认协议不变）由作者验证，不冒充独立运行QA。
+
 ## I5原生relay压力探针（2026-10-08）
 
 新增`scripts/checkAssetsWindowsPipeStress.mjs`，Windows下构建后使用兼容Node22运行：
