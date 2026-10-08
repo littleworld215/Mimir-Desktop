@@ -143,6 +143,9 @@ killall Dock && killall Finder
 
 ## 科研资产整合进度（自有 fork，2026-10-08）
 
+本轮I5-05C自动回归矩阵见来源仓库[阶段证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-matrix-20261008.md)：完整测试1086通过、9既有跳过；历史资产/AI/MCP主批次27/27（开发19、包内8），0重试；双ABI SQLite按Node→Electron→Node各7/7，目录包26044项审计通过。包内MCP补验2/2通过，合计开发19/19、包内10/10（29/29），0重试；真实交互、跨机器SMB、持续压力、真实模型和独立运行QA仍待，I5未验收。
+
+
 I0–I4已完成Windows阶段验证，I5已接通草稿、模型动作/标签建议、Agent、资产AI界面及外部MCP协议。本机MCP宿主连接已实现：共用当前科研空间唯一资产writer，独立CLI连接已有桌面，凭据位于Electron用户配置目录的 `assets-mcp/session.json`；默认不开启，不进入同步资产或Git。
 
 外部写请求有独立原生单次确认，默认拒绝，不继承Agent全权权限；完整拟写入参数与草稿采纳正文可审阅，合计超过48,000 UTF-8字节拒绝。取消、空间切换和断连使批准失效；CLI通过纯控制帧保活，不重放写请求。崩溃残留文件不会自动覆盖，须确认所有实例退出后再处理。
