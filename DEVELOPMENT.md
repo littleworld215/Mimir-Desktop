@@ -1,5 +1,18 @@
 # 开发文档（DEVELOPMENT）
 
+## I5资源隔离诊断（2026-10-08）
+
+构建后在Windows上准备三个诊断副本；输出父目录必须已存在且在应用根之外：
+
+```powershell
+node scripts/prepareAssetsWindowsPipeIsolation.mjs . ../../.git/codex-integration
+node scripts/checkAssetsWindowsPipeStress.mjs <输出的appRoot> 120 120
+```
+
+工具生成baseline/pipe-only/connect-only，后两种分别移除TCP、只保留TCP建连关闭；共享5秒自进程resources/tasks/线程池/自然GC监控。锚点不匹配、重复插入或输出位于应用根内均拒绝。不覆盖应用，无源码fallback；副本不可用于生产broker或打包，DIAG识别只存在于副本。监控与操作组合有扰动，不能把副本通过当成生产验收，不能据此比较运行时吞吐。
+
+5项反例已亲见RED→GREEN，包括真实junction指向应用内部的拒绝（输入/输出父目录先解析实际路径）；结果/哈希/后续闸门见[来源调查记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-isolation-20261008.md)。生产relay未改，I5未验收。
+
 ## I5原生relay压力探针（2026-10-08）
 
 新增`scripts/checkAssetsWindowsPipeStress.mjs`，Windows下构建后使用兼容Node22运行：

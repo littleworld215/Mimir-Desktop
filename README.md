@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+> I5资源调查（2026-10-08）：新增实际构建的隔离副本生成工具，比较完整转发、纯管道与TCP仅建连，附资源/任务/线程池/自然GC采样。副本仅作归因，不能替换应用或证明生产修复。见[调查与复跑](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-isolation-20261008.md)。生产压力尚未通过，I5未验收；下面为历史验证。
+
 > I5最新（2026-10-08）：新增原生relay压力探针与4项反例测试；开发/包内120秒预热＋120秒测量的句柄增长+69/+53，超过预设+32，**压力闸门失败，尚未修复**。生产relay未改，外部MCP默认关闭，I5未验收。来源仓库docs/verification-integration-i5-stress-20261008.md保留全部失败/诊断与适用边界；下方为历史结果。
 
 > 2026-10-08原生管道实施进展：Windows宿主已接每实例CreateNamedPipeW远程拒绝/当前用户DACL与受认证loopback relay，默认外部入口仍关闭。最终三闸门及新目录包已验证，阶段尚未验收；1086通过9既有跳过、三闸门exit0；开发4/4、打包3/3、26044项包审计通过。以下旧条目保留历史状态。
