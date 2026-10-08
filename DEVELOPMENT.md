@@ -1,5 +1,17 @@
 # 开发文档（DEVELOPMENT）
 
+## I5原生relay压力探针（2026-10-08）
+
+新增`scripts/checkAssetsWindowsPipeStress.mjs`，Windows下构建后使用兼容Node22运行：
+
+```powershell
+node scripts/checkAssetsWindowsPipeStress.mjs . 120 120
+```
+
+参数为应用根、测量秒数、额外预热秒数；只连接临时合成echo，8并发×256KiB逐字校验，不访问资产库/模型。目录包测试用`ELECTRON_RUN_AS_NODE=1`的包内Mimir.exe执行该外部脚本，应用根指向resources/app.asar，必须等待真实退出码。
+
+固定资源门槛为句柄增量≤32、私有内存增量≤64MiB。正式开发/包内120+120秒均失败（+69/+53句柄，exit1）；延后空闲回落不代替通过。4项反例测试通过，生产relay未改。下一步定位分配/回收来源；完整证据及旧协议失败见来源docs/verification-integration-i5-stress-20261008.md。I5未验收，下方保留历史状态。
+
 > I5-05C自动回归矩阵（2026-10-08）：本轮仅验证与文档，完整测试1086通过9既有跳过，开发19/19、目录包10/10（合计29/29，0重试）、双ABI顺序各7/7、目录包26044项审计通过。完整范围见来源docs/verification-integration-i5-matrix-20261008.md。真实原生交互/跨机器/持续压力/模型/独立运行QA仍待，I5整体未验收；下方为历史记录。
 
 > 2026-10-08原生管道实施进展：Windows宿主已接每实例CreateNamedPipeW远程拒绝/当前用户DACL与受认证loopback relay，默认外部入口仍关闭。最终三闸门及新目录包已验证，阶段尚未验收；1086通过9既有跳过、三闸门exit0；开发4/4、打包3/3、26044项包审计通过。以下旧条目保留历史状态。
@@ -783,4 +795,4 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 
 原生批准独立于Agent，默认/取消拒绝、单窗口、全文JSON48,000字节上限、草稿正文/来源/承载预览；旧scope与取消失效。CLI已认证ping/pong保活不触发业务，不跨空间重绑或重放。退出先关闭broker再排空writer，只有本次会话可清发现文件。
 
-Windows原生pipe逐实例远程拒绝/DACL与本机UNC定向验证已完成；跨机器SMB、真实原生按钮及48KB可读性、新目录包审计/闭环已通过，完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。
+Windows原生pipe逐实例远程拒绝/DACL与本机UNC定向验证已完成；跨机器SMB、真实原生按钮及48KB可读性仍待；新目录包审计/闭环已通过，完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。
