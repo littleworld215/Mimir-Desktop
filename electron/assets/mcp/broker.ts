@@ -26,16 +26,24 @@ export interface AssetsBrokerOptions {
   maxBytes?: number
   maxHostOperations?: number
 }
-/** 只提供传输接缝；尚未挂到主应用、发布发现凭据或代替 MCP SDK。 */
+/** 公共本机pipe/socket接缝；Windows生产宿主使用原生relay与内部工厂。 */
 export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{ endpoint: string; token: string; close: () => Promise<void> }> {
   assertLocalEndpoint(options.endpoint)
+  const broker = await startSessionBroker(options, options.endpoint)
+  return { endpoint: options.endpoint, token: broker.token, close: broker.close }
+}
+/** 仅宿主内部接缝；固定IPv4 loopback与系统临时端口，无可配置host/port。 */
+export async function startAssetsLoopbackBroker(options: Omit<AssetsBrokerOptions, 'endpoint'>): Promise<{port: number; token: string; close(): Promise<void>}> {
+  return startSessionBroker(options)
+}
+async function startSessionBroker(options: Omit<AssetsBrokerOptions, 'endpoint'>, endpoint?: string): Promise<{port: number; token: string; close(): Promise<void>}> {
   const maxBytes = options.maxBytes ?? MAX_FRAME_BYTES, timeoutMs = options.timeoutMs ?? 120_000
   const maxHostOperations = options.maxHostOperations ?? 32
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1024 || maxBytes > MAX_FRAME_BYTES || !Number.isSafeInteger(timeoutMs) || timeoutMs < 10 || timeoutMs > 120_000) throw new BrokerError('BAD_REQUEST')
   if (!Number.isSafeInteger(maxHostOperations) || maxHostOperations < 1 || maxHostOperations > 32) throw new BrokerError('BAD_REQUEST')
-  if (process.platform !== 'win32') {
+  if (endpoint && process.platform !== 'win32') {
     // Unix socket 路径必须位于仅当前用户可访问的目录；Windows后续发现文件继承用户目录ACL。
-    const parent = statSync(dirname(options.endpoint))
+    const parent = statSync(dirname(endpoint))
     if (!parent.isDirectory() || (parent.mode & 0o077) !== 0 || parent.uid !== process.getuid?.()) throw new BrokerError('BAD_ENDPOINT')
   }
   const token = randomBytes(32).toString('base64url')
@@ -126,16 +134,19 @@ export async function startAssetsBroker(options: AssetsBrokerOptions): Promise<{
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(options.endpoint, () => { server.removeListener('error', reject); resolve() })
+    const ready = () => { server.removeListener('error', reject); resolve() }
+    if (endpoint) server.listen(endpoint, ready)
+    else server.listen({ host: '127.0.0.1', port: 0 }, ready)
   })
-  if (process.platform !== 'win32') chmodSync(options.endpoint, 0o600)
+  if (endpoint && process.platform !== 'win32') chmodSync(endpoint, 0o600)
+  const address = server.address()
+  let closing: Promise<void> | undefined
   return {
-    endpoint: options.endpoint, token,
-    close: async () => {
-      if (closed) return
+    port: typeof address === 'object' && address ? address.port : 0, token,
+    close: () => closing ??= (async () => {
       closed = true
       for (const socket of sockets) socket.destroy()
       await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve()))
-    }
+    })()
   }
 }

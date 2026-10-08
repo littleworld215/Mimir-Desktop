@@ -1,5 +1,7 @@
 # 开发文档（DEVELOPMENT）
 
+> 2026-10-08原生管道实施进展：Windows宿主已接每实例CreateNamedPipeW远程拒绝/当前用户DACL与受认证loopback relay，默认外部入口仍关闭。最终三闸门及新目录包已验证，阶段尚未验收；1086通过9既有跳过、三闸门exit0；开发4/4、打包3/3、26044项包审计通过。以下旧条目保留历史状态。
+
 ## 科研资产整合 I5-05B2a（2026-10-08）
 
 - I5-05B2a完成官方SDK1.32.1协议：14严格工具schema、三资源模板、安全URI投影与两个Prompt；独立stdio模块不自动启动。05B2b发现凭据/ACL、生产CLI、桌面生命周期与专门批准UI仍待，外部MCP不可配置使用，I5整体未验收。
@@ -464,7 +466,7 @@ trace。`main.ts` 的 shutdown 链已调用 `shutdownOtel()`（带 3s 整体超�
 
 > 已移除的自研设施：`electron/agent/trace.ts`（`[agent-trace]` 终端输出 +
 > `~/.mimir/logs/agent-trace-*.jsonl` 同步落盘）。它仅覆盖约 15% 能力，且
-> `appendFileSync` 会阻塞主进程。见 [docs/自研替换清单.md](./docs/自研替换清单.md)。
+> `appendFileSync` 会阻塞主进程。见 docs/自研替换清单.md（历史引用；当前仓库未提供该文件）。
 
 ## 可观测性（统一日志）
 
@@ -779,4 +781,4 @@ GPL-3.0-only（以本仓库 package.json 与 LICENSE 为准；旧文档 MIT 标�
 
 原生批准独立于Agent，默认/取消拒绝、单窗口、全文JSON48,000字节上限、草稿正文/来源/承载预览；旧scope与取消失效。CLI已认证ping/pong保活不触发业务，不跨空间重绑或重放。退出先关闭broker再排空writer，只有本次会话可清发现文件。
 
-Windows原生pipe远程访问限制/安全终验、真实原生按钮及48KB可读性、新目录包和完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。
+Windows原生pipe逐实例远程拒绝/DACL与本机UNC定向验证已完成；跨机器SMB、真实原生按钮及48KB可读性、新目录包审计/闭环已通过，完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。

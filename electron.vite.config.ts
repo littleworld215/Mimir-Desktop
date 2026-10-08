@@ -54,7 +54,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'electron/main.ts'),
           assetsMcp: resolve(__dirname, 'electron/assets/mcp/sdk.ts'),
-          assetsMcpCli: resolve(__dirname, 'electron/assets/mcp/cli.ts')
+          assetsMcpCli: resolve(__dirname, 'electron/assets/mcp/cli.ts'),
+          assetsWindowsPipe: resolve(__dirname, 'electron/assets/mcp/windowsPipeRelay.ts')
         },
         // 协议模块供后续受保护CLI调用；不能在桌面main入口自动启动stdio。
         preserveEntrySignatures: 'strict',

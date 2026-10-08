@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import * as native from '../../../electron/assets/mcp/windowsPipeRelay'
 import { AssetsStoreManager } from '../../../electron/assets/store'
 import { startAssetsMcpHost } from '../../../electron/assets/mcp/host'
 import { readDiscovery } from '../../../electron/assets/mcp/discovery'
@@ -11,7 +12,7 @@ import { parseCliArgs } from '../../../electron/assets/mcp/cliCore'
 import { searchAssets } from '../../../electron/assets/searchService'
 
 const root = mkdtempSync(join(tmpdir(), 'assets-host-'))
-afterEach(() => rmSync(root, { recursive: true, force: true }))
+afterEach(() => { vi.restoreAllMocks(); rmSync(root, { recursive: true, force: true }) })
 it('生产宿主复用唯一SQLite；拒绝零写、批准创建、切换旧连接失效、关闭撤销发现', async () => {
   const data = join(root, 'profile'); mkdirSync(root, { recursive: true }); mkdirSync(data)
   let epoch = 'A#1', allow = false
@@ -35,4 +36,43 @@ it('生产宿主复用唯一SQLite；拒绝零写、批准创建、切换旧连�
 it('CLI不接收token/endpoint/env模型；参数缺省、重复、未知和相对路径拒绝', () => {
   expect(parseCliArgs(['--discovery', join(root, 'session.json'), '--client', '本机SDK'])).toEqual({ discovery: join(root, 'session.json'), client: '本机SDK' })
   for (const args of [[], ['--token', 'secret'], ['--discovery', 'relative'], ['--discovery', root, '--discovery', root], ['--discovery', root, '--client', 'bad\nclient']]) expect(() => parseCliArgs(args)).toThrow()
+})
+it.runIf(process.platform === 'win32')('原生初始化失败不发布发现、不回退旧pipe', async () => {
+  mkdirSync(root, { recursive: true })
+  const data = join(root, 'failed'); mkdirSync(data)
+  vi.spyOn(native, 'startWindowsPipeRelay').mockRejectedValueOnce(new Error('probe unavailable'))
+  let host: Awaited<ReturnType<typeof startAssetsMcpHost>> | undefined
+  try {
+    await expect(startAssetsMcpHost({ userData: data, currentScope: () => ({ workspaceId: 'A', spaceEpoch: 'A#1' }), context: async () => { throw new Error('no DB allowed') }, approve: async () => false }).then(h => { host = h; return h })).rejects.toThrow('probe unavailable')
+    expect(existsSync(join(data, 'assets-mcp', 'session.json'))).toBe(false)
+  } finally { await host?.close() }
+})
+it.runIf(process.platform === 'win32')('helper确认中异常退出撤销发现、取消批准、真实SQLite零写', async () => {
+  mkdirSync(root, { recursive: true })
+  const data = join(root, 'death'); mkdirSync(data)
+  const manager = new AssetsStoreManager({ active: () => ({ id: 'A', path: root }), epoch: () => 'A#1' }, (p, o) => new Database(p, o))
+  let relay: native.WindowsPipeRelay | undefined, aborted = false
+  const original = native.startWindowsPipeRelay
+  vi.spyOn(native, 'startWindowsPipeRelay').mockImplementationOnce(async options => { relay = await original(options); return relay })
+  let entered!: () => void
+  const confirming = new Promise<void>(r => { entered = r })
+  const host = await startAssetsMcpHost({ userData: data, currentScope: () => manager.context(), context: scope => manager.getForRequest(scope), approve: request => new Promise<boolean>(r => {
+    entered(); request.signal.addEventListener('abort', () => { aborted = true; r(false) }, {once: true})
+  }) })
+  const client = await connectAssetsBroker({ ...await readDiscovery(host.discoveryPath), client: '异常退出探针' })
+  try {
+    const call = client.call('create_asset', { name: '不应写入', categoryCode: 'inbox', content: 'secret body', confirm: true })
+    const rejected = expect(call).rejects.toMatchObject({code: 'DISCONNECTED'})
+    await confirming
+    expect(relay).toBeDefined()
+    process.kill(relay!.pid)
+    await rejected
+    // Discovery ownership revalidation runs two bounded (10s each) Windows ACL probes.
+    const cleanupDeadline = Date.now() + 25_000
+    while (existsSync(host.discoveryPath) && Date.now() < cleanupDeadline) await new Promise(r => setTimeout(r, 50))
+    expect(existsSync(host.discoveryPath)).toBe(false)
+    expect(aborted).toBe(true)
+    const ctx = await manager.getForRequest(manager.context())
+    expect(searchAssets(ctx, {}).total).toBe(0)
+  } finally { await client.close(); await host.close(); await manager.close() }
 })

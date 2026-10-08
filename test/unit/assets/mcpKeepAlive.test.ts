@@ -10,6 +10,8 @@ it('真实socket闲置保活不访问业务/重连；宿主退出仍关闭，不
   const root = mkdtempSync(join(tmpdir(), 'assets-keepalive-')), endpoint = localEndpoint(root)
   let pings = 0
   const server = createServer(socket => {
+    // The client can close while a pong is queued; fixture owns this expected error.
+    socket.on('error', () => socket.destroy())
     socket.setTimeout(150, () => socket.destroy())
     receiveFrames(socket, MAX_FRAME_BYTES, value => {
       const v = value as any

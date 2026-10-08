@@ -27,7 +27,8 @@ const electronVersion = JSON.parse(
 ).version
 
 const bsDir = dirname(require.resolve('better-sqlite3/package.json'))
-const prebuildBin = join(bsDir, 'node_modules/prebuild-install/bin.js')
+// Resolve from the dependency itself: pnpm keeps dependencies as sibling links.
+const prebuildBin = createRequire(join(bsDir, 'package.json')).resolve('prebuild-install/bin.js')
 if (!existsSync(prebuildBin)) {
   console.error(`[assets-native] 未找到 prebuild-install：${prebuildBin}`)
   process.exit(1)

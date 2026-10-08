@@ -2,7 +2,8 @@
 import type { AssetsContext } from '../types'
 import type { WorkspaceRequest } from '../../../shared/assetsContracts'
 import { dispatchAssetTool } from './adapter'
-import { startAssetsBroker, type BrokerRequest } from './broker'
+import { startAssetsBroker, startAssetsLoopbackBroker, type BrokerRequest } from './broker'
+import { startWindowsPipeRelay, type WindowsPipeRelay } from './windowsPipeRelay'
 import { localEndpoint } from './localTransport'
 import { prepareDiscoveryDirectory, publishDiscovery } from './discovery'
 import { getAiDraft } from '../aiDraftService'
@@ -24,14 +25,30 @@ export async function startAssetsMcpHost(options: {
   approve: (request: BrokerRequest) => Promise<boolean>
 }): Promise<{ discoveryPath: string; close(): Promise<void> }> {
   const directory = await prepareDiscoveryDirectory(options.userData)
-  const broker = await startAssetsBroker({ endpoint: localEndpoint(directory), currentScope: options.currentScope,
-    dispatch: request => dispatchAssetTool(request, options.context), approve: options.approve })
+  const endpoint = localEndpoint(directory)
+  const brokerOptions = { currentScope: options.currentScope, dispatch: (request: BrokerRequest) => dispatchAssetTool(request, options.context), approve: options.approve }
+  const broker = process.platform === 'win32'
+    ? await startAssetsLoopbackBroker(brokerOptions)
+    : await startAssetsBroker({ ...brokerOptions, endpoint })
+  let relay: WindowsPipeRelay | undefined
+  let discovery: Awaited<ReturnType<typeof publishDiscovery>> | undefined
+  let closing: Promise<void> | undefined, ended = false
+  const close = () => closing ??= (async () => {
+    ended = true
+    // Stop requests/approval before helper shutdown and the main writer drain.
+    try { await broker.close() } finally {
+      try { await relay?.close() } finally { await discovery?.close() }
+    }
+  })()
   try {
-    const discovery = await publishDiscovery(options.userData, { endpoint: broker.endpoint, token: broker.token })
-    let closing: Promise<void> | undefined
-    return { discoveryPath: discovery.path, close: () => closing ??= (async () => {
-      // 先中断所有客户端/确认，再排空资产writer；不允许退出清理期间新写。
-      await broker.close(); await discovery.close()
-    })() }
-  } catch (error) { await broker.close(); throw error }
+    if (process.platform === 'win32') {
+      relay = await startWindowsPipeRelay({ endpoint, port: (broker as {port:number}).port })
+      // No await inside closed notification: avoid circular close/closed dependencies.
+      void relay.closed.then(() => { ended = true; void close().catch(() => {}) })
+    }
+    discovery = await publishDiscovery(options.userData, { endpoint, token: broker.token })
+    // Exit may race the asynchronous publication; clean the newly published file too.
+    if (ended) { await discovery.close(); throw new Error('MCP relay unavailable') }
+    return { discoveryPath: discovery.path, close }
+  } catch (error) { await close(); throw error }
 }

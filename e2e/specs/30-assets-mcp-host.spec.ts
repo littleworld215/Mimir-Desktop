@@ -1,17 +1,19 @@
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { launchApp } from '../fixtures/launch'
 
-const cli = fileURLToPath(new URL('../../out/main/assetsMcpCli.js', import.meta.url))
+const packaged = process.env.MIMIR_MCP_PACKAGE_EXE
+const cli = packaged ? join(dirname(packaged), 'resources/app.asar/out/main/assetsMcpCli.js') : fileURLToPath(new URL('../../out/main/assetsMcpCli.js', import.meta.url))
+const command = packaged ?? process.execPath
+const cliEnv = { SystemRoot: process.env.SystemRoot!, WINDIR: process.env.WINDIR!, ComSpec: process.env.ComSpec!, ...(packaged ? {ELECTRON_RUN_AS_NODE: '1'} : {}) }
 test('桌面默认不开MCP；缺发现凭据的生产CLI拒绝，stderr不回显路径', async () => {
-  const launched = await launchApp()
+  const launched = await launchApp({ executablePath: packaged })
   const path = join(launched.paths.userData, 'assets-mcp/session.json')
-  const transport = new StdioClientTransport({ command: process.execPath, args: [cli, '--discovery', path], stderr: 'pipe',
-    env: { SystemRoot: process.env.SystemRoot!, WINDIR: process.env.WINDIR!, ComSpec: process.env.ComSpec! } })
+  const transport = new StdioClientTransport({ command, args: [cli, '--discovery', path], stderr: 'pipe', env: cliEnv })
   let errors = ''; transport.stderr?.on('data', data => { errors += data.toString() })
   const client = new Client({ name: 'disabled-probe', version: '1' })
   try {
@@ -23,10 +25,9 @@ test('桌面默认不开MCP；缺发现凭据的生产CLI拒绝，stderr不回�
 })
 
 test('真实Electron生产发现/CLI/SQLite闭环：默认拒绝、单次批准、原文一致、退出断连清凭据', async () => {
-  const launched = await launchApp({ extraArgs: ['--assets-mcp'] })
+  const launched = await launchApp({ executablePath: packaged, extraArgs: ['--assets-mcp'] })
   const path = join(launched.paths.userData, 'assets-mcp/session.json')
-  const transport = new StdioClientTransport({ command: process.execPath, args: [cli, '--discovery', path, '--client', '生产闭环探针'], stderr: 'pipe',
-    env: { SystemRoot: process.env.SystemRoot!, WINDIR: process.env.WINDIR!, ComSpec: process.env.ComSpec! } })
+  const transport = new StdioClientTransport({ command, args: [cli, '--discovery', path, '--client', '生产闭环探针'], stderr: 'pipe', env: cliEnv })
   const client = new Client({ name: 'production-probe', version: '1' })
   let errors = ''; transport.stderr?.on('data', data => { errors += data.toString() })
   try {

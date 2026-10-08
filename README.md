@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+> 2026-10-08原生管道实施进展：Windows宿主已接每实例CreateNamedPipeW远程拒绝/当前用户DACL与受认证loopback relay，默认外部入口仍关闭。最终三闸门及新目录包已验证，阶段尚未验收；1086通过9既有跳过、三闸门exit0；开发4/4、打包3/3、26044项包审计通过。以下旧条目保留历史状态。
+
 <p align="center">
   <img src="src/assets/logo.png" alt="Mimir Desktop" width="120" />
 </p>
@@ -145,7 +147,18 @@ I0–I4已完成Windows阶段验证，I5已接通草稿、模型动作/标签建
 
 外部写请求有独立原生单次确认，默认拒绝，不继承Agent全权权限；完整拟写入参数与草稿采纳正文可审阅，合计超过48,000 UTF-8字节拒绝。取消、空间切换和断连使批准失效；CLI通过纯控制帧保活，不重放写请求。崩溃残留文件不会自动覆盖，须确认所有实例退出后再处理。
 
-**外部MCP仍是开发预览，尚不发布生产客户端配置。** Windows发现文件ACL已实际验证，但管道原生远程拒绝/每实例DACL、真实原生点击和48KB可读性、新目录包及阶段终验尚待；I5整体未验收。自动测试对原生按钮使用返回值替身，不冒充用户验收。源码开发检查入口为 `pnpm typecheck`、`pnpm test`、`pnpm build`；真实桌面连接回归为构建后 `pnpm exec playwright test e2e/specs/30-assets-mcp-host.spec.ts --retries=0`，仅使用临时数据。
+**外部MCP仍是开发预览，尚不发布生产客户端配置。** Windows发现文件ACL、管道原生远程拒绝/每实例DACL、本机UNC通路及新目录包审计/闭环已实际验证。跨机器SMB、真实原生点击、48KB可读性及阶段终验仍待；I5整体未验收。自动测试对原生按钮使用返回值替身，不冒充用户验收。源码开发检查入口为 `pnpm typecheck`、`pnpm test`、`pnpm build`；真实桌面连接回归为构建后 `pnpm exec playwright test e2e/specs/30-assets-mcp-host.spec.ts --retries=0`，仅使用临时数据。
+
+Windows启用该预览时，桌面按需启动一个隐藏的当前用户辅助进程，依赖系统Windows PowerShell和.NET Framework。每个管道实例在创建时设置远程拒绝和当前用户权限，转发至仅监听127.0.0.1临时端口的broker；内部端口仍须认证，不替代单次批准或空间校验。辅助进程不读取资产或模型配置，但会接触转发中的认证字节。系统策略禁止编译或权限初始化失败时，该入口关闭，桌面其他功能可继续使用；不会自动修改系统策略。
+
+开发者可在Windows完成构建后运行[原生管道探针](scripts/checkAssetsWindowsPipe.mjs)：
+
+```powershell
+pnpm build
+node scripts/checkAssetsWindowsPipe.mjs
+```
+
+探针使用临时随机管道和echo服务，不写真实资产。它验证连续实例权限、转发、占名和退出；只有未限制对照UNC通路先可达，才将受限管道的访问拒绝记录为REMOTE_DENIED。网络不可达单独报告，不能冒充权限通过。生产客户端配置仍待整体运行验收。
 
 ## License
 

@@ -1,5 +1,7 @@
 # 路线图
 
+> 2026-10-08原生管道实施进展：Windows宿主已接每实例CreateNamedPipeW远程拒绝/当前用户DACL与受认证loopback relay，默认外部入口仍关闭。最终三闸门及新目录包已验证，阶段尚未验收；1086通过9既有跳过、三闸门exit0；开发4/4、打包3/3、26044项包审计通过。以下旧条目保留历史状态。
+
 > 最新（2026-10-08）：I5-05B2a完成官方SDK1.32.1协议：14严格工具schema、三资源模板、安全URI投影与两个Prompt；独立stdio模块不自动启动。05B2b发现凭据/ACL、生产CLI、桌面生命周期与专门批准UI仍待，外部MCP不可配置使用，I5整体未验收。 1060通过9既有跳过、三闸门exit0，sourceTask P3已解决、EOF P2亲见RED修复；来源docs/verification-integration-i5-mcp-sdk-20261008.md。独立运行QA/真实模型另验，以下为历史。
 
 > 最新（2026-10-08）：I5-05B1完成14工具业务适配及真实SQLite/管道反例；历史文件可用性P2实际RED修复，宿主残留任务与模拟服务异常清理两P3已处理。05B2的SDK/stdio、资源/Prompt、发现凭据、应用生命周期与专门批准UI尚待，不是可用外部MCP，I5整体未验收。 1049通过9既有跳过、三闸门exit0，开发Electron1/1；sourceTask截断P3留05B2。证据在来源docs/verification-integration-i5-mcp-adapter-20261008.md，独立运行QA/用户真实模型另验。以下保留历史快照。
@@ -113,4 +115,4 @@ I4-04及I4-01～04 Windows x64 Codex阶段验收完成（D-056）：编写/填�
 
 原生批准独立于Agent，默认/取消拒绝、单窗口、全文JSON48,000字节上限、草稿正文/来源/承载预览；旧scope与取消失效。CLI已认证ping/pong保活不触发业务，不跨空间重绑或重放。退出先关闭broker再排空writer，只有本次会话可清发现文件。
 
-Windows原生pipe远程访问限制/安全终验、真实原生按钮及48KB可读性、新目录包和完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。
+Windows原生pipe逐实例远程拒绝/DACL与本机UNC定向验证已完成；跨机器SMB、真实原生按钮及48KB可读性、新目录包审计/闭环已通过，完整阶段验收仍待；05B2b和I5不提前标完成。证据为来源docs/verification-integration-i5-mcp-host-20261008.md（D-064）；schema4/57固定IPC/依赖保持。
