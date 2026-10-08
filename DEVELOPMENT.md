@@ -11,7 +11,9 @@ node scripts/checkAssetsWindowsPipeStress.mjs <输出的appRoot> 120 120
 
 工具生成baseline/pipe-only/connect-only，后两种分别移除TCP、只保留TCP建连关闭；共享5秒自进程resources/tasks/线程池/自然GC监控。锚点不匹配、重复插入或输出位于应用根内均拒绝。不覆盖应用，无源码fallback；副本不可用于生产broker或打包，DIAG识别只存在于副本。监控与操作组合有扰动，不能把副本通过当成生产验收，不能据此比较运行时吞吐。
 
-5项反例已亲见RED→GREEN，包括真实junction指向应用内部的拒绝（输入/输出父目录先解析实际路径）；结果/哈希/后续闸门见[来源调查记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-isolation-20261008.md)。生产relay未改，I5未验收。
+退出诊断也仅存在于副本：阶段1创建实例、2等候名额、3等候连接、4启动转发；C#序号表示当前尝试的实例，wrapper序号表示最后审计通过的实例。原生创建失败先保存数值错误再释放句柄；顶层异常仅记录类型和HResult，子进程关闭仅记录数值退出码/是否带信号，不输出异常正文、堆栈、管道名或原始帧。不改变原失败、取消和关闭流程；清理期间异常仍可能覆盖原异常，不能据阶段单独断定根因。
+
+6项专项已亲见新增退出元信息RED→GREEN；既有真实junction拒绝继续通过（输入/输出父目录先解析实际路径）。结果/哈希/后续闸门见[来源调查记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-isolation-20261008.md)。生产relay未改，I5未验收。
 
 ## I5原生relay压力探针（2026-10-08）
 

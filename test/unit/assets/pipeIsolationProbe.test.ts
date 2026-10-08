@@ -5,7 +5,23 @@ import { join, resolve, dirname, basename } from 'node:path'
 import { WINDOWS_PIPE_SOURCE } from '../../../electron/assets/mcp/windowsPipeSource'
 import { instrumentRelayBundle, assertOutsideApp } from '../../../scripts/prepareAssetsWindowsPipeIsolation.mjs'
 
-const bundle = () => `${WINDOWS_PIPE_SOURCE}\nchild.stderr.resume();\n      try {\n        const message = JSON.parse(line);`
+const bundle = () => `${WINDOWS_PIPE_SOURCE}\nchild.stderr.resume();\n  const fail = () => {\n  const onClosed = () => {\n  child.on("close", onClosed);\n      try {\n        const message = JSON.parse(line);`
+
+it('退出诊断仅记录阶段、实例序号和数值错误，不泄露异常正文', () => {
+  const result = instrumentRelayBundle(bundle(), 'connect-only')
+  expect(result).toContain('int nativeError = Marshal.GetLastWin32Error(); handle.Dispose();')
+  expect(result).toContain('DIAG nativeError=')
+  expect(result).toContain('DIAG exception=')
+  expect(result).toContain('error.GetType().Name')
+  expect(result).toContain('error.HResult')
+  expect(result).toContain('diagnosticStage = 3;')
+  expect(result).toContain('diagnosticOrdinal = ordinal;')
+  expect(result).toContain('DIAG wrapperFail ordinal=')
+  expect(result).toContain('DIAG childClose code=')
+  expect(result).not.toContain('error.Message')
+  expect(result).not.toContain('error.StackTrace')
+  expect(result).toContain('child.stderr.resume();')
+})
 
 it('诊断基线保留完整Relay，仅增加非强制GC的自进程观测', () => {
   const result = instrumentRelayBundle(bundle(), 'baseline')
