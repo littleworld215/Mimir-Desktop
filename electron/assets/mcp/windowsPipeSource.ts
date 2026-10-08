@@ -80,15 +80,18 @@ public static class AssetsNativePipe {
       int ordinal = 0;
       try {
         var sid = WindowsIdentity.GetCurrent().User.Value;
+        var pipe = Instance(endpoint, ++ordinal, sid); Track(pipe);
+        Emit("{\"kind\":\"ready\"}");
         while (!stop.IsCancellationRequested) {
-          var pipe = Instance(endpoint, ++ordinal, sid); Track(pipe);
-          if (ordinal == 1) Emit("{\"kind\":\"ready\"}");
           await slots.WaitAsync(stop.Token);
           try { await pipe.WaitForConnectionAsync(stop.Token); }
           catch { slots.Release(); throw; }
+          // Keep the name alive before Relay can synchronously close the accepted instance.
+          var next = Instance(endpoint, ++ordinal, sid); Track(next);
           var task = Relay(pipe, port, stop.Token);
           lock(gate) tasks.Add(task);
           Observe(task.ContinueWith(done => { lock(gate) tasks.Remove(done); slots.Release(); }, TaskScheduler.Default));
+          pipe = next;
         }
       } finally {
         stop.Cancel();

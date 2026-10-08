@@ -52,7 +52,12 @@ export function instrumentRelayBundle(original, mode, { events = false } = {}) {
   let code = replaceOnce(original, '  static async Task RunAsync(string endpoint, int port) {', snapshot + '\n  static async Task RunAsync(string endpoint, int port) {')
   code = replaceOnce(code, '  static void Observe(Task task) { }', '  static int diagnosticStage, diagnosticOrdinal;\n  static void Observe(Task task) { }')
   code = replaceOnce(code, 'if (handle.IsInvalid) { handle.Dispose(); throw new IOException(); }', 'if (handle.IsInvalid) { int nativeError = Marshal.GetLastWin32Error(); handle.Dispose(); Emit("DIAG nativeError="+nativeError+" stage="+diagnosticStage+" ordinal="+diagnosticOrdinal); throw new IOException(); }')
-  code = replaceOnce(code, '          var pipe = Instance(endpoint, ++ordinal, sid); Track(pipe);', '          diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;\n          var pipe = Instance(endpoint, ++ordinal, sid); Track(pipe);\n          diagnosticOrdinal = ordinal;')
+  for (const [indent, variable] of [['        ', 'pipe'], ['          ', 'next']]) {
+    const creation = `${indent}var ${variable} = Instance(endpoint, ++ordinal, sid); Track(${variable});`
+    const before = events ? `${indent}DiagnosticEvent("create-start", null, ordinal + 1);\n` : ''
+    const after = events ? `\n${indent}DiagnosticEvent("created", ${variable}, ordinal);` : ''
+    code = replaceOnce(code, '\n' + creation, `\n${before}${indent}diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;\n${creation}\n${indent}diagnosticOrdinal = ordinal;${after}`)
+  }
   code = replaceOnce(code, '          await slots.WaitAsync(stop.Token);', '          diagnosticStage = 2;\n          await slots.WaitAsync(stop.Token);')
   code = replaceOnce(code, '          try { await pipe.WaitForConnectionAsync(stop.Token); }', '          diagnosticStage = 3;\n          try { await pipe.WaitForConnectionAsync(stop.Token); }')
   code = replaceOnce(code, '          var task = Relay(pipe, port, stop.Token);', '          diagnosticStage = 4;\n          var task = Relay(pipe, port, stop.Token);')
@@ -86,8 +91,6 @@ export function instrumentRelayBundle(original, mode, { events = false } = {}) {
     code = replaceOnce(code, '  static void Snapshot()', eventsSource + '\n  static void Snapshot()')
     code = replaceOnce(code, '      var handle = CreateNamedPipeW', '      DiagnosticEvent("native-create-start", null, ordinal);\n      var handle = CreateNamedPipeW')
     code = replaceOnce(code, '      NamedPipeServerStream pipe = null;', '      DiagnosticEvent("native-created", null, ordinal);\n      NamedPipeServerStream pipe = null;')
-    code = replaceOnce(code, '          diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;', '          DiagnosticEvent("create-start", null, ordinal + 1);\n          diagnosticStage = 1; diagnosticOrdinal = ordinal + 1;')
-    code = replaceOnce(code, '          diagnosticOrdinal = ordinal;', '          diagnosticOrdinal = ordinal;\n          DiagnosticEvent("created", pipe, ordinal);')
     code = replaceOnce(code, 'try { await pipe.WaitForConnectionAsync(stop.Token); }', 'try { await pipe.WaitForConnectionAsync(stop.Token); DiagnosticEvent("accepted", pipe, ordinal); }')
     code = replaceOnce(code, 'value.Dispose(); }', 'value.Dispose(); DiagnosticDisposed(value); }')
     if (mode === 'baseline') code = replaceOnce(code, 'pipe.Dispose(); tcp.Close();', 'pipe.Dispose(); DiagnosticDisposed(pipe); tcp.Close();')

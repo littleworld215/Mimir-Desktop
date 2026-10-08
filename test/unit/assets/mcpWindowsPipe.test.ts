@@ -4,6 +4,64 @@ import { expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
 import { WINDOWS_PIPE_SOURCE } from '../../../electron/assets/mcp/windowsPipeSource'
 import { startWindowsPipeRelay, type PipeAudit } from '../../../electron/assets/mcp/windowsPipeRelay'
+import { probeEcho } from '../../../scripts/checkAssetsWindowsPipeStress.mjs'
+
+it.runIf(process.platform === 'win32')('原生交接在启动Relay前已创建并审计下一活实例', async () => {
+  // Test-only observation guard. It never creates, reorders, waits for or retries an instance.
+  function replaceOnce(source: string, from: string, to: string) {
+    expect(source.split(from)).toHaveLength(2)
+    return source.replace(from, to)
+  }
+  let source = replaceOnce(WINDOWS_PIPE_SOURCE, '  static void Observe(Task task) { }',
+    '  static readonly Dictionary<NamedPipeServerStream,int> testOrdinals = new Dictionary<NamedPipeServerStream,int>();\n  static int testLatestOrdinal;\n  static NamedPipeServerStream testLatestPipe;\n  static void Observe(Task task) { }')
+  source = replaceOnce(source, '        return pipe;', '        testOrdinals.Add(pipe, ordinal); testLatestOrdinal = ordinal; testLatestPipe = pipe;\n        return pipe;')
+  source = replaceOnce(source, '          var task = Relay(pipe, port, stop.Token);',
+    '          if (testLatestOrdinal <= testOrdinals[pipe] || testLatestPipe.SafePipeHandle.IsClosed) { Emit("{\\"kind\\":\\"handoff-missing\\"}"); throw new IOException(); }\n          var task = Relay(pipe, port, stop.Token);')
+  const sockets = new Set<Socket>()
+  const server = createServer(socket => { sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket)); socket.pipe(socket) })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const name = endpoint(), kinds: string[] = []
+  const script = '$ErrorActionPreference="Stop"; try { Add-Type -TypeDefinition $env:SRC; [Console]::WriteLine("COMPILED"); [AssetsNativePipe]::Run($env:ENDPOINT,[int]$env:PORT) } catch { exit 2 }; exit [Environment]::ExitCode'
+  const child = spawn('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    env: { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', TEMP: process.env.TEMP, SRC: source, ENDPOINT: name, PORT: String((server.address() as { port: number }).port) }
+  })
+  child.stderr.resume(); child.stdin.on('error', () => {})
+  let compiled = false, buffer = '', echoError: unknown, exitCode: number | null = null
+  const closed = new Promise<void>(resolve => child.once('close', code => { exitCode = code; resolve() }))
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('GUARD_READY_TIMEOUT')), 15000)
+      child.once('error', error => { clearTimeout(timer); reject(error) })
+      child.once('close', () => { clearTimeout(timer); reject(new Error('GUARD_START_FAILED')) })
+      child.stdout.on('data', bytes => {
+        buffer += bytes.toString()
+        let end: number
+        while ((end = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, end).trim(); buffer = buffer.slice(end + 1)
+          if (line === 'COMPILED') { compiled = true; continue }
+          try {
+            const message = JSON.parse(line)
+            kinds.push(message.kind)
+            if (message.kind === 'ready') { clearTimeout(timer); resolve() }
+          } catch { clearTimeout(timer); reject(new Error('GUARD_BAD_FRAME')) }
+        }
+      })
+    })
+    try { for (let i = 0; i < 3; i++) await probeEcho(name, Buffer.from(`交接-${i}`), 2000) } catch (error) { echoError = error }
+  } finally {
+    child.stdin.end()
+    const kill = setTimeout(() => child.kill(), 5000)
+    await closed; clearTimeout(kill)
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+  expect(compiled).toBe(true)
+  expect(kinds).not.toContain('handoff-missing')
+  expect(echoError).toBeUndefined()
+  expect(exitCode).toBe(0)
+  expect(kinds.filter(kind => kind === 'instance')).toHaveLength(4)
+})
 
 const endpoint = () => `\\\\.\\pipe\\mimir-assets-${randomUUID()}`
 it.runIf(process.platform === 'win32')('真实原生实例连续转发、每实例句柄权限、关闭取消等待', async () => {
