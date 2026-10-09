@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+I6接线前置增量：空间锁已支持准备／提交／回滚，防止上层空间指针保存失败时提前释放旧锁。普通store和任务生命周期接线仍待完成，目前维护窗口只读，备份恢复不可用。
+
 I6整科研空间离线备份/新空间恢复实施中。源码增加显式启动的只读维护窗口，仅展示已登记空间名称；尚不能备份或恢复，也没有设置入口。正常任务排空与共同锁接线仍待完成，第一批及I6未验收。安装版未更新，I5待验不变；[批准计划与当前进度](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I6.md)区分实施、静态复核及真实验收。
 
 2026-10-09 资产管理首批优化：搜索按去首尾空白后的 200 Unicode 码点校验，超限输入保留并提示，不截断 emoji。快速取用输入后立即 Enter 会等待匹配查询，查询失败、继续输入、切换范围或输入法组合开始后不打开旧详情。源码已更新，已有安装版尚未替换；I6完整备份/恢复与I7界面优化仍未实现。完整状态与证据见[优化跟踪](https://github.com/littleworld215/research-asset-library/blob/main/docs/ASSETS-OPTIMIZATION.md)。

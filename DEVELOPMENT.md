@@ -2,6 +2,8 @@
 
 ## I6维护入口（2026-10-09，仅只读概览）
 
+空间锁会话新增 `prepareSelection(root, maintenance)` 两阶段事务：准备期间保留旧锁并占新锁，指针/缓存操作成功后才commit；失败rollback只释放新锁。未完成事务禁止嵌套切换，部分清理失败阻断并保留句柄供close重试。同根事务不释放当前锁，旧select契约兼容。此接口尚未接入普通store，不等于生产空间切换/后台任务已受保护。
+
 构建后可用 `pnpm exec electron . --workspace-maintenance` 显式启动，只列空间ID/名称，不打开源资产库或迁移源资料。请先关闭其它实例；目前没有设置入口，也不能执行备份、恢复或空间写操作。测试通过临时HOME/profile隔离，日常使用请继续正常入口。
 
 `electron/bootstrap.ts` 在同步启动前缀注册普通模式私有协议，随后只动态加载所选入口。维护入口使用独立React页、自包含sandbox CJS preload与唯一 `workspaceBackup:overview` IPC，检查窗口与主框架身份；不加载普通业务IPC、Agent或MCP，持有并在退出时释放注册表锁。只读解析不复用会迁移/写入的loadStore；损坏及悬空链接拒绝，不回写为空库。普通模式仍未接入共同空间锁/任务闸门，不能据此允许真实备份交接。旧安装版/不同profile互斥待验。
