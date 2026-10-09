@@ -1,0 +1,18 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; background: #f4f6fa; color: #172235; }
+body { margin: 0; }
+main { max-width: 720px; margin: 36px auto; padding: 0 24px; }
+h1 { font-size: 26px; }
+h2 { font-size: 18px; }
+p { line-height: 1.8; }
+section { background: #fff; border: 1px solid #d3dae5; border-radius: 12px; padding: 20px; margin-top: 24px; }
+li { padding: 8px 0; }
+button { font: inherit; border: 1px solid #587493; border-radius: 7px; padding: 8px 16px; cursor: pointer; background: #e9eff7; color: inherit; }
+button:disabled { opacity: .55; cursor: wait; }
+button:focus-visible { outline: 3px solid #387fbf; outline-offset: 3px; }
+[role=alert] { color: #a52621; }
+@media (prefers-color-scheme: dark) {
+  :root { background: #141b26; color: #e0e7f1; }
+  section { background: #1d2838; border-color: #495b73; }
+  button { background: #2e4057; }
+  [role=alert] { color: #ffb0a8; }
+}

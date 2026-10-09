@@ -1,6 +1,7 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { readFileSync } from 'node:fs'
 
 /**
  * main / preload 的依赖处理是**分类策略**，两边都踩过坑，改动前请读 README「构建注意」。
@@ -52,7 +53,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'electron/main.ts'),
+          index: resolve(__dirname, 'electron/bootstrap.ts'),
           assetsMcp: resolve(__dirname, 'electron/assets/mcp/sdk.ts'),
           assetsMcpCli: resolve(__dirname, 'electron/assets/mcp/cli.ts'),
           assetsWindowsPipe: resolve(__dirname, 'electron/assets/mcp/windowsPipeRelay.ts')
@@ -68,7 +69,14 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), {
+      name: 'maintenance-sandbox-preload',
+      generateBundle() {
+        // 普通preload保持现有ESM；维护桥以自包含CJS进入Electron sandbox。
+        this.emitFile({ type: 'asset', fileName: 'maintenance.cjs',
+          source: readFileSync(resolve(__dirname, 'electron/workspaceBackup/maintenancePreload.cjs'), 'utf8') })
+      }
+    }],
     build: {
       rollupOptions: {
         input: {
@@ -86,6 +94,10 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer')
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    build: { rollupOptions: { input: {
+      index: resolve(__dirname, 'src/renderer/index.html'),
+      maintenance: resolve(__dirname, 'src/renderer/maintenance.html')
+    } } }
   }
 })

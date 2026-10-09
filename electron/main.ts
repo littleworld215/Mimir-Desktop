@@ -31,27 +31,8 @@ let assetsMcpAbort: AbortController | undefined
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// 日志设施初始化：必须在 app ready 之前完成，才能捕获后续启动流程中的日志。
-// （initLogger 内部只用 app.isPackaged / app.getName()，这两者在 ready 前可用。）
+// 普通入口日志设施先于业务初始化。早期入口加载失败由bootstrap显式报告。
 initLogger()
-
-// 必须在 app ready 之前注册：mimir-pdf 协议供文献库 iframe 内嵌阅读本地 PDF；
-// mimir-tex 协议供论文模块 iframe 内嵌预览项目目录内编译出的 main.pdf
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'mimir-pdf',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
-  },
-  {
-    scheme: 'mimir-tex',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
-  },
-  {
-    // 图表管理：按需内联展示本地图片文件
-    scheme: 'mimir-img',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
-  }
-])
 
 let mainWindow: BrowserWindow | null = null
 /** 供 IPC 层读取当前窗口的可变引用：窗口重建/关闭后始终指向最新实例。 */
