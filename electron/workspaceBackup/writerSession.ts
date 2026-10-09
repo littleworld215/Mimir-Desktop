@@ -23,6 +23,17 @@ export class WorkspaceWriterSession {
   select(root: string, maintenance = false) {
     this.prepareSelection(root, maintenance).commit()
   }
+  assertUsable() {
+    if (this.closed || this.blocked) throw Error('写者会话失效，已阻止继续写入。')
+  }
+  assertRegistryHome(home: string) {
+    this.assertUsable()
+    if (this.registry.root !== realpathSync(home)) throw Error('当前注册表未持有对应写锁。')
+  }
+  assertSelectedRoot(root: string) {
+    this.assertUsable()
+    if (this.pending || this.selected?.workspace.root !== realpathSync(root)) throw Error('当前空间未持有对应写锁。')
+  }
   /** 指针/缓存事务成功后才提交；失败回滚期间仍持有原空间锁。 */
   prepareSelection(root: string, maintenance = false) {
     if (this.closed) throw Error('写者会话已关闭。')

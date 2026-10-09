@@ -66,6 +66,26 @@ let globalStore: Record<string, unknown> = {}
 let spaceStore: Record<string, unknown> = {}
 let setupDone = false
 
+interface WorkspaceSwitchProtection {
+  assertUsable(): void
+  assertRegistryHome(home: string): void
+  assertSelectedRoot(root: string): void
+  prepareSelection(root: string): { commit(): void; rollback(): void }
+}
+let switchProtection: WorkspaceSwitchProtection | undefined
+let transitionBlocked = false
+/** 装配前须已持有当前空间锁；普通启动的注册锁/排空接线完成后才安装。 */
+export function installWorkspaceSwitchProtection(protection: WorkspaceSwitchProtection): void {
+  if (!setupDone || switchProtection || transitionBlocked) throw Error('空间切换保护不能重复安装或在初始化前安装。')
+  protection.assertRegistryHome(homedir())
+  protection.assertSelectedRoot(spaceRoot())
+  switchProtection = protection
+}
+function assertSwitchProtection() {
+  if (transitionBlocked) throw Error('空间锁提交或回滚失败，已阻止后续写入；请关闭应用并检查锁。')
+  switchProtection?.assertUsable()
+}
+
 /**
  * 各层「是否处于可以安全写盘的状态」：只有成功装入（含「文件不存在」的首装态）才为 true。
  *
@@ -266,6 +286,7 @@ function writeJsonAtomic(
 }
 
 function saveGlobal(): void {
+  assertSwitchProtection()
   const path = globalFilePath()
   assertLayerWritable('全局', path, globalWritable)
   // 全局层固定按凭据类处理：它承载 `servers:list`（含明文 password）与 settings（含 API Key）。
@@ -281,6 +302,7 @@ function readSpaceJson(spacePath: string): Record<string, unknown> {
 }
 
 function saveSpace(): void {
+  assertSwitchProtection()
   const active = getActiveWorkspace()
   // active 为 null 仅出现在「尚无任何空间」的短暂窗口：此时不再静默丢弃，
   // 而是落到 spaceRoot() 兜底目录（createWorkspace/switchWorkspace 生效后会读取真实空间文件）。
@@ -346,6 +368,7 @@ export function listWorkspaces(): WorkspaceRecord[] {
 }
 
 function saveWorkspaces(list: WorkspaceRecord[]): void {
+  assertSwitchProtection()
   globalStore[WORKSPACES_KEY] = list
   saveGlobal()
 }
@@ -356,6 +379,7 @@ export function getActiveWorkspace(): WorkspaceRecord | null {
 }
 
 function setActiveWorkspaceId(id: string): void {
+  assertSwitchProtection()
   globalStore[ACTIVE_KEY] = id
   saveGlobal()
 }
@@ -398,6 +422,8 @@ export function getStoreValue<T>(key: string): T | undefined {
 }
 
 export function setStoreValue<T>(key: string, value: T): void {
+  assertSwitchProtection()
+  if (!GLOBAL_KEYS.has(key)) switchProtection?.assertSelectedRoot(spaceRoot())
   if (GLOBAL_KEYS.has(key)) {
     globalStore[key] = value
     saveGlobal()
@@ -488,9 +514,12 @@ function migrateLegacyTo(space: WorkspaceRecord): void {
  * 用户会看到空间凭空变回旧值。因此写盘失败必须把内存全部还原后再抛错。
  */
 export function switchWorkspace(id: string): WorkspaceRecord {
+  assertSwitchProtection()
   const list = listWorkspaces()
   const target = list.find((w) => w.id === id)
   if (target === undefined) throw new Error(`space-not-found: ${id}`)
+
+  const selection = switchProtection?.prepareSelection(target.path)
 
   const previousActive = globalStore[ACTIVE_KEY]
   const previousSpaceStore = spaceStore
@@ -507,15 +536,27 @@ export function switchWorkspace(id: string): WorkspaceRecord {
     spaceStore = previousSpaceStore
     spaceWritable = previousSpaceWritable
     spaceEpoch = previousEpoch
+    try { selection?.rollback() }
+    catch (cleanupError) {
+      transitionBlocked = true
+      throw new AggregateError([error, cleanupError], '空间指针保存及锁回滚失败，已阻止继续写入。')
+    }
     throw error
   }
 
   // 指针已成功落盘，再装载目标空间数据（损坏时内部置只读并记录 issue，不抛）。
   loadSpaceCache(target.path)
+  try { selection?.commit() }
+  catch (error) {
+    // 指针已落盘；不能假装回到旧空间，也不能让部分释放后的会话继续写。
+    transitionBlocked = true
+    throw error
+  }
   return { ...target }
 }
 
 export function setDefaultWorkspace(id: string): void {
+  assertSwitchProtection()
   if (!listWorkspaces().some((w) => w.id === id)) throw new Error(`space-not-found: ${id}`)
   globalStore[DEFAULT_KEY] = id
   saveGlobal()
@@ -530,6 +571,7 @@ export function getDefaultWorkspace(): WorkspaceRecord | null {
 }
 
 export function createWorkspace(name: string, dir?: string): WorkspaceRecord {
+  assertSwitchProtection()
   const displayName = name.trim()
   if (displayName === '') throw new Error('空间名称不能为空')
   const now = new Date().toISOString()
@@ -561,6 +603,7 @@ export function createWorkspace(name: string, dir?: string): WorkspaceRecord {
 }
 
 export function renameWorkspace(id: string, name: string): WorkspaceRecord {
+  assertSwitchProtection()
   const trimmed = name.trim()
   if (trimmed === '') throw new Error('空间名称不能为空')
   const list = listWorkspaces()
@@ -574,6 +617,7 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord {
 
 /** 移除空间注册（磁盘文件保留，供用户手动迁移/备份）。激活中空间不可移除。 */
 export function removeWorkspace(id: string): void {
+  assertSwitchProtection()
   const active = getActiveWorkspace()
   if (active !== null && active.id === id) throw new Error('不能删除当前正在使用的科研空间，请先切换到其它空间')
   const list = listWorkspaces()
