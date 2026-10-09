@@ -1,15 +1,34 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { WorkspaceWriterSession } from '../../../electron/workspaceBackup/writerSession'
 
-const state = vi.hoisted(() => ({ home: '', failRename: false, failUnlink: false, failOldUnlink: false }))
+const state = vi.hoisted(() => ({ home: '', failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, checkWrites: false, copies: [] as string[] }))
 vi.mock('os', async original => ({ ...await original<typeof import('node:os')>(), homedir: () => state.home }))
 vi.mock('electron', () => ({ app: { getPath: () => join(state.home, 'profile') } }))
 vi.mock('node:fs', async original => {
   const fs = await original<typeof import('node:fs')>()
-  return { ...fs, renameSync: (a: string, b: string) => {
+  return { ...fs, writeFileSync: (path: string | number, ...args: any[]) => {
+    if (state.checkWrites && typeof path === 'string' && path.includes('.tmp-store.json-')) {
+      const global = dirname(path) === join(state.home, '.mimir')
+      if (!fs.existsSync(join(dirname(path), global ? 'registry.writer-lock' : 'workspace.writer-lock'))) throw Error('TEMP_WRITE_BEFORE_LOCK')
+    }
+    ;(fs.writeFileSync as any)(path, ...args)
+  }, readdirSync: (path: string, ...args: any[]) => {
+    if (state.failReadDir && path === join(state.home, 'profile/projects')) throw Error('synthetic directory read failure')
+    return (fs.readdirSync as any)(path, ...args)
+  }, cpSync: (src: string, dest: string, opts: import('node:fs').CopySyncOptions) => {
+    state.copies.push(`${src} -> ${dest}`)
+    if (state.checkWrites && !fs.existsSync(join(dirname(dest), '.mimir/workspace.writer-lock'))) throw Error('COPY_BEFORE_LOCK')
+    if (state.failCopy) throw Error('synthetic copy failure')
+    fs.cpSync(src, dest, opts)
+  }, renameSync: (a: string, b: string) => {
+    if (state.checkWrites && b.endsWith(join('.mimir', 'store.json'))) {
+      const global = b === join(state.home, '.mimir/store.json')
+      const lock = join(dirname(b), global ? 'registry.writer-lock' : 'workspace.writer-lock')
+      if (!fs.existsSync(lock)) throw Error('BUSINESS_WRITE_BEFORE_LOCK')
+    }
     if (state.failRename && b === join(state.home, '.mimir/store.json')) { state.failRename = false; throw Error('synthetic pointer write failure') }
     fs.renameSync(a, b)
   }, unlinkSync: (path: string) => {
@@ -21,10 +40,14 @@ vi.mock('node:fs', async original => {
 let session: WorkspaceWriterSession | undefined
 afterEach(() => {
   state.failRename = false; state.failUnlink = false; state.failOldUnlink = false
+  state.checkWrites = false
+  state.failCopy = false
+  state.failReadDir = false
+  state.copies = []
   session?.close(); session = undefined
   if (state.home.startsWith(join(tmpdir(), 'mimir-real-store-switch-'))) rmSync(state.home, { recursive: true, force: true })
 })
-async function fixture(install = true) {
+async function preparedFixture() {
   state.home = mkdtempSync(join(tmpdir(), 'mimir-real-store-switch-'))
   for (const path of ['.mimir', 'a/.mimir', 'b/.mimir']) mkdirSync(join(state.home, path), { recursive: true })
   const first = join(state.home, 'a'), second = join(state.home, 'b')
@@ -36,11 +59,16 @@ async function fixture(install = true) {
   vi.resetModules()
   // Absolute import bypasses the ordinary test store alias: exercise the real disk implementation.
   const store = await import(/* @vite-ignore */ join(process.cwd(), 'electron/library/store.ts'))
+  return { store, first, second, registry: join(state.home, '.mimir/store.json') }
+}
+async function fixture(install = true) {
+  const result = await preparedFixture()
+  const { store, first } = result
   store.loadStore()
   session = new WorkspaceWriterSession(state.home, () => {})
   session.select(first)
   if (install) store.installWorkspaceSwitchProtection(session)
-  return { store, first, second, registry: join(state.home, '.mimir/store.json') }
+  return result
 }
 it('真实store指针保存失败还原缓存/代际，保留旧锁并回滚新锁', async () => {
   const { store, first, second, registry } = await fixture()
@@ -114,4 +142,130 @@ it('当前空间锁正确但注册表锁属于另一个HOME时拒绝安装', asy
   session.select(first)
   expect(() => store.installWorkspaceSwitchProtection(session!)).toThrow()
   expect(readFileSync(registry, 'utf8')).toBe(before)
+})
+it('受保护已有空间初始化在第一笔业务写入前占注册表及空间锁', async () => {
+  const { store, first } = await preparedFixture()
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.checkWrites = true
+  store.loadStore(session)
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(store.getStoreValue('custom')).toBe('first')
+  store.setStoreValue('custom', 'saved')
+  expect(JSON.parse(readFileSync(join(first, '.mimir/store.json'), 'utf8')).custom).toBe('saved')
+})
+it('已有空间残留锁阻断初始化，注册表逐字不变，不降级为可写会话', async () => {
+  const { store, first, registry } = await preparedFixture()
+  writeFileSync(join(first, '.mimir/workspace.writer-lock'), 'another writer')
+  const before = readFileSync(registry, 'utf8')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  expect(() => store.loadStore(session)).toThrow()
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
+})
+it('首次启动仍无注册空间，但草稿兜底目录先占锁再保存', async () => {
+  const { store, registry } = await preparedFixture()
+  writeFileSync(registry, '{"settings":{"keep":"synthetic"}}')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.checkWrites = true
+  store.loadStore(session)
+  expect(store.getActiveWorkspace()).toBeNull()
+  expect(store.listWorkspaces()).toHaveLength(0)
+  expect(existsSync(join(store.spaceRoot(), '.mimir/workspace.writer-lock'))).toBe(true)
+  store.setStoreValue('draft', 'first')
+  expect(JSON.parse(readFileSync(join(store.spaceRoot(), '.mimir/store.json'), 'utf8')).draft).toBe('first')
+})
+it('旧业务键和项目目录迁入已占锁的新空间，旧全局凭据保持', async () => {
+  const { store, registry } = await preparedFixture()
+  writeFileSync(registry, JSON.stringify({ settings: { keep: 'synthetic' }, 'library:papers': [{ id: 'legacy' }] }))
+  mkdirSync(join(state.home, 'profile/projects'), { recursive: true })
+  writeFileSync(join(state.home, 'profile/projects/sample.txt'), 'original project')
+  const electron = await import('electron')
+  expect(electron.app.getPath('userData')).toBe(join(state.home, 'profile'))
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.checkWrites = true
+  store.loadStore(session)
+  expect(store.getStoreValue('library:papers')).toEqual([{ id: 'legacy' }])
+  expect(store.getStoreValue('settings')).toEqual({ keep: 'synthetic' })
+  expect(existsSync(join(store.spaceRoot(), '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(state.copies).toHaveLength(1)
+  expect(readFileSync(join(state.home, 'profile/projects/sample.txt'), 'utf8')).toBe('original project')
+  expect(readFileSync(join(store.spaceRoot(), 'projects/sample.txt'), 'utf8')).toBe('original project')
+})
+it('受保护初始化拒绝错误HOME且不改原始注册表', async () => {
+  const { store, registry } = await preparedFixture()
+  const before = readFileSync(registry, 'utf8')
+  const other = join(state.home, 'other'); mkdirSync(other)
+  session = new WorkspaceWriterSession(other, () => {})
+  expect(() => store.loadStore(session)).toThrow('对应写锁')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+})
+it('受保护初始化遇到损坏全局JSON不改原文，后续写入阻断', async () => {
+  const { store, registry } = await preparedFixture()
+  writeFileSync(registry, '{broken')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  expect(() => store.loadStore(session)).toThrow('损坏')
+  expect(readFileSync(registry, 'utf8')).toBe('{broken')
+  expect(() => store.setStoreValue('settings', {})).toThrow()
+})
+it('初始化指针保存失败释放新锁，保留注册表并阻断会话', async () => {
+  const { store, registry, first } = await preparedFixture()
+  const before = readFileSync(registry, 'utf8')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.failRename = true
+  expect(() => store.loadStore(session)).toThrow('pointer write failure')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(false)
+  expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
+})
+it('旧项目复制失败保留原项目及注册表，不能注册部分迁移空间', async () => {
+  const { store, registry } = await preparedFixture()
+  const before = JSON.stringify({ settings: {}, 'library:papers': [{ id: 'legacy' }] })
+  writeFileSync(registry, before)
+  mkdirSync(join(state.home, 'profile/projects'), { recursive: true })
+  const original = join(state.home, 'profile/projects/sample.txt')
+  writeFileSync(original, 'original project')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.failCopy = true
+  expect(() => store.loadStore(session)).toThrow('copy failure')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(readFileSync(original, 'utf8')).toBe('original project')
+  expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
+})
+it('普通装载后不能迟到启用受保护初始化', async () => {
+  const { store } = await fixture(false)
+  expect(() => store.loadStore(session)).toThrow('首次装载前')
+})
+it('受保护初始化遇到损坏空间JSON必须阻断，全局和管理也不能继续写', async () => {
+  const { store, registry, first } = await preparedFixture()
+  const file = join(first, '.mimir/store.json')
+  writeFileSync(file, '{broken-space')
+  session = new WorkspaceWriterSession(state.home, () => {})
+  expect(() => store.loadStore(session)).toThrow('损坏')
+  expect(readFileSync(file, 'utf8')).toBe('{broken-space')
+  const snapshot = readFileSync(registry, 'utf8')
+  expect(() => store.setStoreValue('settings', {})).toThrow()
+  expect(() => store.renameWorkspace('a', 'changed')).toThrow()
+  expect(readFileSync(registry, 'utf8')).toBe(snapshot)
+})
+it('旧项目目录读取失败不能当空目录跳过并注册新空间', async () => {
+  const { store, registry } = await preparedFixture()
+  const before = JSON.stringify({ settings: {}, 'library:papers': [{ id: 'legacy' }] })
+  writeFileSync(registry, before)
+  mkdirSync(join(state.home, 'profile/projects'), { recursive: true })
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.failReadDir = true
+  expect(() => store.loadStore(session)).toThrow('directory read failure')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(() => store.setStoreValue('settings', {})).toThrow()
+})
+it('仅有旧目录时探测读取失败也必须阻断，不能误判为全新安装', async () => {
+  const { store, registry } = await preparedFixture()
+  const before = '{"settings":{}}'
+  writeFileSync(registry, before)
+  mkdirSync(join(state.home, 'profile/projects'), { recursive: true })
+  session = new WorkspaceWriterSession(state.home, () => {})
+  state.failReadDir = true
+  expect(() => store.loadStore(session)).toThrow('directory read failure')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(() => store.setStoreValue('draft', 'unsafe')).toThrow()
 })

@@ -71,6 +71,7 @@ interface WorkspaceSwitchProtection {
   assertRegistryHome(home: string): void
   assertSelectedRoot(root: string): void
   prepareSelection(root: string): { commit(): void; rollback(): void }
+  prepareNewSelection(root: string): { commit(): void; rollback(): void }
 }
 let switchProtection: WorkspaceSwitchProtection | undefined
 let transitionBlocked = false
@@ -151,6 +152,7 @@ function migrateLegacyGlobalFile(): void {
   } catch (error) {
     // 迁移失败不阻塞启动；但要留痕（旧文件损坏也是一种「用户数据可能读不进来」的显式信号）。
     recordStoreIssue('迁移旧全局文件到 ~/.mimir 失败：', error)
+    if (switchProtection) throw error
   }
 }
 
@@ -319,7 +321,7 @@ function saveSpace(): void {
 let spaceEpoch = 0
 
 /** 装载某空间数据到 spaceStore，并推进代际计数。 */
-function loadSpaceCache(spacePath: string): void {
+function loadSpaceCache(spacePath: string, strict = false): void {
   const path = spaceDataPath(spacePath)
   try {
     spaceStore = readJson(path)
@@ -332,6 +334,7 @@ function loadSpaceCache(spacePath: string): void {
     spaceStore = {}
     spaceWritable = false
     recordStoreIssue(`空间 store 装入失败（${path}）：`, error)
+    if (strict) throw error
   }
   spaceEpoch += 1
 }
@@ -395,23 +398,33 @@ export function spaceRoot(): string {
 
 // ─── 公开读写（按 key 路由到全局层 / 空间层）─────────────────────────────
 
-export function loadStore(): void {
-  if (setupDone) return
-  migrateLegacyGlobalFile()
-  const path = globalFilePath()
-  try {
-    globalStore = readJson(path)
-    globalWritable = true
-  } catch (error) {
-    // 损坏：内存里先给个空对象让应用能起来（可读），但**不允许写回**，
-    // 具体原因进 storeIssues 供上层展示，磁盘文件保持原样不动。
-    globalStore = {}
-    globalWritable = false
-    recordStoreIssue(`全局 store 装入失败（${path}）：`, error)
+export function loadStore(protection?: WorkspaceSwitchProtection): void {
+  if (protection) {
+    if (setupDone || switchProtection) throw Error('受保护初始化必须在首次装载前执行。')
+    protection.assertRegistryHome(homedir())
+    switchProtection = protection
   }
-  // 旧版本留下的 0644：即便本次不写盘也要就地收紧（全局层固定含凭据）。
-  if (existsSync(path)) tightenFileMode(path, CREDENTIAL_FILE_MODE)
-  ensureWorkspaceSetup()
+  if (setupDone) return
+  try {
+    migrateLegacyGlobalFile()
+    const path = globalFilePath()
+    try {
+      globalStore = readJson(path)
+      globalWritable = true
+    } catch (error) {
+      // 损坏时保留原文件，普通装载只读继续；受保护装载阻断初始化。
+      globalStore = {}
+      globalWritable = false
+      recordStoreIssue(`全局 store 装入失败（${path}）：`, error)
+      if (switchProtection) throw error
+    }
+    // 旧版本留下的 0644：即便本次不写盘也要就地收紧（全局层固定含凭据）。
+    if (existsSync(path)) tightenFileMode(path, CREDENTIAL_FILE_MODE)
+    ensureWorkspaceSetup()
+  } catch (error) {
+    if (switchProtection) transitionBlocked = true
+    throw error
+  }
 }
 
 export function getStoreValue<T>(key: string): T | undefined {
@@ -456,11 +469,7 @@ function hasLegacyData(): boolean {
   for (const rel of LEGACY_ASSET_DIRS) {
     const dir = join(app.getPath('userData'), rel)
     if (!existsSync(dir)) continue
-    try {
-      if (readdirSafe(dir).length > 0) return true
-    } catch {
-      // ignore
-    }
+    if (readdirSafe(dir).length > 0) return true
   }
   return false
 }
@@ -468,7 +477,8 @@ function hasLegacyData(): boolean {
 function readdirSafe(dir: string): string[] {
   try {
     return readdirSync(dir)
-  } catch {
+  } catch (error) {
+    if (switchProtection) throw error
     return []
   }
 }
@@ -486,10 +496,10 @@ function migrateLegacyTo(space: WorkspaceRecord): void {
   }
   if (spaceChanged) {
     writeJsonAtomic(spaceDataPath(space.path), targetSpaceStore)
-    saveGlobal()
+    if (!switchProtection) saveGlobal()
   }
 
-  // 资产目录：复制到空间根并删除旧目录（成功一个删一个，避免重复）
+  // 资产目录：受保护迁移保留旧目录；普通装载沿用成功复制后删除行为。
   const userData = app.getPath('userData')
   for (const rel of LEGACY_ASSET_DIRS) {
     const src = join(userData, rel)
@@ -497,11 +507,30 @@ function migrateLegacyTo(space: WorkspaceRecord): void {
     const entries = readdirSafe(src)
     if (entries.length === 0) continue
     try {
-      cpSync(src, join(space.path, rel), { recursive: true, force: true })
-      rmSync(src, { recursive: true, force: true })
-    } catch {
+      // 本机Node22原生快速cp在中文目标路径会静默不复制；filter强制逐项路径。
+      cpSync(src, join(space.path, rel), { recursive: true, force: true, filter: () => true })
+      if (!switchProtection) rmSync(src, { recursive: true, force: true })
+    } catch (error) {
+      if (switchProtection) throw error
       // 复制失败则保留原目录（应用仍可继续用旧位置? —— 不再支持，仅避免误删）
     }
+  }
+}
+
+/** 初始化期间也先占目标锁；失败阻断而不是降级为未受保护的普通会话。 */
+function initializeLockedSpace(root: string, work: () => void, create = false): void {
+  const selection = create ? switchProtection?.prepareNewSelection(root) : switchProtection?.prepareSelection(root)
+  let committing = false
+  try {
+    work()
+    committing = true
+    selection?.commit()
+  } catch (error) {
+    if (selection && !committing) {
+      try { selection.rollback() }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], '初始化及锁清理失败。') }
+    }
+    throw error
   }
 }
 
@@ -645,6 +674,7 @@ export function removeWorkspace(id: string): void {
  */
 export function ensureWorkspaceSetup(): void {
   if (setupDone) return
+  assertSwitchProtection()
   try {
     let list = listWorkspaces()
     if (list.length === 0) {
@@ -657,26 +687,33 @@ export function ensureWorkspaceSetup(): void {
           createdAt: now,
           updatedAt: now,
         }
-        mkdirSync(join(record.path, '.mimir'), { recursive: true })
-        migrateLegacyTo(record)
-        saveWorkspaces([record])
-        list = [record]
-        globalStore[DEFAULT_KEY] = record.id
-        globalStore[ACTIVE_KEY] = record.id
-        saveGlobal()
-        loadSpaceCache(record.path)
+        if (!switchProtection) mkdirSync(join(record.path, '.mimir'), { recursive: true })
+        initializeLockedSpace(record.path, () => {
+          migrateLegacyTo(record)
+          saveWorkspaces([record])
+          list = [record]
+          globalStore[DEFAULT_KEY] = record.id
+          globalStore[ACTIVE_KEY] = record.id
+          saveGlobal()
+          loadSpaceCache(record.path, !!switchProtection)
+        }, true)
         setupDone = true
         return
       }
       // 全新安装：交给前端弹窗引导（先创建任意空间后再进入应用）
-      delete globalStore[DEFAULT_KEY]
-      delete globalStore[ACTIVE_KEY]
-      saveGlobal()
-      spaceStore = {}
-      // 尚无空间时写入落在 spaceRoot() 兜底目录（临时草稿，用户数据尚未产生），
-      // 保持可写，行为与旧版一致。
-      spaceWritable = true
-      spaceEpoch += 1
+      const initializeEmpty = () => {
+        delete globalStore[DEFAULT_KEY]
+        delete globalStore[ACTIVE_KEY]
+        saveGlobal()
+        spaceStore = {}
+        // 尚无空间时写入落在 spaceRoot() 兜底目录（临时草稿，用户数据尚未产生）。
+        spaceWritable = true
+        spaceEpoch += 1
+      }
+      if (switchProtection) {
+        const root = join(app.getPath('userData'), 'space')
+        initializeLockedSpace(root, initializeEmpty, true)
+      } else initializeEmpty()
       setupDone = true
       return
     }
@@ -689,15 +726,22 @@ export function ensureWorkspaceSetup(): void {
         : list[0]!.id
     }
     const active = list.find((w) => w.id === activeId)!
-    if (globalStore[DEFAULT_KEY] === undefined) globalStore[DEFAULT_KEY] = active.id
-    globalStore[ACTIVE_KEY] = active.id
-    saveGlobal()
-    loadSpaceCache(active.path)
+    initializeLockedSpace(active.path, () => {
+      if (globalStore[DEFAULT_KEY] === undefined) globalStore[DEFAULT_KEY] = active.id
+      globalStore[ACTIVE_KEY] = active.id
+      saveGlobal()
+      loadSpaceCache(active.path, !!switchProtection)
+    })
     setupDone = true
   } catch (error) {
     // 启动时 userData 不可写、或空间 store 损坏等：不让初始化直接崩溃，但必须留痕，
     // 并把空间层置为只读（避免用空对象覆盖磁盘数据）。运行时写入失败仍会经 IPC 上抛给渲染进程。
     recordStoreIssue('ensureWorkspaceSetup 失败：', error)
+    if (switchProtection) {
+      transitionBlocked = true
+      spaceWritable = false
+      throw error
+    }
     setupDone = true
     spaceStore = {}
     spaceWritable = false

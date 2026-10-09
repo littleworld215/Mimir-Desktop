@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs'
-import { join, relative, isAbsolute } from 'node:path'
+import { existsSync, realpathSync, mkdirSync } from 'node:fs'
+import { join, relative, isAbsolute, dirname } from 'node:path'
 import { acquireWorkspaceLock, acquireWriterLockFile } from './operationGate'
 
 type WriterLock = ReturnType<typeof acquireWorkspaceLock>
@@ -33,6 +33,22 @@ export class WorkspaceWriterSession {
   assertSelectedRoot(root: string) {
     this.assertUsable()
     if (this.pending || this.selected?.workspace.root !== realpathSync(root)) throw Error('当前空间未持有对应写锁。')
+  }
+  /** 新根先检查路径与既有祖先卷，不能先在未知/网络卷建目录。 */
+  prepareNewSelection(root: string) {
+    this.assertUsable()
+    if (this.pending) throw Error('空间锁事务尚未结束，不能嵌套切换。')
+    if (!isAbsolute(root)) throw Error('新空间必须使用绝对路径。')
+    this.assertLocalRoot(root)
+    let ancestor = root
+    while (!existsSync(ancestor)) {
+      const parent = dirname(ancestor)
+      if (parent === ancestor) throw Error('新空间没有可访问的既有祖先目录。')
+      ancestor = parent
+    }
+    this.assertLocalRoot(realpathSync(ancestor))
+    mkdirSync(root, { recursive: true })
+    return this.prepareSelection(root)
   }
   /** 指针/缓存事务成功后才提交；失败回滚期间仍持有原空间锁。 */
   prepareSelection(root: string, maintenance = false) {

@@ -206,3 +206,11 @@ it('关闭时注册表锁删除失败，已释放的空间不能被同根早退�
   expect(() => session.select(space, true)).toThrow('必须先关闭会话')
   expect(() => session.close()).not.toThrow()
 })
+it('新空间策略拒绝发生在mkdir前，不能先在未知卷创建目录', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), parent = root(), target = join(parent, 'new-space')
+  const session = new WorkspaceWriterSession(home, (path: string) => { if (path === target) throw Error('NOT_LOCAL_DISK') })
+  expect(() => session.prepareNewSelection(target)).toThrow('NOT_LOCAL_DISK')
+  expect(existsSync(target)).toBe(false)
+  session.close()
+})
