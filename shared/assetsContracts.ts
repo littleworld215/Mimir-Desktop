@@ -538,6 +538,8 @@ export interface AssetsApi extends AssetsAiApi {
 export const ASSETS_PAGE_DEFAULT = 50
 export const ASSETS_PAGE_MIN = 1
 export const ASSETS_PAGE_MAX = 200
+/** 搜索长度按去首尾空白后的 Unicode 码点计数；主进程与输入提示共用。 */
+export const ASSET_SEARCH_MAX_CODE_POINTS = 200
 
 /** 写入上限（服务端校验，UI 预检查不能替代）。 */
 export const ASSET_NAME_MAX = 200

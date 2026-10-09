@@ -1,5 +1,7 @@
 # 路线图
 
+2026-10-09 当前资产优化：搜索字符边界和快速取用旧结果竞态已修复，完整验证见来源[专项记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-search-interaction-20261009.md)。下一主题是I6完整备份/恢复设计，随后分类/标签、布局与性能按[优化跟踪](https://github.com/littleworld215/research-asset-library/blob/main/docs/ASSETS-OPTIMIZATION.md)推进。I5仍待跨机器/真实模型及其余真人场景；下方旧宿主资源失败为历史，D-070四轮正式资源窗口已通过。
+
 > 修复后正式压力：开发/新包3224/3232连接字节正确，句柄+59/+82仍超+32、exit1；两helper已退出。新包26044项审计、开发/包内原生探针exit0；下一步独立定位资源分配/回收，保持外部MCP默认关闭与I5未验收。
 
 > 2026-10-08交接修复：确定性原生回归已完成RED→GREEN，生产先创建并审计下一实例再启动当前Relay；专项22/22、全量1101通过/9既有跳过，三闸门exit0。一轮只读静态复核无可操作问题，不等于独立运行QA。资源归因、跨机器SMB、真实按钮/48KB及真实模型仍待，I5未验收；下方保留历史调查。

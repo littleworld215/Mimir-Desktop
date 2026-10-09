@@ -1,4 +1,5 @@
 import type { AssetListQuery } from '../../shared/assetsContracts'
+import { ASSET_SEARCH_MAX_CODE_POINTS } from '../../shared/assetsContracts'
 import { AssetsStoreError } from './types'
 import { assertAssetCode, assertStorageType } from './validation'
 
@@ -32,7 +33,7 @@ export function readSearchQuery(input: unknown): SearchQuery {
   if (raw.page === null || raw.pageSize === null || pageSize > 200 || !Number.isSafeInteger((page - 1) * pageSize)) bad()
   if (raw.q !== undefined && (typeof raw.q !== 'string' || raw.q.includes('\0'))) bad()
   const q = ((raw.q ?? '') as string).trim()
-  if ([...q].length > 200) bad()
+  if ([...q].length > ASSET_SEARCH_MAX_CODE_POINTS) bad()
   if (raw.searchIn !== undefined && !['all', 'title', 'body', 'source', 'organization'].includes(raw.searchIn as string)) bad()
   if (raw.sort !== undefined && !['relevance', 'updated', 'name', 'recent'].includes(raw.sort as string)) bad()
   if (raw.view !== undefined && !['all', 'favorites', 'recent'].includes(raw.view as string)) bad()

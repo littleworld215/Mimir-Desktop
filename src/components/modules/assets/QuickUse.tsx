@@ -4,6 +4,7 @@ import type {AssetDetail,AssetListQuery,AssetPage,AssetSummary,WorkspaceRequest}
 import {assetsApi} from './assetsApi'
 import {AssetError,AssetModal,controlClass,errorMessage,useAssetsEditorGuard} from './assetsUi'
 import {readPins,takeAndRecord} from './assetTake'
+import { searchInputError } from './assetSearchInput'
 
 const TemplateFill=lazy(()=>import('./TemplateFill').then(m=>({default:m.TemplateFill})))
 export function QuickUse({scope,write,onChanged,onClose}:{scope:WorkspaceRequest;write:<T>(fn:(s:WorkspaceRequest)=>Promise<T>)=>Promise<T>;onChanged:()=>void;onClose:()=>void}) {
@@ -13,16 +14,30 @@ export function QuickUse({scope,write,onChanged,onClose}:{scope:WorkspaceRequest
   const [pins,setPins]=useState<number[]>(()=>{try{return readPins(localStorage.getItem(pinKey))}catch{return []}}),[pinned,setPinned]=useState<AssetSummary[]>([])
   const alive=useRef(false),listSeq=useRef(0),detailSeq=useRef(0),saving=useRef(false)
   const searchInput=useRef<HTMLInputElement>(null)
+  const queryKey = JSON.stringify([scope.workspaceId, scope.spaceEpoch, query])
+  const [resultKey, setResultKey] = useState('')
+  const pendingOpen = useRef<string | null>(null), latestDraft = useRef('')
+  latestDraft.current = draft.trim()
+  const inputError = searchInputError(draft)
+  const resultsCurrent = !loading && !composing && !inputError && resultKey === queryKey && draft.trim() === (query.q ?? '')
+  function changeDraft(value: string) {
+    pendingOpen.current = null
+    ++detailSeq.current
+    setAsset(null)
+    latestDraft.current = value.trim()
+    setDraft(value)
+  }
   function back(){++detailSeq.current;setAsset(null);searchInput.current?.focus()}
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;++listSeq.current;++detailSeq.current}},[])
   useAssetsEditorGuard({isDirty:()=>false,isBusy:()=>saving.current,save:async()=>false,discard:onClose})
-  useEffect(()=>{if(composing)return;const timer=setTimeout(()=>setQuery(q=>draft.trim()===(q.q??'')?q:({...q,q:draft.trim()||undefined,page:1})),300);return()=>clearTimeout(timer)},[draft,composing])
+  useEffect(()=>{if(composing||inputError)return;const timer=setTimeout(()=>setQuery(q=>draft.trim()===(q.q??'')?q:({...q,q:draft.trim()||undefined,page:1})),300);return()=>clearTimeout(timer)},[draft,composing,inputError])
   useEffect(()=>{
-    const seq=++listSeq.current;++detailSeq.current;setAsset(null);setLoading(true);setError('')
-    void assetsApi.list({...scope,...query}).then(r=>{if(alive.current&&seq===listSeq.current){setPage(r.page);setCursor(0)}}).catch(e=>{if(alive.current&&seq===listSeq.current)setError(errorMessage(e))}).finally(()=>{if(alive.current&&seq===listSeq.current)setLoading(false)})
+    if(pendingOpen.current!==queryKey)pendingOpen.current=null
+    const seq=++listSeq.current;++detailSeq.current;setAsset(null);setResultKey('');setLoading(true);setError('')
+    void assetsApi.list({...scope,...query}).then(r=>{if(alive.current&&seq===listSeq.current){setPage(r.page);setCursor(0);setResultKey(queryKey);if(pendingOpen.current===queryKey&&latestDraft.current===(query.q??'')){pendingOpen.current=null;if(r.page.items[0])void select(r.page.items[0].id)}}}).catch(e=>{if(alive.current&&seq===listSeq.current){pendingOpen.current=null;setError(errorMessage(e))}}).finally(()=>{if(alive.current&&seq===listSeq.current)setLoading(false)})
   },[scope.workspaceId,scope.spaceEpoch,query,retry])
   useEffect(()=>{let active=true;if(!pins.length){setPinned([]);return}void assetsApi.list({...scope,ids:pins,pageSize:20}).then(r=>{if(active)setPinned(pins.flatMap(id=>r.page.items.filter(a=>a.id===id)))}).catch(()=>{if(active)setPinned([])});return()=>{active=false}},[pins,scope.workspaceId,scope.spaceEpoch])
-  async function select(id:number){const seq=++detailSeq.current;setAsset(null);setError('');try{const r=await assetsApi.get({...scope,assetId:id});if(alive.current&&seq===detailSeq.current)setAsset(r.asset)}catch(e){if(alive.current&&seq===detailSeq.current)setError(errorMessage(e))}}
+  async function select(id:number){pendingOpen.current=null;const seq=++detailSeq.current;setAsset(null);setError('');try{const r=await assetsApi.get({...scope,assetId:id});if(alive.current&&seq===detailSeq.current)setAsset(r.asset)}catch(e){if(alive.current&&seq===detailSeq.current)setError(errorMessage(e))}}
   function pin(){if(!asset)return;const next=pins.includes(asset.id)?pins.filter(id=>id!==asset.id):[asset.id,...pins].slice(0,20);try{localStorage.setItem(pinKey,JSON.stringify(next));setPins(next)}catch{setError('无法保存本机置顶，请检查浏览器存储。')}}
   async function take(close:boolean){
     if(!asset||saving.current||asset.archivedAt)return
@@ -42,16 +57,25 @@ export function QuickUse({scope,write,onChanged,onClose}:{scope:WorkspaceRequest
   function keys(e:React.KeyboardEvent){
     if(composing||e.nativeEvent.isComposing||e.keyCode===229||busy)return
     if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&asset){e.preventDefault();void take(false);return}
-    if((e.key==='ArrowDown'||e.key==='ArrowUp')&&!asset&&!loading){e.preventDefault();setCursor(i=>Math.max(0,Math.min(page.items.length-1,i+(e.key==='ArrowDown'?1:-1))))}
-    if(e.key==='Enter'&&!asset&&!loading&&page.items[cursor]&&(e.target instanceof HTMLInputElement)){e.preventDefault();void select(page.items[cursor].id)}
+    if((e.key==='ArrowDown'||e.key==='ArrowUp')&&!asset&&resultsCurrent){e.preventDefault();setCursor(i=>Math.max(0,Math.min(page.items.length-1,i+(e.key==='ArrowDown'?1:-1))))}
+    if(e.key==='Enter'&&!asset&&(e.target instanceof HTMLInputElement)){
+      e.preventDefault()
+      if(inputError)return
+      if(draft.trim()!==(query.q??'')){
+        const next={...query,q:draft.trim()||undefined,page:1}
+        pendingOpen.current=JSON.stringify([scope.workspaceId,scope.spaceEpoch,next])
+        setQuery(next)
+      }else if(resultsCurrent&&page.items[cursor])void select(page.items[cursor].id)
+      else if(!error)pendingOpen.current=queryKey
+    }
   }
   return <><AssetModal title="快速取用" onClose={()=>{if(!saving.current&&!filling)onClose()}} onEscape={()=>{if(saving.current||composing||filling)return true;if(asset){back();return true}return false}}><div className="space-y-3" onKeyDown={keys}>
     <p className="text-xs text-muted-foreground">方向键选择，Enter 打开，Ctrl/Cmd+Enter 取用，Esc 返回。置顶仅保存在本机，最多20项，不随空间同步。</p>
-    <input ref={searchInput} autoFocus className={controlClass} aria-label="快速检索" placeholder="检索资产…" maxLength={200} disabled={busy} value={draft} onChange={e=>setDraft(e.target.value)} onCompositionStart={()=>setComposing(true)} onCompositionEnd={()=>setComposing(false)}/>
+    <input ref={searchInput} autoFocus className={controlClass} aria-label="快速检索" placeholder="检索资产…" aria-invalid={Boolean(inputError)} disabled={busy} value={draft} onChange={e=>changeDraft(e.target.value)} onCompositionStart={()=>{pendingOpen.current=null;++detailSeq.current;setAsset(null);setComposing(true)}} onCompositionEnd={()=>setComposing(false)}/>
     <div className="flex flex-wrap gap-2">{(['favorites','recent','all'] as const).map((view,i)=><Button key={view} size="sm" variant={query.view===view?'default':'outline'} disabled={busy} onClick={()=>setQuery(q=>({...q,view,page:1}))}>{['收藏','最近使用','全部'][i]}</Button>)}</div>
-    <AssetError message={error}/>{error&&<Button variant="outline" disabled={busy} onClick={()=>setRetry(n=>n+1)}>重试</Button>}{notice&&<p role="status">{notice}</p>}
+    <AssetError message={inputError}/><AssetError message={error}/>{error&&<Button variant="outline" disabled={busy} onClick={()=>setRetry(n=>n+1)}>重试</Button>}{notice&&<p role="status">{notice}</p>}
     {pinned.length>0&&<section aria-label="本机置顶" className="flex flex-wrap gap-2">{pinned.map(a=><Button key={a.id} size="sm" variant="outline" disabled={busy} onClick={()=>void select(a.id)}>置顶：{a.name}</Button>)}</section>}
-    {loading?<p role="status">正在读取资产摘要…</p>:asset?<section aria-label="快速取用详情" className="space-y-3"><h3 className="font-medium">{asset.name}</h3><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border p-3 text-sm">{asset.storageType==='inline_text'?asset.currentContent:asset.externalUrl??asset.currentFileName}</pre><div className="flex flex-wrap gap-2"><Button disabled={busy||!!asset.archivedAt||(asset.storageType==='file'&&!asset.fileAvailable)} onClick={()=>void take(false)}>{asset.storageType==='file'?'下载':'复制'}</Button><Button variant="outline" disabled={busy||!!asset.archivedAt||(asset.storageType==='file'&&!asset.fileAvailable)} onClick={()=>void take(true)}>{asset.storageType==='file'?'下载并关闭':'复制并关闭'}</Button>{asset.storageType==='inline_text'&&<Button variant="outline" disabled={busy||!!asset.archivedAt} onClick={()=>setFilling(true)}>填值复制</Button>}<Button variant="outline" disabled={busy} onClick={pin}>{pins.includes(asset.id)?'取消置顶':'置顶'}</Button><Button variant="outline" disabled={busy} onClick={back}>返回结果</Button></div></section>:<section aria-label="快速取用结果" className="space-y-2">{page.items.map((a,i)=><Button key={a.id} variant="outline" className="w-full justify-start" aria-pressed={cursor===i} disabled={busy} onClick={()=>void select(a.id)}>{a.name} · {a.storageType}</Button>)}{!page.items.length&&<p>当前范围没有资产。</p>}<div className="flex justify-between"><Button variant="outline" disabled={busy||page.page<=1} onClick={()=>setQuery(q=>({...q,page:page.page-1}))}>上一页</Button><span>{page.page} / {Math.max(1,Math.ceil(page.total/page.pageSize))}</span><Button variant="outline" disabled={busy||page.page*page.pageSize>=page.total} onClick={()=>setQuery(q=>({...q,page:page.page+1}))}>下一页</Button></div></section>}
+    {loading?<p role="status">正在读取资产摘要…</p>:asset?<section aria-label="快速取用详情" className="space-y-3"><h3 className="font-medium">{asset.name}</h3><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border p-3 text-sm">{asset.storageType==='inline_text'?asset.currentContent:asset.externalUrl??asset.currentFileName}</pre><div className="flex flex-wrap gap-2"><Button disabled={busy||!!asset.archivedAt||(asset.storageType==='file'&&!asset.fileAvailable)} onClick={()=>void take(false)}>{asset.storageType==='file'?'下载':'复制'}</Button><Button variant="outline" disabled={busy||!!asset.archivedAt||(asset.storageType==='file'&&!asset.fileAvailable)} onClick={()=>void take(true)}>{asset.storageType==='file'?'下载并关闭':'复制并关闭'}</Button>{asset.storageType==='inline_text'&&<Button variant="outline" disabled={busy||!!asset.archivedAt} onClick={()=>setFilling(true)}>填值复制</Button>}<Button variant="outline" disabled={busy} onClick={pin}>{pins.includes(asset.id)?'取消置顶':'置顶'}</Button><Button variant="outline" disabled={busy} onClick={back}>返回结果</Button></div></section>:<section aria-label="快速取用结果" className="space-y-2">{page.items.map((a,i)=><Button key={a.id} variant="outline" className="w-full justify-start" aria-pressed={cursor===i} disabled={busy||!resultsCurrent} onClick={()=>void select(a.id)}>{a.name} · {a.storageType}</Button>)}{!page.items.length&&<p>当前范围没有资产。</p>}<div className="flex justify-between"><Button variant="outline" disabled={busy||page.page<=1} onClick={()=>setQuery(q=>({...q,page:page.page-1}))}>上一页</Button><span>{page.page} / {Math.max(1,Math.ceil(page.total/page.pageSize))}</span><Button variant="outline" disabled={busy||page.page*page.pageSize>=page.total} onClick={()=>setQuery(q=>({...q,page:page.page+1}))}>下一页</Button></div></section>}
     <Button variant="outline" disabled={busy} onClick={onClose}>关闭</Button>
   </div></AssetModal>{filling&&asset&&<Suspense fallback={<p role="status">正在加载填值…</p>}><TemplateFill template={asset.currentContent} config={asset.templateConfig} onRecord={async()=>{await write(s=>assetsApi.recordUsage({...s,assetIds:[asset.id]}));onChanged()}} onClose={()=>setFilling(false)}/></Suspense>}</>
 }

@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-09 资产管理首批优化：搜索按去首尾空白后的 200 Unicode 码点校验，超限输入保留并提示，不截断 emoji。快速取用输入后立即 Enter 会等待匹配查询，查询失败、继续输入、切换范围或输入法组合开始后不打开旧详情。源码已更新，已有安装版尚未替换；I6完整备份/恢复与I7界面优化仍未实现。完整状态与证据见[优化跟踪](https://github.com/littleworld215/research-asset-library/blob/main/docs/ASSETS-OPTIMIZATION.md)。
+
 人工入口新增可选单步模式（`MIMIR_MANUAL_STEPWISE=1`）：每次说明当前动作后才开始一个请求，保留连续模式和真实批准规则。见[操作说明](e2e/manual/README.md)；步骤开始文件不代表授权，真人验收仍须另行记录。
 
 2026-10-09 人工验收入口：新增显式 Windows 原生批准流程，临时空间与合成资料、真实按钮、精确48,000/48,001字节边界及分次结果。运行见[操作说明](e2e/manual/README.md)；当前只验证入口工具，真人操作/长文阅读仍待，I5未终验。
