@@ -1,19 +1,31 @@
 import { spawn } from 'node:child_process'
+import { dirname, isAbsolute } from 'node:path'
 import { assertLocalEndpoint, BrokerError } from './localTransport'
-import { WINDOWS_PIPE_SOURCE } from './windowsPipeSource'
+import { resolveWindowsPipeArtifact, type PipeArtifactLocation } from './windowsPipeArtifact'
 
 export interface PipeAudit { kind: 'instance'; ordinal: number; rejectRemote: true; ownerSid: string; dacl: string }
 export interface WindowsPipeRelay { readonly pid: number; readonly closed: Promise<{expected: boolean}>; close(): Promise<void> }
 
 /** Native handles belong solely to this child; all broker authentication stays in the parent. */
-export async function startWindowsPipeRelay(options: { endpoint: string; port: number; onAudit?: (audit: PipeAudit) => void }): Promise<WindowsPipeRelay> {
+export async function startWindowsPipeRelay(options: { endpoint: string; port: number; artifact: PipeArtifactLocation; signal?: AbortSignal; onAudit?: (audit: PipeAudit) => void }): Promise<WindowsPipeRelay> {
   assertLocalEndpoint(options.endpoint)
-  if (process.platform !== 'win32' || !Number.isSafeInteger(options.port) || options.port < 1 || options.port > 65535) throw new BrokerError('BAD_ENDPOINT')
-  const script = '$ErrorActionPreference="Stop"; try { Add-Type -TypeDefinition $env:MIMIR_PIPE_SOURCE -Language CSharp; [AssetsNativePipe]::Run($env:MIMIR_PIPE_ENDPOINT,[int]$env:MIMIR_PIPE_PORT) } catch { exit 1 }; exit [Environment]::ExitCode'
-  const child = spawn('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-    windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', TEMP: process.env.TEMP, TMP: process.env.TMP,
-      MIMIR_PIPE_SOURCE: WINDOWS_PIPE_SOURCE, MIMIR_PIPE_ENDPOINT: options.endpoint, MIMIR_PIPE_PORT: String(options.port) }
+  if (process.platform !== 'win32' || process.arch !== 'x64' || !Number.isSafeInteger(options.port) || options.port < 1 || options.port > 65535) throw new BrokerError('BAD_ENDPOINT')
+  const deadline = Date.now() + 20_000
+  const validation = new AbortController()
+  const signal = options.signal ? AbortSignal.any([validation.signal, options.signal]) : validation.signal
+  const validating = setTimeout(() => validation.abort(), 20_000)
+  let executable: string
+  try {
+    signal.throwIfAborted()
+    executable = (await resolveWindowsPipeArtifact(options.artifact, signal)).executable
+    signal.throwIfAborted()
+  } catch { throw new BrokerError('DISCONNECTED') } finally { clearTimeout(validating) }
+  const windows = process.env.SystemRoot ?? process.env.WINDIR
+  if (!windows || !isAbsolute(windows)) throw new BrokerError('DISCONNECTED')
+  const child = spawn(executable, [], {
+    cwd: dirname(executable), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    env: { SystemRoot: windows, WINDIR: windows, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      MIMIR_PIPE_ENDPOINT: options.endpoint, MIMIR_PIPE_PORT: String(options.port) }
   })
   let expected = false, ready = false, ordinal = 0, buffer = '', closing: Promise<void> | undefined
   let settled = false, failed = false
@@ -22,10 +34,10 @@ export async function startWindowsPipeRelay(options: { endpoint: string; port: n
   let accept!: () => void, reject!: (error: BrokerError) => void
   const started = new Promise<void>((r, e) => { accept = r; reject = e })
   const fail = () => { if (failed || settled) return; failed = true; reject(new BrokerError('DISCONNECTED')); child.kill() }
-  const timer = setTimeout(fail, 20_000)
+  const timer = setTimeout(fail, Math.max(1, deadline - Date.now()))
   const onClosed = () => {
     if (settled) return
-    settled = true; clearTimeout(timer)
+    settled = true; clearTimeout(timer); options.signal?.removeEventListener('abort', onAbort)
     reject(new BrokerError('DISCONNECTED')); finish({ expected })
   }
   child.on('error', onClosed)
@@ -62,6 +74,9 @@ export async function startWindowsPipeRelay(options: { endpoint: string; port: n
     const kill = setTimeout(() => child.kill(), 5000)
     try { await closed } finally { clearTimeout(kill) }
   })()
+  const onAbort = () => { void close(); if (!ready) fail() }
+  options.signal?.addEventListener('abort', onAbort, { once: true })
+  if (options.signal?.aborted) onAbort()
   try { await started } catch (error) { await close(); throw error }
   return { pid: child.pid!, closed, close }
 }

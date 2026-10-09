@@ -14,7 +14,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:mac": "electron-vite build && electron-builder --mac --publish never",
-    "build:win": "electron-vite build && electron-builder --win --publish never",
+    "build:win": "node scripts/prepareAssetsPipeHelper.mjs && electron-vite build && electron-builder --win --publish never",
     "build:linux": "electron-vite build && electron-builder --linux --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
@@ -29,6 +29,8 @@
     "eval:compare": "node --experimental-strip-types --no-warnings test/eval/cli.ts --compare",
     "test:gateway": "vitest run test/gateway",
     "test:model-discovery": "node --experimental-strip-types --no-warnings electron/modelDiscovery.test.ts",
+    "assets:pipe:prepare": "node scripts/prepareAssetsPipeHelper.mjs",
+    "assets:pipe:check": "node scripts/checkAssetsPipeHelper.mjs",
     "assets:native": "node scripts/prepareAssetsNative.mjs",
     "assets:native:check": "node scripts/checkAssetsNative.mjs",
     "start": "electron-vite preview"

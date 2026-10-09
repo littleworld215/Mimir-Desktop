@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Synthetic transport only: explicit build/package, no SQLite, credentials or models.
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { artifactLocationForRoot } from './lib/assetsPipeLocation.mjs'
+import { randomUUID, createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { verifyPipeArtifact } from './lib/assetsPipeArtifact.mjs'
 import { createConnection, createServer } from 'node:net'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -113,6 +116,15 @@ async function main() {
   const profile = stressProfile(process.argv[5])
   const trace = profile.trace ? createConnectionTrace() : undefined
   const root = resolve(process.argv[2] ?? '.')
+  const location = artifactLocationForRoot(root)
+  const helperDir = location.kind === 'packaged' ? join(location.resourcesPath, 'assets-pipe-helper/win-x64') : join(location.appRoot, '.native/assets-pipe-helper/win-x64')
+  const manifest = JSON.parse(await readFile(join(helperDir, 'manifest.json'), 'utf8'))
+  const helper = await verifyPipeArtifact(helperDir, { rid: 'win-x64', ...(manifest.diagnosticOnly === true ? { diagnosticOnly: true } : {}) })
+  const helperIdentity = { diagnosticOnly: manifest.diagnosticOnly === true, sourceHash: helper.manifest.sourceHash,
+    sdkVersion: helper.manifest.sdkVersion, runtimeVersion: helper.manifest.runtimeVersion,
+    executableSha256: createHash('sha256').update(await readFile(helper.executable)).digest('hex'),
+    files: helper.manifest.files.length, bytes: helper.manifest.files.reduce((sum, file) => sum + file.size, 0) }
+  console.error(JSON.stringify({ result: 'ARTIFACT', helper: helperIdentity }))
   const seconds = Number(process.argv[3] ?? 120)
   const warmupSeconds = Number(process.argv[4] ?? 120)
   assert(Number.isSafeInteger(seconds) && seconds >= 30 && seconds <= 3600, 'BAD_DURATION')
@@ -137,13 +149,15 @@ async function main() {
     for (const result of results) bytes += result.value
   }
   try {
-    relay = await startWindowsPipeRelay({ endpoint, port: server.address().port, onAudit: audit => {
+    const readyStart = performance.now()
+    relay = await startWindowsPipeRelay({ artifact: location, endpoint, port: server.address().port, onAudit: audit => {
       assert.equal(audit.ordinal, ++audits)
       assert.equal(audit.rejectRemote, true)
       assert(audit.dacl.includes('(D;;FA;;;NU)'))
       assert.equal(audit.dacl.match(/\(A;/g)?.length, 1)
       assert(audit.dacl.includes(`;;;${audit.ownerSid})`))
     } })
+    const readyMs = Math.round(performance.now() - readyStart)
     for (let i = 0; i < 10; i++) { await round(); await sleep(100) }
     await sleep(3000)
     const warmStart = performance.now(), warmupSamples = [{ atMs: 0, ...await readMetrics(relay.pid) }]
@@ -180,7 +194,7 @@ async function main() {
     await sleep(3000)
     samples.push({ atMs: Math.round(performance.now() - start), phase: 'cooled-idle', ...await readMetrics(relay.pid) })
     const resources = assessResources(samples[0], samples.at(-1))
-    report = { result: 'PASS', scope: profile.scope, runtime: process.versions.node,
+    report = { result: 'PASS', scope: helperIdentity.diagnosticOnly ? `diagnostic-${profile.scope}` : profile.scope, runtime: process.versions.node, helper: helperIdentity, readyMs,
       root, requestedSeconds: seconds, elapsedMs, concurrency: 8, payloadBytes: payload.length,
       warmup: { requestedSeconds: warmupSeconds, elapsedMs: warmupElapsedMs, rounds: warmupRounds,
         abortedConnections: warmupAborted, verifiedBytesPerDirection: warmupBytes, samples: warmupSamples },

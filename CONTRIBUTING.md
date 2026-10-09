@@ -1,5 +1,13 @@
 # 贡献指南
 
+## Windows MCP贡献前准备
+
+Windows x64全量测试包含真实原生管道执行，不能用缺SDK/缺helper跳过它。先按[辅助程序开发准备](DEVELOPMENT.md#自包含管道辅助程序开发准备)安装锁定SDK、运行 `pnpm assets:pipe:prepare`，再运行三闸门。源码改动后须重新发布；Windows打包还必须检查包外helper完整清单和运行时许可证。macOS/Linux不需要.NET SDK。
+
+本仓库为个人自用整合fork，只提交至自有origin，永不推送官方upstream；默认MCP关闭，验收使用临时科研空间，不操作真实资产/模型。静态复核、作者自验、独立运行QA及真实用户验收分别记录。
+
+
+
 感谢你对 Mimir-Desktop 的关注。本文说明如何提交问题与代码，以及合并前需要满足的检查。
 
 > 想先跑起来看效果？见 [README.md](./README.md)。想了解架构与设计决策？见 [DEVELOPMENT.md](./DEVELOPMENT.md)。

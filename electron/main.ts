@@ -27,6 +27,7 @@ import { safeBrokerError } from './assets/mcp/localTransport'
 
 // 仅显式启动参数启用外部MCP；默认运行方式保持不变。
 let assetsMcpStartup: Promise<Awaited<ReturnType<typeof startAssetsMcpHost>> | null> | null = null
+let assetsMcpAbort: AbortController | undefined
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -295,8 +296,14 @@ app.whenReady().then(async () => {
     const approve = createExternalApproval({ window: () => mainWindow, currentScope: () => assetsStoreManager.context(),
       preview: request => externalApprovalPreview(request, scope => assetsStoreManager.getForRequest(scope)),
       show: (window, options) => dialog.showMessageBox(window, options) })
+    assetsMcpAbort = new AbortController()
     assetsMcpStartup = startAssetsMcpHost({ userData: app.getPath('userData'), currentScope: () => assetsStoreManager.context(),
+      signal: assetsMcpAbort.signal,
+      // Electron launched with out/main/index.js reports out/main as getAppPath().
+      // The compiled main's location is stable in both dev and build-entry launches.
+      pipeArtifact: app.isPackaged ? { kind: 'packaged', resourcesPath: process.resourcesPath } : { kind: 'development', appRoot: join(__dirname, '../..') },
       context: scope => assetsStoreManager.getForRequest(scope), approve }).catch(error => {
+      if (assetsMcpAbort?.signal.aborted) return null
       const safe = safeBrokerError(error)
       log.warn(`[assets-mcp] 启用失败：${safe.code}`)
       dialog.showErrorBox('外部资产 MCP 未启用', `${safe.message}\n桌面其它功能仍可使用。若有崩溃残留，请确认其它实例退出后再处理 assets-mcp/session.json。`)
@@ -395,6 +402,7 @@ const quitFlow = createQuitFlow({
   closeWindow: () => mainWindow?.close(),
   quit: () => app.quit(),
   shutdown: async () => {
+    assetsMcpAbort?.abort()
     // 先撤销外部请求和原生批准，再排空唯一writer；启动中的ACL操作也必须收口。
     try { await (await assetsMcpStartup)?.close() } catch { log.warn('[assets-mcp] 退出清理失败，凭据残留须确认后手动处理。') }
     // ① 先排空资产写入：独立预算，不被通用超时截断——保证在途事务落定后才继续退出。

@@ -3,6 +3,8 @@ import { createRequire } from 'node:module'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { cp } from 'node:fs/promises'
+import { createPipeManifest, pipeSourceHash } from '../../../scripts/lib/assetsPipeArtifact.mjs'
 
 const require = createRequire(import.meta.url)
 const install = require('../../../scripts/packageAssetsNative.cjs')
@@ -21,6 +23,20 @@ function fixture(arch = 1) {
   return { root, source, destination, context: { arch, electronPlatformName: 'win32', appOutDir: join(root, 'dist'), packager: { projectDir: root, info: { framework: { version: '33.4.11' } }, getResourcesDir: () => output } } }
 }
 
+async function prepareHelper(root: string) {
+  const native = join(root, 'native/assets-pipe-helper')
+  const source = join(root, '.native/assets-pipe-helper/win-x64')
+  mkdirSync(native, { recursive: true }); mkdirSync(source, { recursive: true })
+  for (const name of ['AssetsNativePipe.cs', 'Program.cs', 'AssetsPipeHelper.csproj', 'global.json']) writeFileSync(join(native, name), name)
+  const pe = Buffer.alloc(128); pe.write('MZ'); pe.writeUInt32LE(64, 60); pe.write('PE\0\0', 64); pe.writeUInt16LE(0x8664, 68)
+  writeFileSync(join(source, 'Mimir.AssetsPipeHelper.exe'), pe)
+  writeFileSync(join(source, 'LICENSE.txt'), 'runtime license')
+  writeFileSync(join(source, 'THIRD-PARTY-NOTICES.txt'), 'runtime notices')
+  const manifest = await createPipeManifest(source, { protocolVersion: 1, rid: 'win-x64', entry: 'Mimir.AssetsPipeHelper.exe', sdkVersion: '10.0.401', runtimeVersion: '10.0.12', sourceHash: await pipeSourceHash(native) })
+  writeFileSync(join(source, 'manifest.json'), JSON.stringify(manifest))
+  await cp(source, join(root, 'dist/resources/assets-pipe-helper/win-x64'), { recursive: true })
+}
+
 describe('packaged asset native binding', () => {
   it('installs the exact Electron cache into output without changing source Node binding', async () => {
     const f = fixture()
@@ -28,9 +44,16 @@ describe('packaged asset native binding', () => {
     mkdirSync(join(f.root, 'node_modules', 'better-sqlite3', 'build', 'Release'), { recursive: true })
     writeFileSync(nodeBinding, 'Node test binding')
     writeFileSync(f.source, 'Electron binding')
+    await prepareHelper(f.root)
     await install(f.context)
     expect(readFileSync(f.destination, 'utf8')).toBe('Electron binding')
     expect(readFileSync(nodeBinding, 'utf8')).toBe('Node test binding')
+  })
+  it('missing helper rejects before replacing the packaged SQLite binding', async () => {
+    const f = fixture()
+    writeFileSync(f.source, 'Electron binding')
+    await expect(install(f.context)).rejects.toThrow()
+    expect(readFileSync(f.destination, 'utf8')).toBe('node ABI')
   })
   it.each(['missing', 'empty'])('refuses %s cache without replacing the destination', async kind => {
     const f = fixture()

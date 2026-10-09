@@ -2,9 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { createConnection, createServer, type Socket } from 'node:net'
 import { expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
-import { WINDOWS_PIPE_SOURCE } from '../../../electron/assets/mcp/windowsPipeSource'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { publishDiagnosticHelper } from '../../../scripts/lib/assetsPipeDiagnostics.mjs'
 import { startWindowsPipeRelay, type PipeAudit } from '../../../electron/assets/mcp/windowsPipeRelay'
 import { probeEcho } from '../../../scripts/checkAssetsWindowsPipeStress.mjs'
+
+const WINDOWS_PIPE_SOURCE = readFileSync('native/assets-pipe-helper/AssetsNativePipe.cs', 'utf8')
+const artifact = { kind: 'development' as const, appRoot: process.cwd() }
 
 it.runIf(process.platform === 'win32')('原生交接在启动Relay前已创建并审计下一活实例', async () => {
   // Test-only observation guard. It never creates, reorders, waits for or retries an instance.
@@ -21,13 +26,13 @@ it.runIf(process.platform === 'win32')('原生交接在启动Relay前已创建�
   const server = createServer(socket => { sockets.add(socket); socket.on('error', () => {}); socket.once('close', () => sockets.delete(socket)); socket.pipe(socket) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const name = endpoint(), kinds: string[] = []
-  const script = '$ErrorActionPreference="Stop"; try { Add-Type -TypeDefinition $env:SRC; [Console]::WriteLine("COMPILED"); [AssetsNativePipe]::Run($env:ENDPOINT,[int]$env:PORT) } catch { exit 2 }; exit [Environment]::ExitCode'
-  const child = spawn('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+  const diagnostic = await publishDiagnosticHelper(source)
+  const child = spawn(diagnostic.executable, [], {
     windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', TEMP: process.env.TEMP, SRC: source, ENDPOINT: name, PORT: String((server.address() as { port: number }).port) }
+    env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, MIMIR_PIPE_ENDPOINT: name, MIMIR_PIPE_PORT: String((server.address() as { port: number }).port) }
   })
   child.stderr.resume(); child.stdin.on('error', () => {})
-  let compiled = false, buffer = '', echoError: unknown, exitCode: number | null = null
+  let buffer = '', echoError: unknown, exitCode: number | null = null
   const closed = new Promise<void>(resolve => child.once('close', code => { exitCode = code; resolve() }))
   try {
     await new Promise<void>((resolve, reject) => {
@@ -39,7 +44,6 @@ it.runIf(process.platform === 'win32')('原生交接在启动Relay前已创建�
         let end: number
         while ((end = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, end).trim(); buffer = buffer.slice(end + 1)
-          if (line === 'COMPILED') { compiled = true; continue }
           try {
             const message = JSON.parse(line)
             kinds.push(message.kind)
@@ -52,11 +56,11 @@ it.runIf(process.platform === 'win32')('原生交接在启动Relay前已创建�
   } finally {
     child.stdin.end()
     const kill = setTimeout(() => child.kill(), 5000)
-    await closed; clearTimeout(kill)
+    await closed; clearTimeout(kill); await diagnostic.cleanup()
     for (const socket of sockets) socket.destroy()
     await new Promise<void>(resolve => server.close(() => resolve()))
   }
-  expect(compiled).toBe(true)
+  expect(diagnostic.manifest.diagnosticOnly).toBe(true)
   expect(kinds).not.toContain('handoff-missing')
   expect(echoError).toBeUndefined()
   expect(exitCode).toBe(0)
@@ -70,7 +74,7 @@ it.runIf(process.platform === 'win32')('真实原生实例连续转发、每实�
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
   const audits: PipeAudit[] = []
   const name = endpoint()
-  const relay = await startWindowsPipeRelay({ endpoint: name, port: (server.address() as {port: number}).port, onAudit: a => audits.push(a) })
+  const relay = await startWindowsPipeRelay({ artifact, endpoint: name, port: (server.address() as {port: number}).port, onAudit: a => audits.push(a) })
   try {
     for (let i = 0; i < 3; i++) {
       const s = createConnection(name)
@@ -99,14 +103,14 @@ it.runIf(process.platform === 'win32')('真实原生实例连续转发、每实�
 })
 it('非法端点和端口在启动前拒绝', async () => {
   for (const args of [{ endpoint: 'bad', port: 12 }, { endpoint: endpoint(), port: 0 }, { endpoint: endpoint(), port: 1.5 }]) {
-    await expect(startWindowsPipeRelay(args)).rejects.toMatchObject({ code: 'BAD_ENDPOINT' })
+    await expect(startWindowsPipeRelay({ ...args, artifact })).rejects.toMatchObject({ code: 'BAD_ENDPOINT' })
   }
 })
 it.runIf(process.platform === 'win32')('同名占用失败且安全错误不泄漏；关闭已接客户端', async () => {
   const name = endpoint()
-  const first = await startWindowsPipeRelay({ endpoint: name, port: 12345 })
+  const first = await startWindowsPipeRelay({ artifact, endpoint: name, port: 12345 })
   try {
-    await expect(startWindowsPipeRelay({ endpoint: name, port: 12345 })).rejects.toMatchObject({ code: 'DISCONNECTED', message: '本机连接已关闭。' })
+    await expect(startWindowsPipeRelay({ artifact, endpoint: name, port: 12345 })).rejects.toMatchObject({ code: 'DISCONNECTED', message: '本机连接已关闭。' })
     const s = createConnection(name)
     s.on('error', () => {})
     await new Promise<void>(r => s.once('connect', r))
@@ -121,7 +125,7 @@ it.runIf(process.platform === 'win32')('并发超限最多16实例，退出不�
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
   const audits: PipeAudit[] = []
   const name = endpoint()
-  const relay = await startWindowsPipeRelay({ endpoint: name, port: (server.address() as {port:number}).port, onAudit: a => audits.push(a) })
+  const relay = await startWindowsPipeRelay({ artifact, endpoint: name, port: (server.address() as {port:number}).port, onAudit: a => audits.push(a) })
   const clients = Array.from({length: 24}, () => { const s = createConnection(name); s.on('error', () => {}); return s })
   try {
     await new Promise(r => setTimeout(r, 300))
@@ -143,7 +147,7 @@ it.runIf(process.platform === 'win32')('2MiB双向流背压保留全部字节，
   const server = createServer(s => { sockets.add(s); s.on('close', () => sockets.delete(s)); s.pipe(s) })
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
   const name = endpoint()
-  const relay = await startWindowsPipeRelay({endpoint:name, port:(server.address() as {port:number}).port})
+  const relay = await startWindowsPipeRelay({ artifact,endpoint:name, port:(server.address() as {port:number}).port})
   try {
     for (let i = 0; i < 2; i++) {
       const body = Buffer.alloc(2 * 1024 * 1024, i + 37)
@@ -162,7 +166,7 @@ it.runIf(process.platform === 'win32')('2MiB双向流背压保留全部字节，
 })
 for (const phase of ['spawn', 'ready'] as const) it.runIf(process.platform === 'win32')(`父进程在${phase}阶段死亡时控制EOF回收helper`, async () => {
   const name = endpoint()
-  const parent = spawn(process.execPath, ['test/fixtures/assetsPipeParent.cjs'], { env: { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', TEMP: process.env.TEMP, SRC: WINDOWS_PIPE_SOURCE, ENDPOINT: name }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  const parent = spawn(process.execPath, ['test/fixtures/assetsPipeParent.cjs'], { env: { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', TEMP: process.env.TEMP, ARTIFACT: join(process.cwd(), '.native/assets-pipe-helper/win-x64'), ENDPOINT: name }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
   parent.stderr.resume()
   let helper = 0
   await new Promise<void>((resolve, reject) => {

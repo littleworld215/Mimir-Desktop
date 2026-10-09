@@ -71,6 +71,11 @@ mac:
   gatekeeperAssess: false
 
 win:
+  extraResources:
+    - from: .native/assets-pipe-helper/win-x64
+      to: assets-pipe-helper/win-x64
+      filter:
+        - '**/*'
   target:
     - nsis
     - portable

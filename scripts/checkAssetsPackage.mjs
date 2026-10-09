@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dirname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { auditPackagedPipeHelper } from './lib/packageAssetsPipeHelper.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
@@ -41,5 +42,6 @@ function auditUnpacked(dir) {
     }
   }
 }
-auditUnpacked(unpacked)
-console.log(JSON.stringify({ result: 'PASS', entries: entries.length, electron: version, platform: process.platform, arch: process.arch, sqliteBindingSha256: hash(expected), nodeBindingSha256: nodeHash, projectRoots: [...new Set(entries.filter(entry => !entry.startsWith('node_modules/')).map(entry => entry.split('/')[0]))] }, null, 2))
+auditUnpacked(resources)
+const pipeHelper = await auditPackagedPipeHelper({ projectDir: root, resourcesDir: resources, platform: process.platform, arch: process.arch })
+console.log(JSON.stringify({ result: 'PASS', entries: entries.length, electron: version, platform: process.platform, arch: process.arch, pipeHelper, sqliteBindingSha256: hash(expected), nodeBindingSha256: nodeHash, projectRoots: [...new Set(entries.filter(entry => !entry.startsWith('node_modules/')).map(entry => entry.split('/')[0]))] }, null, 2))

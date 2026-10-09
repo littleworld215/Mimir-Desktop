@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, realpathSync, renameSync } from 'node:fs'
+import { dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -10,6 +10,25 @@ const packaged = process.env.MIMIR_MCP_PACKAGE_EXE
 const cli = packaged ? join(dirname(packaged), 'resources/app.asar/out/main/assetsMcpCli.js') : fileURLToPath(new URL('../../out/main/assetsMcpCli.js', import.meta.url))
 const command = packaged ?? process.execPath
 const cliEnv = { SystemRoot: process.env.SystemRoot!, WINDIR: process.env.WINDIR!, ComSpec: process.env.ComSpec!, ...(packaged ? {ELECTRON_RUN_AS_NODE: '1'} : {}) }
+
+if (packaged) test('自有测试目录包缺helper仍能默认打开桌面', async () => {
+  // Only mutate our generated dist artifact, never a user installation.
+  const directory = realpathSync(dirname(packaged))
+  const inside = relative(realpathSync(resolve('dist')), directory)
+  expect(!isAbsolute(inside) && inside !== '..' && !inside.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)).toBe(true)
+  const helper = join(directory, 'resources/assets-pipe-helper/win-x64/Mimir.AssetsPipeHelper.exe')
+  const held = `${helper}.missing-test`
+  expect(existsSync(held)).toBe(false)
+  renameSync(helper, held)
+  try {
+    const launched = await launchApp({ executablePath: packaged })
+    try {
+      expect(existsSync(helper)).toBe(false)
+      expect(await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => !window.isDestroyed()))).toBe(true)
+      expect(existsSync(join(launched.paths.userData, 'assets-mcp/session.json'))).toBe(false)
+    } finally { await launched.cleanup() }
+  } finally { renameSync(held, helper) }
+})
 test('桌面默认不开MCP；缺发现凭据的生产CLI拒绝，stderr不回显路径', async () => {
   const launched = await launchApp({ executablePath: packaged })
   const path = join(launched.paths.userData, 'assets-mcp/session.json')

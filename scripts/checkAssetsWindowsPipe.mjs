@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Probe ONLY the explicit build/package; no source fallback, real user store, or model.
 import assert from 'node:assert/strict'
+import { artifactLocationForRoot } from './lib/assetsPipeLocation.mjs'
 import { randomUUID } from 'node:crypto'
 import { createConnection, createServer } from 'node:net'
 import { resolve, join } from 'node:path'
@@ -53,7 +54,7 @@ async function remoteProbe() {
   } finally { child.kill(); await exited }
 }
 try {
-  relay = await startWindowsPipeRelay({endpoint, port: server.address().port, onAudit: a => audits.push(a)})
+  relay = await startWindowsPipeRelay({ artifact: artifactLocationForRoot(root),endpoint, port: server.address().port, onAudit: a => audits.push(a)})
   for (let i = 0; i < 3; i++) {
     const socket = await connect(endpoint)
     const body = Buffer.from(`逐字转发-${i}\r\n`)
@@ -70,7 +71,7 @@ try {
     assert.equal(audit.dacl.match(/\(A;/g)?.length, 1)
     assert(audit.dacl.includes(`;;;${audit.ownerSid})`))
   }
-  await assert.rejects(startWindowsPipeRelay({endpoint, port: server.address().port}))
+  await assert.rejects(startWindowsPipeRelay({ artifact: artifactLocationForRoot(root),endpoint, port: server.address().port}))
   const remote = await remoteProbe()
   await relay.close()
   assert.deepEqual(await relay.closed, {expected: true})

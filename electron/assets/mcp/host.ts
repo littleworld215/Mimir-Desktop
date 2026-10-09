@@ -8,6 +8,7 @@ import { localEndpoint } from './localTransport'
 import { prepareDiscoveryDirectory, publishDiscovery } from './discovery'
 import { getAiDraft } from '../aiDraftService'
 import { getAsset } from '../assetService'
+import type { PipeArtifactLocation } from './windowsPipeArtifact'
 
 /** 采纳不能只显示草稿ID；本机不可变草稿正文与承载方式须一并显示。 */
 export async function externalApprovalPreview(request: BrokerRequest, context: (scope: WorkspaceRequest) => Promise<AssetsContext>): Promise<Record<string, unknown>> {
@@ -23,8 +24,12 @@ export async function startAssetsMcpHost(options: {
   currentScope: () => WorkspaceRequest
   context: (scope: WorkspaceRequest) => Promise<AssetsContext>
   approve: (request: BrokerRequest) => Promise<boolean>
+  pipeArtifact?: PipeArtifactLocation
+  signal?: AbortSignal
 }): Promise<{ discoveryPath: string; close(): Promise<void> }> {
+  options.signal?.throwIfAborted()
   const directory = await prepareDiscoveryDirectory(options.userData)
+  options.signal?.throwIfAborted()
   const endpoint = localEndpoint(directory)
   const brokerOptions = { currentScope: options.currentScope, dispatch: (request: BrokerRequest) => dispatchAssetTool(request, options.context), approve: options.approve }
   const broker = process.platform === 'win32'
@@ -35,17 +40,23 @@ export async function startAssetsMcpHost(options: {
   let closing: Promise<void> | undefined, ended = false
   const close = () => closing ??= (async () => {
     ended = true
+    options.signal?.removeEventListener('abort', onAbort)
     // Stop requests/approval before helper shutdown and the main writer drain.
     try { await broker.close() } finally {
       try { await relay?.close() } finally { await discovery?.close() }
     }
   })()
+  const onAbort = () => { ended = true; void close().catch(() => {}) }
+  options.signal?.addEventListener('abort', onAbort, { once: true })
   try {
+    options.signal?.throwIfAborted()
     if (process.platform === 'win32') {
-      relay = await startWindowsPipeRelay({ endpoint, port: (broker as {port:number}).port })
+      if (!options.pipeArtifact) throw new Error('MCP relay unavailable')
+      relay = await startWindowsPipeRelay({ endpoint, port: (broker as {port:number}).port, artifact: options.pipeArtifact, signal: options.signal })
       // No await inside closed notification: avoid circular close/closed dependencies.
       void relay.closed.then(() => { ended = true; void close().catch(() => {}) })
     }
+    if (ended) { await relay?.close(); throw new Error('MCP relay unavailable') }
     discovery = await publishDiscovery(options.userData, { endpoint, token: broker.token })
     // Exit may race the asynchronous publication; clean the newly published file too.
     if (ended) { await discovery.close(); throw new Error('MCP relay unavailable') }

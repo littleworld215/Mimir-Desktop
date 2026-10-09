@@ -1,5 +1,4 @@
-/** 固定受信源码随bundle分发；仅转发字节，不读取资产、发现文件或模型配置。 */
-export const WINDOWS_PIPE_SOURCE = String.raw`
+
 using System;
 using System.IO;
 using System.IO.Pipes;
@@ -108,4 +107,3 @@ public static class AssetsNativePipe {
     catch { Emit("{\"kind\":\"failed\"}"); Environment.ExitCode = 1; }
   }
 }
-`

@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-09：Windows MCP辅助进程已改为随应用分发的.NET10自包含exe，运行不再依赖系统PowerShell/.NET Framework。完整测试1132通过/9既有跳过、三闸门通过；开发7/7、目录包组合6/6回归及包审计通过。预定开发/包内四轮120+120秒压力全部通过，句柄增长+10/+4/+21/+7，阈值仍为+32/+64MiB。默认MCP仍关闭；跨机器、真实原生操作/模型及独立运行QA仍待，I5尚未整体验收。下列2026-10-08为旧宿主历史。完整边界见[自包含管道记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-self-contained-pipe-20261009.md)。
+
 原生交接修复（2026-10-08）：实际原生回归先在旧顺序失败，再在新顺序通过。生产现在先创建、审计并保留下一个实例，再启动当前转发，仍最多15个转发加1个待连接实例。完整测试1101通过、9既有跳过；资源增长尚须独立定位，I5未验收。详情见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-handoff-20261008.md)，以下压力结果为修复前历史。
 
 修复后新目录包26044项审计及开发/包内原生探针通过；120秒预热＋120秒测量的开发/包内连接3224/3232，字节校验正确，但句柄+59/+82均超+32，资源压力仍失败。交接顺序通过不代表资源修复；I5仍未验收。
@@ -162,7 +164,9 @@ I0–I4已完成Windows阶段验证，I5已接通草稿、模型动作/标签建
 
 **外部MCP仍是开发预览，尚不发布生产客户端配置。** Windows发现文件ACL、管道原生远程拒绝/每实例DACL、本机UNC通路及新目录包审计/闭环已实际验证。跨机器SMB、真实原生点击、48KB可读性及阶段终验仍待；I5整体未验收。自动测试对原生按钮使用返回值替身，不冒充用户验收。源码开发检查入口为 `pnpm typecheck`、`pnpm test`、`pnpm build`；真实桌面连接回归为构建后 `pnpm exec playwright test e2e/specs/30-assets-mcp-host.spec.ts --retries=0`，仅使用临时数据。
 
-Windows启用该预览时，桌面按需启动一个隐藏的当前用户辅助进程，依赖系统Windows PowerShell和.NET Framework。每个管道实例在创建时设置远程拒绝和当前用户权限，转发至仅监听127.0.0.1临时端口的broker；内部端口仍须认证，不替代单次批准或空间校验。辅助进程不读取资产或模型配置，但会接触转发中的认证字节。系统策略禁止编译或权限初始化失败时，该入口关闭，桌面其他功能可继续使用；不会自动修改系统策略。
+Windows x64启用该预览时，桌面按需启动包内隐藏的当前用户辅助进程（.NET10.0.12自包含）。固定位置的完整清单和文件哈希校验通过才启动；缺件或权限初始化失败时，仅该入口关闭，桌面其他功能可继续使用，不回退PowerShell。每个管道实例设置远程拒绝和当前用户权限，转发至仅监听127.0.0.1临时端口的broker；内部端口仍须认证，不替代单次批准或空间校验。辅助进程不读取资产或模型配置，但会接触转发中的认证字节。其它Windows架构尚未支持此预览；macOS/Linux沿用Unix传输。
+
+源码开发若需运行Windows MCP或全量原生测试，先按[开发说明](DEVELOPMENT.md#自包含管道辅助程序开发准备)准备固定.NET SDK，再执行 `pnpm assets:pipe:prepare` 与 `pnpm assets:pipe:check`。普通安装包运行不需要SDK；`pnpm build`只构建应用代码，Windows完整打包使用 `pnpm build:win`。
 
 开发者可在Windows完成构建后运行[原生管道探针](scripts/checkAssetsWindowsPipe.mjs)：
 

@@ -19,6 +19,8 @@ module.exports = async function packageAssetsNative(context) {
   // The packager must already have collected this production dependency.
   const output = await stat(destination).catch(() => null)
   if (!output?.isFile()) throw new Error(`Packaged better-sqlite3 binding not found: ${destination}`)
+  const { auditPackagedPipeHelper } = await import('./lib/packageAssetsPipeHelper.mjs')
+  await auditPackagedPipeHelper({ projectDir: context.packager.projectDir, resourcesDir: context.packager.getResourcesDir(context.appOutDir), platform, arch })
   await copyFile(source, destination)
   console.log(`[assets-native] Packaged Electron ${version} ${platform}-${arch} binding`)
 }

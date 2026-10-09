@@ -68,3 +68,7 @@ TaskFlowDocs/
 
 # 本机测试临时目录（仅忽略产物；不是运行或验证前提）
 mimirvitesttmp/
+
+# Self-contained helper build intermediates
+native/**/obj/
+native/**/bin/

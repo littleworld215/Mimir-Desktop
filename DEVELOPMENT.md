@@ -1,5 +1,34 @@
 # 开发文档（DEVELOPMENT）
 
+## 自包含管道辅助程序开发准备
+
+本轮三闸门1132通过/9既有跳过、开发7/7、新目录包组合6/6、ASAR26044项及包外helper193文件审计通过；固定四轮资源句柄+10/+4/+21/+7，均低于+32，私有内存增量均低于+64MiB。完整数值与适用窗口见实施记录；真实使用及I5终验仍待。
+
+2026-10-09：生产管道改用固定位置、自包含win-x64辅助程序；旧宿主的调查记录保留在下文，不能冒充新宿主验证。当前完整证据见[实施记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-self-contained-pipe-20261009.md)。不新增IPC、数据库结构或模型调用，外部MCP默认关闭，I5尚未终验。
+
+Windows开发环境为Node22.22.2、pnpm9.15.9。固定SDK版本见 `native/assets-pipe-helper/global.json`，当前10.0.401；RuntimeFrameworkVersion为10.0.12。仅Windows原生测试/辅助程序发布需要SDK，macOS/Linux不引入此依赖。
+
+1. 从[微软.NET10发行元数据](https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json)选择**与global.json完全一致**的win-x64 SDK zip。核对元数据中的SHA512后，解压到 `$env:LOCALAPPDATA\MimirBuildTools\dotnet\10.0.401`，确保其中有dotnet.exe。不要自动追随最新补丁，也不需要修改系统PATH或卸载系统.NET。
+2. 本次实机SDK zip为300608304字节，SHA512为 `24b670ad3d923bfcf47df6c3b034152398b42f6dbc388e10d783aee1cfb5e5817d399fc0ae2a12cfa822a55e61d34830ccb15c50ef6efee437ab874bb7c79430`。未来升级必须同步项目锁、运行时、许可证和重新验证。
+3. 执行以下命令。首次publish须联网恢复微软运行时包；构建缓存位于本机MimirBuildTools，不进入Git或科研空间。
+
+```powershell
+pnpm assets:pipe:prepare
+pnpm assets:pipe:check
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm assets:native
+pnpm exec electron-builder --win --x64 --dir --publish never
+node scripts/checkAssetsPackage.mjs dist/win-unpacked/resources
+```
+
+输出 `.native/assets-pipe-helper/win-x64/` 含exe、运行时、许可证与完整manifest；发布失败先撤销旧manifest，不能沿用旧产物。清单使用64KiB读取块，拒绝路径逃逸、缺件、多件、错误架构和超限文件；它是完整性检查，不是数字签名。开发启动从该固定目录取用；安装包从 `resources/assets-pipe-helper/win-x64/` 取用。afterPack同样检查当前源码指纹与包外全部文件，直接调用builder也不能跳过。发布目录和SDK缓存均不提交。
+
+隔离诊断从唯一 `AssetsNativePipe.cs`生成独立临时项目并用同一SDK发布。diagnosticOnly清单仅在复制的诊断wrapper中放行，生产及打包均拒绝；诊断运行结果不能替代未插桩开发/包内正式压力验收。资源测量脚本使用PowerShell读取进程计数，属于开发仪器，产品辅助程序不依赖它。
+
+
+
 ## 原生实例交接（2026-10-08）
 
 修复后正式120秒预热＋120秒测量：开发/新包3224/3232连接字节正确，但句柄+59/+82均超过+32，exit1；未改阈值或反复重跑。新包审计26044项、开发/包内原生探针exit0；资源主题保持待解决，不将常规三闸门通过写成压力通过。

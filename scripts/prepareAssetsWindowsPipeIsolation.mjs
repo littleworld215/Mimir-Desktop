@@ -4,6 +4,10 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, copyFileSync, realpathSync } from 'node:fs'
 import { resolve, join, relative, isAbsolute, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { publishDiagnosticHelper } from './lib/assetsPipeDiagnostics.mjs'
+import { pipeSourceHash, verifyPipeArtifact } from './lib/assetsPipeArtifact.mjs'
+import { projectDir, outputDir } from './prepareAssetsPipeHelper.mjs'
+import { artifactLocationForRoot } from './lib/assetsPipeLocation.mjs'
 
 function replaceOnce(text, from, to) {
   assert.equal(text.split(from).length, 2, 'BUNDLE_MARKER')
@@ -46,7 +50,7 @@ const eventsSource = `
   static void DiagnosticDump() { lock(gate) { foreach(var line in diagnosticEvents) Emit(line); } }
 `
 
-export function instrumentRelayBundle(original, mode, { events = false } = {}) {
+export function instrumentPipeSource(original, mode, { events = false } = {}) {
   assert(['baseline', 'pipe-only', 'connect-only'].includes(mode), 'BAD_MODE')
   assert(!original.includes('  static void Snapshot()') && !original.includes('line.startsWith("DIAG ")'), 'ALREADY_DIAGNOSTIC')
   let code = replaceOnce(original, '  static async Task RunAsync(string endpoint, int port) {', snapshot + '\n  static async Task RunAsync(string endpoint, int port) {')
@@ -62,10 +66,7 @@ export function instrumentRelayBundle(original, mode, { events = false } = {}) {
   code = replaceOnce(code, '          try { await pipe.WaitForConnectionAsync(stop.Token); }', '          diagnosticStage = 3;\n          try { await pipe.WaitForConnectionAsync(stop.Token); }')
   code = replaceOnce(code, '          var task = Relay(pipe, port, stop.Token);', '          diagnosticStage = 4;\n          var task = Relay(pipe, port, stop.Token);')
   code = replaceOnce(code, '    catch { Emit("{\\"kind\\":\\"failed\\"}"); Environment.ExitCode = 1; }', '    catch (Exception error) { Emit("DIAG exception="+error.GetType().Name+" hresult="+error.HResult+" stage="+diagnosticStage+" ordinal="+diagnosticOrdinal); Emit("{\\"kind\\":\\"failed\\"}"); Environment.ExitCode = 1; }')
-  code = replaceOnce(code, '  const fail = () => {', '  const fail = () => {\n    process.stderr.write("DIAG wrapperFail ordinal=" + ordinal + " ready=" + Number(ready) + " expected=" + Number(expected) + " bufferedBytes=" + Buffer.byteLength(buffer) + "\\n");')
-  code = replaceOnce(code, '  child.on("close", onClosed);', '  child.on("close", (code, signal) => {\n    process.stderr.write("DIAG childClose code=" + (Number.isInteger(code) ? code : "null") + " signaled=" + Number(Boolean(signal)) + " ordinal=" + ordinal + " expected=" + Number(expected) + "\\n");\n    onClosed();\n  });')
   code = replaceOnce(code, 'using (var slots = new SemaphoreSlim(15, 15)) {', 'using (var slots = new SemaphoreSlim(15, 15))\n    using (var monitor = new System.Threading.Timer(_ => Snapshot(), null, 5000, 5000)) {')
-  code = replaceOnce(code, '      try {\n        const message = JSON.parse(line);', '      if (line.startsWith("DIAG ")) { process.stderr.write(line + "\\n"); continue; }\n      try {\n        const message = JSON.parse(line);')
   if (mode !== 'baseline') {
     const startMarker = '  static async Task Relay('
     assert.equal(code.split(startMarker).length, 2, 'BUNDLE_MARKER')
@@ -105,28 +106,51 @@ export function assertOutsideApp(root, parent) {
   assert(pathInside === '..' || pathInside.startsWith('..' + sep) || isAbsolute(pathInside), 'OUTPUT_INSIDE_APP')
 }
 
-function main() {
+export function instrumentRelayBundle(original) {
+  assert(!original.includes('WINDOWS_PIPE_SOURCE') && !original.includes('String.raw'), 'LEGACY_BUNDLE_UNSUPPORTED')
+  assert(!original.includes('line.startsWith("DIAG ")'), 'ALREADY_DIAGNOSTIC')
+  let code = replaceOnce(original, '  const fail = () => {', '  const fail = () => {\n    process.stderr.write("DIAG wrapperFail ordinal=" + ordinal + " ready=" + Number(ready) + " expected=" + Number(expected) + "\\n");')
+  code = replaceOnce(code, '  child.on("close", onClosed);', '  child.on("close", (code, signal) => {\n    process.stderr.write("DIAG childClose code=" + (Number.isInteger(code) ? code : "null") + " signaled=" + Number(Boolean(signal)) + " ordinal=" + ordinal + " expected=" + Number(expected) + "\\n");\n    onClosed();\n  });')
+  code = replaceOnce(code, '      try {\n        const message = JSON.parse(line);', '      if (line.startsWith("DIAG ")) { process.stderr.write(line + "\\n"); continue; }\n      try {\n        const message = JSON.parse(line);')
+  return replaceOnce(code, 'return verifyPipeArtifact(directory, { rid: "win-x64" }, signal);', 'return verifyPipeArtifact(directory, { rid: "win-x64", diagnosticOnly: true }, signal);')
+}
+
+async function main() {
   assert.equal(process.platform, 'win32', 'WINDOWS_ONLY')
   assert(process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === '--events'), 'USAGE: appRoot existingOutputParent [--events]')
   const events = process.argv[4] === '--events'
   const root = resolve(process.argv[2]), parent = resolve(process.argv[3])
   assertOutsideApp(root, parent)
+  const location = artifactLocationForRoot(root)
+  const artifact = location.kind === 'packaged' ? join(location.resourcesPath, 'assets-pipe-helper/win-x64') : join(root, '.native/assets-pipe-helper/win-x64')
+  const sourceHash = await pipeSourceHash(projectDir)
+  await verifyPipeArtifact(artifact, { rid: 'win-x64', sourceHash })
   const original = readFileSync(join(root, 'out/main/assetsWindowsPipe.js'), 'utf8')
-  const dependencies = [...original.matchAll(/from "(\.\/localTransport-[\w-]+\.js)"/g)].map(match => match[1].slice(2))
-  assert.equal(dependencies.length, 1, 'BUNDLE_DEPENDENCY')
-  // Resolve all transformations before creating a directory, and never overwrite an existing app.
-  const variants = ['baseline', 'pipe-only', 'connect-only'].map(mode => ({ mode, code: instrumentRelayBundle(original, mode, { events }) }))
-  const destination = mkdtempSync(join(parent, 'mimir-pipe-isolation-'))
-  for (const { mode, code } of variants) {
-    const app = join(destination, mode), output = join(app, 'out/main')
+  const wrapper = instrumentRelayBundle(original)
+  const source = readFileSync(join(projectDir, 'AssetsNativePipe.cs'), 'utf8')
+  for (const mode of ['baseline', 'pipe-only', 'connect-only']) {
+    const diagnostic = await publishDiagnosticHelper(instrumentPipeSource(source, mode, { events }), { expectedSourceHash: sourceHash, outputParent: parent })
+    const output = join(diagnostic.appRoot, 'out/main')
     mkdirSync(output, { recursive: true })
-    writeFileSync(join(app, 'package.json'), '{"type":"module"}\n')
-    for (const dependency of dependencies) copyFileSync(join(root, 'out/main', dependency), join(output, dependency))
-    writeFileSync(join(output, 'assetsWindowsPipe.js'), code)
-    console.log(JSON.stringify({ diagnosticOnly: true, mode, events, appRoot: app }))
+    // Copy only the explicitly imported local chunks, never the entire main tree.
+    const copied = new Set()
+    function copyDependencies(code) {
+      for (const match of code.matchAll(/from ["'](\.\/[\w-]+\.js)["']/g)) {
+        const name = match[1].slice(2)
+        if (copied.has(name)) continue
+        copied.add(name)
+        const dependency = readFileSync(join(root, 'out/main', name), 'utf8')
+        copyFileSync(join(root, 'out/main', name), join(output, name))
+        copyDependencies(dependency)
+      }
+    }
+    copyDependencies(original)
+    writeFileSync(join(diagnostic.appRoot, 'package.json'), '{"type":"module"}\n')
+    writeFileSync(join(output, 'assetsWindowsPipe.js'), wrapper)
+    console.log(JSON.stringify({ diagnosticOnly: true, mode, events, appRoot: diagnostic.appRoot, sourceHash, helperSourceHash: diagnostic.manifest.sourceHash }))
   }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { main() } catch (error) { console.error(error.message); process.exitCode = 1 }
+  try { await main() } catch (error) { console.error(error.message); process.exitCode = 1 }
 }
