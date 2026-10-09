@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": { "composite": false, "lib": ["ES2022", "DOM"], "jsx": "react-jsx", "baseUrl": ".", "paths": { "@/*": ["src/renderer/*"] } },
+  "include": ["playwright.manual.config.ts", "e2e/manual/**/*.ts", "e2e/specs/31-assets-manual-dialogs.spec.ts", "src/renderer/env.d.ts"]
+}

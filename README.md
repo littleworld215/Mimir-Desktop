@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-09 人工验收入口：新增显式 Windows 原生批准流程，临时空间与合成资料、真实按钮、精确48,000/48,001字节边界及分次结果。运行见[操作说明](e2e/manual/README.md)；当前只验证入口工具，真人操作/长文阅读仍待，I5未终验。
+
 2026-10-09：Windows MCP辅助进程已改为随应用分发的.NET10自包含exe，运行不再依赖系统PowerShell/.NET Framework。完整测试1132通过/9既有跳过、三闸门通过；开发7/7、目录包组合6/6回归及包审计通过。预定开发/包内四轮120+120秒压力全部通过，句柄增长+10/+4/+21/+7，阈值仍为+32/+64MiB。默认MCP仍关闭；跨机器、真实原生操作/模型及独立运行QA仍待，I5尚未整体验收。下列2026-10-08为旧宿主历史。完整边界见[自包含管道记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-self-contained-pipe-20261009.md)。
 
 原生交接修复（2026-10-08）：实际原生回归先在旧顺序失败，再在新顺序通过。生产现在先创建、审计并保留下一个实例，再启动当前转发，仍最多15个转发加1个待连接实例。完整测试1101通过、9既有跳过；资源增长尚须独立定位，I5未验收。详情见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-handoff-20261008.md)，以下压力结果为修复前历史。

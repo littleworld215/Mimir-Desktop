@@ -33,6 +33,8 @@ export const repoRoot = join(__dirname, '..', '..')
 export const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 
 export interface LaunchOptions {
+  /** 仅显式人工验收保留真实确认框；默认自动测试继续固定拒绝。 */
+  nativeMessageBoxes?: boolean
   /** Explicit packaged executable; no development main entry is passed. */
   executablePath?: string
   /** 预置数据；不传则用 defaultSeed()（1 个科研空间 + 空设置，可绕过首启动向导） */
@@ -159,10 +161,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
         dialog.showOpenDialogSync = () => payload.openPaths
         dialog.showSaveDialog = async () => ({ canceled: false, filePath: payload.savePath })
         dialog.showSaveDialogSync = () => payload.savePath
-        dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
-        dialog.showMessageBoxSync = () => 0
+        if (!payload.nativeMessageBoxes) {
+          dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
+          dialog.showMessageBoxSync = () => 0
+        }
       },
-      { openPaths, savePath }
+      { openPaths, savePath, nativeMessageBoxes: options.nativeMessageBoxes === true }
     )
 
     const page = firstWindow

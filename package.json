@@ -31,6 +31,8 @@
     "test:model-discovery": "node --experimental-strip-types --no-warnings electron/modelDiscovery.test.ts",
     "assets:pipe:prepare": "node scripts/prepareAssetsPipeHelper.mjs",
     "assets:pipe:check": "node scripts/checkAssetsPipeHelper.mjs",
+    "assets:manual:approval": "playwright test -c playwright.manual.config.ts",
+    "assets:manual:typecheck": "tsc --noEmit -p tsconfig.manual.json",
     "assets:native": "node scripts/prepareAssetsNative.mjs",
     "assets:native:check": "node scripts/checkAssetsNative.mjs",
     "start": "electron-vite preview"

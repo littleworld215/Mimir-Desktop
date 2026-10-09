@@ -1,5 +1,7 @@
 # 贡献指南
 
+人工 Windows 批准入口见[操作说明](e2e/manual/README.md)。改动入口须追加 `pnpm assets:manual:typecheck`，保留普通自动测试默认拒绝；未设置显式开关应启动前失败。不得把脚本断言通过登记为真人阅读验收。
+
 ## Windows MCP贡献前准备
 
 Windows x64全量测试包含真实原生管道执行，不能用缺SDK/缺helper跳过它。先按[辅助程序开发准备](DEVELOPMENT.md#自包含管道辅助程序开发准备)安装锁定SDK、运行 `pnpm assets:pipe:prepare`，再运行三闸门。源码改动后须重新发布；Windows打包还必须检查包外helper完整清单和运行时许可证。macOS/Linux不需要.NET SDK。
