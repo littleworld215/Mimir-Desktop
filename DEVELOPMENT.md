@@ -2,6 +2,8 @@
 
 ## 显式人工原生验收
 
+人工入口可选 `MIMIR_MANUAL_STEPWISE=1`，每步新UUID控制文件、报告阶段和有界等待，具体发布方法见[单步模式](e2e/manual/README.md#单步模式)。仅延后发起请求，不自动批准或改变原生两分钟预算；控制文件须同目录暂存后原子改名。默认连续模式兼容。
+
 构建后按[七步入口说明](e2e/manual/README.md)运行 `pnpm assets:manual:approval`，需显式 `MIMIR_MANUAL_APPROVAL=1`。追加 `pnpm assets:manual:typecheck`；`--list`只核对发现，不弹窗。普通自动测试不收录人工目录。真实确认API保留，报告失败仍清理；人工键盘/可读性不能由响应代证。
 
 ## 自包含管道辅助程序开发准备

@@ -1,19 +1,31 @@
 import { existsSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test, expect } from '@playwright/test'
+import { test as base, expect } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { launchApp } from '../fixtures/launch'
 import { finishManualApproval, fitManualApprovalBody, manualApprovalBody, MANUAL_MARKERS } from '../helpers/manualApprovalPlan'
+import { waitForManualStep } from '../helpers/manualStepGate'
 
 interface Observation { bytes: number; markers: boolean[]; response?: number }
 interface NativeState { manualApprovalEvents: Observation[] }
 
-test('真实 Windows 原生批准：人工按钮操作与长文阅读（合成资料）', async ({}, info) => {
+const test = base.extend<{ manualSignal: AbortSignal }>({
+  manualSignal: async ({}, use) => {
+    const controller = new AbortController()
+    try { await use(controller.signal) } finally { controller.abort() }
+  }
+})
+
+test('真实 Windows 原生批准：人工按钮操作与长文阅读（合成资料）', async ({ manualSignal }, info) => {
   const observations: Observation[] = []
   const cases: { action: string; response: number | undefined; total: number; bytes?: number }[] = []
-  const report = { status: 'running', humanActionAttested: false, readability: 'pending-user-report', cases, observations, temporaryHomeRemoved: false, discoveryRemoved: false }
+  const stepwise = process.env.MIMIR_MANUAL_STEPWISE === '1'
+  const report: { status: string; phase: string; mode: string; pendingStep?: { number: number; action: string; controlFile: string }; humanActionAttested: boolean; readability: string; cases: typeof cases; observations: typeof observations; temporaryHomeRemoved: boolean; discoveryRemoved: boolean } = {
+    status: 'running', phase: 'starting', mode: stepwise ? 'stepwise' : 'continuous', humanActionAttested: false, readability: 'pending-user-report', cases, observations, temporaryHomeRemoved: false, discoveryRemoved: false
+  }
   const save = () => writeFileSync(info.outputPath('manual-result.json'), JSON.stringify(report, null, 2))
   const packaged = process.env.MIMIR_E2E_PACKAGED
   const launched = await launchApp({ nativeMessageBoxes: true, extraArgs: ['--assets-mcp'], executablePath: packaged })
@@ -54,9 +66,20 @@ test('真实 Windows 原生批准：人工按钮操作与长文阅读（合成�
     let baseline = 0
     const actions = ['按 Enter（默认拒绝）', '按 Esc（拒绝）', '点击“拒绝”', '点击“允许这一次”', '再次相同请求，点击“拒绝”', '检查长文三个标记、中文与长行均可读，随后点击“拒绝”', '超过上限：应无弹窗']
     for (let i = 0; i < actions.length; i++) {
+      if (stepwise) {
+        // Fresh per-step path prevents pre-issued future controls from silently skipping a pause.
+        const controlFile = info.outputPath(`continue-${i + 1}-${randomUUID()}.txt`)
+        report.phase = 'awaiting-step-start'
+        report.pendingStep = { number: i + 1, action: actions[i], controlFile }
+        save()
+        console.log(`\n暂停：准备第${i + 1}步 ${actions[i]}。仅在 ${controlFile} 写入 ${i + 1} 才开始请求，不代表批准。`)
+        await waitForManualStep(controlFile, i + 1, { signal: manualSignal })
+      }
+      report.phase = 'awaiting-native-response'
+      save()
       console.log(`\n人工步骤 ${i + 1}/7：${actions[i]}。单次批准最多两分钟，不延长产品时限。`)
       const content = i >= 5 ? fitManualApprovalBody(baseline, i === 5 ? 48_000 : 48_001) : manualApprovalBody()
-      const result = await client.callTool({ name: 'create_asset', arguments: { name: '人工合成资料', categoryCode: 'inbox', content, confirm: true } }, undefined, { timeout: 125_000 })
+      const result = await client.callTool({ name: 'create_asset', arguments: { name: '人工合成资料', categoryCode: 'inbox', content, confirm: true } }, undefined, { timeout: 125_000, signal: manualSignal })
       const current = await launched.app.evaluate(() => (globalThis as unknown as NativeState).manualApprovalEvents)
       observations.splice(0, observations.length, ...current)
       const event = i === 6 ? undefined : current[current.length - 1]
@@ -78,8 +101,12 @@ test('真实 Windows 原生批准：人工按钮操作与长文阅读（合成�
         expect(result.structuredContent).toMatchObject({ error: { code: 'APPROVAL_DENIED' } })
       }
       expect(cases[i].total).toBe(i < 3 ? 0 : 1)
+      report.phase = 'step-completed'
+      report.pendingStep = undefined
+      save()
     }
     report.status = 'objective-checks-passed-human-report-pending'
+    report.phase = 'completed'
   } catch (error) {
     report.status = 'failed-or-interrupted'
     originalError = error

@@ -11,15 +11,33 @@ pnpm assets:manual:typecheck
 pnpm build
 $env:MIMIR_MANUAL_APPROVAL = '1'
 pnpm assets:manual:approval --list   # 只列出测试，不启动应用
-pnpm assets:manual:approval         # 启动真实窗口，准备人工操作
+$env:MIMIR_MANUAL_STEPWISE = '1'     # 推荐：每步暂停，避免同样弹窗连续出现
+pnpm assets:manual:approval         # 等待开始指令后才打开当前真实弹窗
 Remove-Item Env:MIMIR_MANUAL_APPROVAL
+Remove-Item Env:MIMIR_MANUAL_STEPWISE
 ```
 
 可选设置 `$env:MIMIR_E2E_PACKAGED` 为自己构建且已检查的 Windows 目录包 `Mimir.exe` 绝对路径，使用包内 CLI/helper，不修改已安装程序。未设置时使用本仓库构建产物。
 
+## 单步模式
+
+设置 `MIMIR_MANUAL_STEPWISE=1` 时，每次请求前先暂停。`manual-result.json` 的 `phase: awaiting-step-start` 和 `pendingStep` 给出当前序号、动作及本轮唯一 `controlFile`。说明当前动作后，才向该文件发布当前序号；每步使用新文件名，不提前准备未来步骤。发起请求后 `phase` 为 `awaiting-native-response`；用户完成操作、检查通过才转入下一次暂停。未设置此选项时保留原连续模式。
+
+由Codex陪同验收时，Codex只发布“开始当前测试请求”的指令，用户操作真实按钮；这个文件不授予资产写入权限。独立验收者可在第二个PowerShell终端按报告发布当前序号：
+
+```powershell
+$report = Get-Content -LiteralPath '<当前用例目录>/manual-result.json' -Raw | ConvertFrom-Json
+if ($report.phase -ne 'awaiting-step-start') { throw '当前未等待开始步骤' }
+$pendingFile = $report.pendingStep.controlFile + '.pending'
+Set-Content -LiteralPath $pendingFile -Value $report.pendingStep.number -Encoding utf8 -NoNewline
+Move-Item -LiteralPath $pendingFile -Destination $report.pendingStep.controlFile
+```
+
+先写同目录临时文件再改名，避免读取到半写的空文件；不直接逐字写控制文件。只处理本次测试目录中的文件。错误步骤/指令或文件错误立即失败；每次开始指令等待最多两分钟，取消不继续。此等待发生在请求前，不延长产品单次批准两分钟预算。单步整场上限三十分钟，覆盖最多七次开始等待、六次原生确认及收尾；连续模式仍十五分钟。整场退出会取消步骤等待，超时/失败保留报告与未消费指令，不重放请求。
+
 ## 七步操作
 
-保持终端可见，逐项按提示操作，不编辑资料或切换空间。每个批准请求保留产品两分钟时限；十五分钟测试总时限不会延长单次批准。
+保持终端可见，逐项按提示操作，不编辑资料或切换空间。每个批准请求保留产品两分钟时限；单步三十分钟/连续十五分钟整场上限都不会延长单次批准。
 
 1. 按 Enter，确认默认拒绝。
 2. 按 Esc，确认拒绝。
