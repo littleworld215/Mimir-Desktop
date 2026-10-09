@@ -1,5 +1,7 @@
 # 路线图
 
+2026-10-09 I6批准整科研空间离线备份与新空间恢复，[六批实施](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I6.md)已开始底层原语，未接入维护启动/UI或打包恢复，第一批及I6未完成；下文“下一主题先设计”为旧轮快照。安装版未更新，I5待验不因I6推进而完成。
+
 2026-10-09 当前资产优化：搜索字符边界和快速取用旧结果竞态已修复，完整验证见来源[专项记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-search-interaction-20261009.md)。下一主题是I6完整备份/恢复设计，随后分类/标签、布局与性能按[优化跟踪](https://github.com/littleworld215/research-asset-library/blob/main/docs/ASSETS-OPTIMIZATION.md)推进。I5仍待跨机器/真实模型及其余真人场景；下方旧宿主资源失败为历史，D-070四轮正式资源窗口已通过。
 
 > 修复后正式压力：开发/新包3224/3232连接字节正确，句柄+59/+82仍超+32、exit1；两helper已退出。新包26044项审计、开发/包内原生探针exit0；下一步独立定位资源分配/回收，保持外部MCP默认关闭与I5未验收。

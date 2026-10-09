@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+I6整科研空间离线备份/新空间恢复已开始底层实施，尚未接入桌面入口或实现打包恢复，不能作为已实现用户功能。安装版未更新，I5待验不变；[批准计划与当前进度](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I6.md)明确区分实施、静态复核及真实验收。
+
 2026-10-09 资产管理首批优化：搜索按去首尾空白后的 200 Unicode 码点校验，超限输入保留并提示，不截断 emoji。快速取用输入后立即 Enter 会等待匹配查询，查询失败、继续输入、切换范围或输入法组合开始后不打开旧详情。源码已更新，已有安装版尚未替换；I6完整备份/恢复与I7界面优化仍未实现。完整状态与证据见[优化跟踪](https://github.com/littleworld215/research-asset-library/blob/main/docs/ASSETS-OPTIMIZATION.md)。
 
 人工入口新增可选单步模式（`MIMIR_MANUAL_STEPWISE=1`）：每次说明当前动作后才开始一个请求，保留连续模式和真实批准规则。见[操作说明](e2e/manual/README.md)；步骤开始文件不代表授权，真人验收仍须另行记录。

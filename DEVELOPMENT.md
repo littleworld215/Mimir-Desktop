@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+## I6维护底层（2026-10-09，尚未启用）
+
+`electron/workspaceBackup/`新增闸门、写锁会话、失败交接、卷检查和路径校验，配套63项专项。尚未接入main/空间store/后台任务，不能作为现有写者保护或备份恢复功能。会话构造强制本机策略，Windows适配器使用系统PowerShell固定脚本和原生卷API，探针失败拒绝；不按盘符猜测映射盘。切换接线须串行控制事务，避免在被跟踪IPC中等待自己排空；最终交接端口仅同步安排relaunch，不加入异步清理。失败/超时和部分锁释放阻断会话，所有待清理锁可重试。
+
+见来源[六批计划](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I6.md)与[实际证据/未验边界](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-foundation-20261009.md)。来源功能冻结，不触碰真实空间或运行中安装版；I5未终验。
+
 ## 显式人工原生验收
 
 人工入口可选 `MIMIR_MANUAL_STEPWISE=1`，每步新UUID控制文件、报告阶段和有界等待，具体发布方法见[单步模式](e2e/manual/README.md#单步模式)。仅延后发起请求，不自动批准或改变原生两分钟预算；控制文件须同目录暂存后原子改名。默认连续模式兼容。

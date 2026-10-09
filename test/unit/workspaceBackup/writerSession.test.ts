@@ -1,0 +1,134 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const roots: string[] = []
+const faults = vi.hoisted(() => ({ unlinkPaths: new Set<string>() }))
+vi.mock('node:fs', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, unlinkSync: (path: string) => {
+    if (faults.unlinkPaths.delete(path)) throw Error('synthetic unlink failure')
+    fs.unlinkSync(path)
+  } }
+})
+const assertLocalRoot = (value: string) => { expect(value.startsWith(tmpdir())).toBe(true) }
+const root = () => { const value = mkdtempSync(join(tmpdir(), 'mimir-writer-session-')); roots.push(value); return value }
+afterEach(() => { for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true }) })
+async function moduleUnderTest() {
+  const mod = await import(/* @vite-ignore */ join(process.cwd(), 'electron/workspaceBackup/writerSession.ts')).catch(() => ({} as any))
+  expect(mod.WorkspaceWriterSession).toBeTypeOf('function')
+  return mod
+}
+
+it('不同profile也不能同时写同一本机注册表', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), space = root()
+  const first = new WorkspaceWriterSession(home, assertLocalRoot)
+  first.select(space)
+  expect(() => new WorkspaceWriterSession(home, assertLocalRoot)).toThrow()
+  first.close()
+  new WorkspaceWriterSession(home, assertLocalRoot).close()
+})
+
+it('切换目标占用时保留原空间锁，成功切换后才释放', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), first = root(), second = root()
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  session.select(first)
+  mkdirSync(join(second, '.mimir'))
+  writeFileSync(join(second, '.mimir/workspace.writer-lock'), 'stale lock')
+  expect(() => session.select(second)).toThrow()
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(readFileSync(join(second, '.mimir/workspace.writer-lock'), 'utf8')).toBe('stale lock')
+  session.close()
+})
+
+it('维护检查并占有旧资产写锁，残留锁不自动删除', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), space = root()
+  const assets = join(space, '.mimir/assets'); mkdirSync(assets, { recursive: true })
+  const assetLock = join(assets, 'assets.db.writer-lock')
+  writeFileSync(assetLock, 'old writer')
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  expect(() => session.select(space, true)).toThrow()
+  expect(readFileSync(assetLock, 'utf8')).toBe('old writer')
+  expect(existsSync(join(space, '.mimir/workspace.writer-lock'))).toBe(false)
+  session.close()
+})
+
+it('维护成功占锁后源库内容不变；关闭只清理自己持有的锁', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), space = root()
+  const assets = join(space, '.mimir/assets'); mkdirSync(assets, { recursive: true })
+  writeFileSync(join(assets, 'assets.db'), 'synthetic database')
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  session.select(space, true)
+  expect(existsSync(join(assets, 'assets.db.writer-lock'))).toBe(true)
+  expect(readFileSync(join(assets, 'assets.db'), 'utf8')).toBe('synthetic database')
+  session.close(); session.close()
+  expect(existsSync(join(assets, 'assets.db.writer-lock'))).toBe(false)
+  expect(readFileSync(join(assets, 'assets.db'), 'utf8')).toBe('synthetic database')
+})
+it('必须提供并执行原生本机磁盘策略，拒绝路径前不创建源目录或写锁', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), space = root()
+  expect(() => new WorkspaceWriterSession(home)).toThrow()
+  expect(existsSync(join(home, '.mimir'))).toBe(false)
+  const session = new WorkspaceWriterSession(home, (value: string) => {
+    if (value === space) throw Error('NOT_LOCAL_DISK')
+  })
+  expect(() => session.select(space, true)).toThrow('NOT_LOCAL_DISK')
+  expect(existsSync(join(space, '.mimir'))).toBe(false)
+  session.close()
+})
+it('注册表根的链接目标也必须经磁盘策略，拒绝前不能写控制目录', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const base = root(), target = root(), linkedHome = join(base, 'linked-home')
+  symlinkSync(target, linkedHome, 'junction')
+  expect(() => new WorkspaceWriterSession(linkedHome, (value: string) => {
+    if (value === target) throw Error('NOT_LOCAL_DISK')
+  })).toThrow('NOT_LOCAL_DISK')
+  expect(existsSync(join(target, '.mimir'))).toBe(false)
+})
+
+it('切换回滚时两个资产锁释放失败，保留全部句柄供close逐一重试', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), first = root(), second = root()
+  for (const space of [first, second]) mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  session.select(first, true)
+  const oldAssetLock = join(first, '.mimir/assets/assets.db.writer-lock')
+  const newAssetLock = join(second, '.mimir/assets/assets.db.writer-lock')
+  faults.unlinkPaths.add(oldAssetLock); faults.unlinkPaths.add(newAssetLock)
+  expect(() => session.select(second, true)).toThrow()
+  expect(existsSync(oldAssetLock)).toBe(true)
+  expect(existsSync(newAssetLock)).toBe(true)
+  expect(existsSync(join(second, '.mimir/workspace.writer-lock'))).toBe(false)
+  expect(() => session.close()).not.toThrow()
+  expect(existsSync(oldAssetLock)).toBe(false)
+  expect(existsSync(newAssetLock)).toBe(false)
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(false)
+})
+it('旧资产锁已释放而旧空间锁失败，即使新锁回滚成功仍阻断会话', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), first = root(), second = root()
+  for (const space of [first, second]) mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  session.select(first, true)
+  faults.unlinkPaths.add(join(first, '.mimir/workspace.writer-lock'))
+  expect(() => session.select(second, true)).toThrow()
+  expect(() => session.select(first, true)).toThrow('必须先关闭会话')
+  session.close()
+})
+it('关闭时注册表锁删除失败，已释放的空间不能被同根早退伪装为占用', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), space = root()
+  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  session.select(space, true)
+  faults.unlinkPaths.add(join(home, '.mimir/registry.writer-lock'))
+  expect(() => session.close()).toThrow()
+  expect(() => session.select(space, true)).toThrow('必须先关闭会话')
+  expect(() => session.close()).not.toThrow()
+})
