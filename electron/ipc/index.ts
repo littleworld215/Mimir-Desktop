@@ -32,7 +32,7 @@ import {
   setStoreValue,
   spaceRoot,
 } from '../library/store'
-import { fetchArxivPdf, paperPdfFileName } from '../library/arxiv'
+import { downloadArxivPdf } from '../library/pdfDownload'
 import {
   appendLedger,
   listLedgerEntries,
@@ -49,9 +49,6 @@ import { registerWorkspacesHandlers } from './workspaces'
 import { registerVenuesHandlers } from './venues'
 import { registerPaperHandlers } from './paper'
 import { registerAssetsHandlers } from './assets'
-
-// Maximum PDF download size (64 MB)
-const ARXIV_PDF_DOWNLOAD_TIMEOUT_MS = 60_000
 
 /** 流式事件协议（结构化事件 + seq/streamId），见 `agent/streamProtocol.ts`。 */
 import { createSequencer, type AgentStreamEventDraft } from '../agent/streamProtocol';
@@ -388,15 +385,7 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   // export 主通道 + UA 标识 + 主站回退，两处行为一致）
   ipcMain.handle('arxiv:downloadPdf', async (_event, id: string) => {
     try {
-      const cleanId = id.trim().replace(/^https?:\/\/arxiv\.org\/abs\//, '')
-      if (cleanId === '' || !/^[a-zA-Z0-9._/-]+$/.test(cleanId)) {
-        return { error: '无效的 arXiv id' }
-      }
-      const bytes = await fetchArxivPdf(cleanId, AbortSignal.timeout(ARXIV_PDF_DOWNLOAD_TIMEOUT_MS))
-      const dir = join(spaceRoot(), 'papers')
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      const filePath = join(dir, paperPdfFileName(cleanId))
-      await writeFile(filePath, bytes)
+      const filePath = await downloadArxivPdf(id)
       return { ok: true, path: filePath }
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'PDF 下载失败' }

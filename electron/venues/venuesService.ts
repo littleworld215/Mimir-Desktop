@@ -7,11 +7,13 @@
  * - 首次启动延迟 ~2s 自动抓一次，之后每 6 小时刷新；定时器 unref 不阻塞退出；
  * - watchlist 为「当前科研空间」级的 seriesKey 集合，存空间 store。
  */
-import { mkdir, readFile, writeFile, rename } from 'fs/promises'
+import { mkdir, readFile, writeFile, unlink } from 'fs/promises'
 import { join, dirname } from 'path'
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
-import { getStoreValue, setStoreValue, spaceRoot } from '../library/store'
+import { existsSync, renameSync } from 'fs'
+import { getStoreValue, setStoreValue, spaceRoot, assertSpaceUnchanged } from '../library/store'
+import { workspaceVenueTasks } from '../workspaceBackup/productionTasks'
+import { workspaceOperationGate } from '../workspaceBackup/operationGate'
 import { httpFetch } from '../http'
 import {
   CCF_A_JOURNALS,
@@ -90,32 +92,47 @@ async function readCache(): Promise<VenueCacheFile | null> {
   }
 }
 
-async function writeCacheAtomic(venues: readonly VenueSeries[], fetchedAt: string): Promise<void> {
-  const path = cacheFilePath()
+async function writeCacheAtomic(path: string, venues: readonly VenueSeries[], fetchedAt: string, check: () => void): Promise<void> {
   const dir = dirname(path)
+  check()
   await mkdir(dir, { recursive: true })
   const tempPath = join(dir, `${randomUUID()}.tmp`)
-  await writeFile(tempPath, JSON.stringify({ fetchedAt, venues }), 'utf-8')
-  await rename(tempPath, path)
+  try {
+    check()
+    await writeFile(tempPath, JSON.stringify({ fetchedAt, venues }), { encoding: 'utf-8', flag: 'wx' })
+    check()
+    // 校验和短小原子发布之间不让事件循环处理取消/切换。
+    renameSync(tempPath, path)
+  } finally {
+    await unlink(tempPath).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error })
+  }
 }
 
 /** 立即抓取 ccfddl 聚合数据并写缓存。失败抛错（旧缓存保留）。 */
 export async function refreshVenueDeadlines(): Promise<string> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), VENUE_FETCH_TIMEOUT_MS)
-  let text: string
-  try {
-    const response = await httpFetch(CCFDDL_ALLCONF_URL, { signal: controller.signal })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    text = await response.text()
-  } finally {
-    clearTimeout(timer)
-  }
-  const parsed = parseAllconfYaml(text)
-  if (parsed.length === 0) throw new Error('解析 ccfddl 目录为空，可能是数据源变更')
-  const fetchedAt = new Date().toISOString()
-  await writeCacheAtomic(parsed, fetchedAt)
-  return fetchedAt
+  return workspaceVenueTasks.run(async cancelSignal => {
+    const scope = workspaceOperationGate.current()!
+    const path = join(scope.root, '.mimir', 'venue-deadlines.cache.json')
+    const epoch = scope.epoch
+    const controller = new AbortController()
+    const signal = AbortSignal.any([cancelSignal, controller.signal])
+    const check = (): void => { signal.throwIfAborted(); assertSpaceUnchanged(epoch) }
+    const timer = setTimeout(() => controller.abort(), VENUE_FETCH_TIMEOUT_MS)
+    let text: string
+    try {
+      check()
+      const response = await httpFetch(CCFDDL_ALLCONF_URL, { signal })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      text = await response.text()
+    } finally {
+      clearTimeout(timer)
+    }
+    const parsed = parseAllconfYaml(text)
+    if (parsed.length === 0) throw new Error('解析 ccfddl 目录为空，可能是数据源变更')
+    const fetchedAt = new Date().toISOString()
+    await writeCacheAtomic(path, parsed, fetchedAt, check)
+    return fetchedAt
+  })
 }
 
 /** 列表：读本地缓存（离线可用）+ 空间 watchlist。永不联网。 */
@@ -198,17 +215,26 @@ export async function searchVenueCache(query: VenueQuery, nowMs: number): Promis
 
 /** 每天首屏后台刷新与 6h 周期刷新（只执行一次）。 */
 let loopStarted = false
+let firstRefresh: ReturnType<typeof setTimeout> | undefined
+let periodicRefresh: ReturnType<typeof setInterval> | undefined
 export function startVenueDeadlineLoop(): void {
   if (loopStarted) return
   loopStarted = true
   // 首刷延迟 2s
-  const first = setTimeout(() => {
+  firstRefresh = setTimeout(() => {
     refreshVenueDeadlines().catch(() => {})
   }, 2_000)
-  first.unref?.()
+  firstRefresh.unref?.()
   // 之后每 6h
-  const timer = setInterval(() => {
+  periodicRefresh = setInterval(() => {
     refreshVenueDeadlines().catch(() => {})
   }, VENUE_REFRESH_INTERVAL_MS)
-  timer.unref?.()
+  periodicRefresh.unref?.()
+}
+
+/** 停止新增刷新并等待已接受任务实际收口；失败不能作为维护交接成功。 */
+export async function stopVenueDeadlineLoop(): Promise<void> {
+  clearTimeout(firstRefresh)
+  clearInterval(periodicRefresh)
+  await workspaceVenueTasks.stop()
 }

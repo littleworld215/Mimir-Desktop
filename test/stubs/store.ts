@@ -71,6 +71,9 @@ export function getActiveWorkspace(): StubWorkspaceRecord {
 export function currentSpaceEpoch(): string {
   return `${activeWorkspace.id}#${spaceEpoch}`
 }
+export function captureWorkspaceOperation() {
+  return { id: activeWorkspace.id, epoch: currentSpaceEpoch(), root: activeWorkspace.path }
+}
 
 /**
  * 断言当前空间与调用开始时一致；不一致抛错中止操作。
