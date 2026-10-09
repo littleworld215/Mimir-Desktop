@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-10 I6续项：新增可安装的固定任务上下文与串行空间控制协议，任务绑定空间ID/代际/根；迟到读写与未跟踪写入拒绝，控制先排空、失败/超时保持阻断。普通main尚未装配，Agent/下载/PTY等后台纳管及维护交接仍待，备份恢复不可用。[本轮验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-context-control-20261010.md)与上一轮初始化结果分开登记。
+
 2026-10-10 受保护初始化增量：`loadStore(session)` 可在已有、全新及旧资料迁移场景先占注册表/空间锁，初始化失败阻断；新根先查本机磁盘再建目录，受保护迁移保留旧目录。普通main仍未调用此入口，任务排空/失败交接未完成，不能视为备份恢复已可用。[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-protected-startup-20261010.md)另记，不覆盖旧轮结果。
 
 2026-10-10 I6增量：store已提供可安装的空间切换锁保护，指针保存失败还原缓存/代际，锁清理失败阻断后续写入；安装时核对注册表与空间根。普通启动尚未自动装配，任务排空仍待接线，目前维护窗口只读，备份恢复不可用。

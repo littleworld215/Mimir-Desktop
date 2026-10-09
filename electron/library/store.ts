@@ -13,6 +13,7 @@
  */
 import { app } from 'electron'
 import { randomUUID } from 'crypto'
+import type { OperationScope } from '../workspaceBackup/operationGate'
 import {
   existsSync,
   mkdirSync,
@@ -75,6 +76,28 @@ interface WorkspaceSwitchProtection {
 }
 let switchProtection: WorkspaceSwitchProtection | undefined
 let transitionBlocked = false
+interface WorkspaceOperationProtection {
+  current(): OperationScope | undefined
+  assertWritable(): void
+  assertControl(): void
+}
+let operationProtection: WorkspaceOperationProtection | undefined
+/** 完成初始化后安装；普通main装配及后台任务纳管完成前不自动启用。 */
+export function installWorkspaceOperationProtection(protection: WorkspaceOperationProtection): void {
+  if (!setupDone || operationProtection || transitionBlocked) throw Error('任务保护不能重复安装或在初始化前安装。')
+  protection.assertWritable()
+  operationProtection = protection
+}
+function assertOperationScope(): OperationScope | undefined {
+  const scope = operationProtection?.current()
+  if (!scope) return undefined
+  const active = getActiveWorkspace()
+  const root = active?.path ?? join(app.getPath('userData'), 'space')
+  if (scope.id !== (active?.id ?? '') || scope.epoch !== currentSpaceEpoch() || scope.root !== root) {
+    throw Error('任务所属科研空间已失效，拒绝跨空间读写。')
+  }
+  return scope
+}
 /** 装配前须已持有当前空间锁；普通启动的注册锁/排空接线完成后才安装。 */
 export function installWorkspaceSwitchProtection(protection: WorkspaceSwitchProtection): void {
   if (!setupDone || switchProtection || transitionBlocked) throw Error('空间切换保护不能重复安装或在初始化前安装。')
@@ -85,6 +108,12 @@ export function installWorkspaceSwitchProtection(protection: WorkspaceSwitchProt
 function assertSwitchProtection() {
   if (transitionBlocked) throw Error('空间锁提交或回滚失败，已阻止后续写入；请关闭应用并检查锁。')
   switchProtection?.assertUsable()
+  operationProtection?.assertWritable()
+  if (operationProtection && !assertOperationScope()) operationProtection.assertControl()
+}
+function assertWorkspaceControl() {
+  assertSwitchProtection()
+  operationProtection?.assertControl()
 }
 
 /**
@@ -274,6 +303,7 @@ function writeJsonAtomic(
   const tempPath = join(dir, `.tmp-${basename(path)}-${process.pid}-${randomUUID()}`)
   try {
     writeFileSync(tempPath, JSON.stringify(value, null, 2), { encoding: 'utf-8', mode })
+    assertSwitchProtection()
     renameSync(tempPath, path)
   } catch (error) {
     try {
@@ -390,6 +420,8 @@ function setActiveWorkspaceId(id: string): void {
 /** 当前激活空间的根目录（绝对路径）。 */
 export function spaceRoot(): string {
   if (!setupDone) ensureWorkspaceSetup()
+  const captured = assertOperationScope()
+  if (captured) return captured.root
   const active = getActiveWorkspace()
   if (active !== null) return active.path
   // 兜底：仅当尚未创建任何空间时可能为 null，此时先指向 userData 下的临时目录
@@ -428,6 +460,7 @@ export function loadStore(protection?: WorkspaceSwitchProtection): void {
 }
 
 export function getStoreValue<T>(key: string): T | undefined {
+  assertOperationScope()
   if (GLOBAL_KEYS.has(key)) {
     return globalStore[key] as T | undefined
   }
@@ -448,6 +481,10 @@ export function setStoreValue<T>(key: string, value: T): void {
 
 export function getStorePath(): string {
   return globalFilePath()
+}
+/** 调用边界捕获，子任务由闸门继承父任务；空空间明确使用空ID。 */
+export function captureWorkspaceOperation(): OperationScope {
+  return { id: getActiveWorkspace()?.id ?? '', epoch: currentSpaceEpoch(), root: spaceRoot() }
 }
 
 // ─── 首次启动 / 迁移 / 切换 ─────────────────────────────────────────────
@@ -523,6 +560,7 @@ function initializeLockedSpace(root: string, work: () => void, create = false): 
   let committing = false
   try {
     work()
+    assertSwitchProtection()
     committing = true
     selection?.commit()
   } catch (error) {
@@ -543,7 +581,7 @@ function initializeLockedSpace(root: string, work: () => void, create = false): 
  * 用户会看到空间凭空变回旧值。因此写盘失败必须把内存全部还原后再抛错。
  */
 export function switchWorkspace(id: string): WorkspaceRecord {
-  assertSwitchProtection()
+  assertWorkspaceControl()
   const list = listWorkspaces()
   const target = list.find((w) => w.id === id)
   if (target === undefined) throw new Error(`space-not-found: ${id}`)
@@ -574,8 +612,12 @@ export function switchWorkspace(id: string): WorkspaceRecord {
   }
 
   // 指针已成功落盘，再装载目标空间数据（损坏时内部置只读并记录 issue，不抛）。
-  loadSpaceCache(target.path)
-  try { selection?.commit() }
+  try {
+    assertSwitchProtection()
+    loadSpaceCache(target.path)
+    assertSwitchProtection()
+    selection?.commit()
+  }
   catch (error) {
     // 指针已落盘；不能假装回到旧空间，也不能让部分释放后的会话继续写。
     transitionBlocked = true
@@ -585,7 +627,7 @@ export function switchWorkspace(id: string): WorkspaceRecord {
 }
 
 export function setDefaultWorkspace(id: string): void {
-  assertSwitchProtection()
+  assertWorkspaceControl()
   if (!listWorkspaces().some((w) => w.id === id)) throw new Error(`space-not-found: ${id}`)
   globalStore[DEFAULT_KEY] = id
   saveGlobal()
@@ -600,7 +642,7 @@ export function getDefaultWorkspace(): WorkspaceRecord | null {
 }
 
 export function createWorkspace(name: string, dir?: string): WorkspaceRecord {
-  assertSwitchProtection()
+  assertWorkspaceControl()
   const displayName = name.trim()
   if (displayName === '') throw new Error('空间名称不能为空')
   const now = new Date().toISOString()
@@ -632,7 +674,7 @@ export function createWorkspace(name: string, dir?: string): WorkspaceRecord {
 }
 
 export function renameWorkspace(id: string, name: string): WorkspaceRecord {
-  assertSwitchProtection()
+  assertWorkspaceControl()
   const trimmed = name.trim()
   if (trimmed === '') throw new Error('空间名称不能为空')
   const list = listWorkspaces()
@@ -646,7 +688,7 @@ export function renameWorkspace(id: string, name: string): WorkspaceRecord {
 
 /** 移除空间注册（磁盘文件保留，供用户手动迁移/备份）。激活中空间不可移除。 */
 export function removeWorkspace(id: string): void {
-  assertSwitchProtection()
+  assertWorkspaceControl()
   const active = getActiveWorkspace()
   if (active !== null && active.id === id) throw new Error('不能删除当前正在使用的科研空间，请先切换到其它空间')
   const list = listWorkspaces()

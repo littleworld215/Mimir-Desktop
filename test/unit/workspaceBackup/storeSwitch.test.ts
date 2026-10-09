@@ -3,8 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { WorkspaceWriterSession } from '../../../electron/workspaceBackup/writerSession'
+import { WorkspaceOperationGate } from '../../../electron/workspaceBackup/operationGate'
+import { performance } from 'node:perf_hooks'
 
-const state = vi.hoisted(() => ({ home: '', failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, checkWrites: false, copies: [] as string[] }))
+const state = vi.hoisted(() => ({ home: '', failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, slowTemp: false, slowRead: false, checkWrites: false, copies: [] as string[] }))
 vi.mock('os', async original => ({ ...await original<typeof import('node:os')>(), homedir: () => state.home }))
 vi.mock('electron', () => ({ app: { getPath: () => join(state.home, 'profile') } }))
 vi.mock('node:fs', async original => {
@@ -14,7 +16,19 @@ vi.mock('node:fs', async original => {
       const global = dirname(path) === join(state.home, '.mimir')
       if (!fs.existsSync(join(dirname(path), global ? 'registry.writer-lock' : 'workspace.writer-lock'))) throw Error('TEMP_WRITE_BEFORE_LOCK')
     }
+    if (state.slowTemp && typeof path === 'string' && path.includes('.tmp-store.json-')) {
+      state.slowTemp = false
+      const until = performance.now() + 30
+      while (performance.now() < until) { /* synthetic slow synchronous IO */ }
+    }
     ;(fs.writeFileSync as any)(path, ...args)
+  }, readFileSync: (path: string, ...args: any[]) => {
+    if (state.slowRead && path === join(state.home, 'b/.mimir/store.json')) {
+      state.slowRead = false
+      const until = performance.now() + 30
+      while (performance.now() < until) { /* synthetic slow synchronous IO */ }
+    }
+    return (fs.readFileSync as any)(path, ...args)
   }, readdirSync: (path: string, ...args: any[]) => {
     if (state.failReadDir && path === join(state.home, 'profile/projects')) throw Error('synthetic directory read failure')
     return (fs.readdirSync as any)(path, ...args)
@@ -43,6 +57,7 @@ afterEach(() => {
   state.checkWrites = false
   state.failCopy = false
   state.failReadDir = false
+  state.slowTemp = false; state.slowRead = false
   state.copies = []
   session?.close(); session = undefined
   if (state.home.startsWith(join(tmpdir(), 'mimir-real-store-switch-'))) rmSync(state.home, { recursive: true, force: true })
@@ -268,4 +283,89 @@ it('仅有旧目录时探测读取失败也必须阻断，不能误判为全新�
   expect(() => store.loadStore(session)).toThrow('directory read failure')
   expect(readFileSync(registry, 'utf8')).toBe(before)
   expect(() => store.setStoreValue('draft', 'unsafe')).toThrow()
+})
+it('任务保护安装后裸写入及任务内直接切空间均在改内存前拒绝', async () => {
+  const { store, registry } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  const bytes = readFileSync(registry, 'utf8')
+  expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
+  expect(() => store.switchWorkspace('b')).toThrow()
+  await gate.run(store.captureWorkspaceOperation(), async () => {
+    expect(() => store.switchWorkspace('b')).toThrow()
+    store.setStoreValue('custom', 'safe')
+  })
+  expect(store.getStoreValue('custom')).toBe('safe')
+  expect(readFileSync(registry, 'utf8')).toBe(bytes)
+})
+it('旧任务先按固定根保存再串行切空间，新空间不混入旧写入', async () => {
+  const { store, first, second } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  let finish!: () => void
+  const scope = store.captureWorkspaceOperation()
+  const task = gate.run(scope, async () => {
+    await new Promise<void>(resolve => { finish = resolve })
+    expect(store.spaceRoot()).toBe(first)
+    store.setStoreValue('custom', 'old task saved')
+  })
+  const control = gate.runControl(1000, async () => { store.switchWorkspace('b') })
+  finish(); await task; await control
+  expect(store.spaceRoot()).toBe(second)
+  expect(readFileSync(join(first, '.mimir/store.json'), 'utf8')).toContain('old task saved')
+  expect(store.getStoreValue('custom')).toBe('second')
+  expect(store.captureWorkspaceOperation().root).toBe(second)
+})
+it('错误任务ID/代际/根及结束后的回调不能读取正文或写入任何层', async () => {
+  const { store, registry } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  const scope = store.captureWorkspaceOperation(), bytes = readFileSync(registry, 'utf8')
+  for (const incorrect of [{ ...scope, id: 'bad' }, { ...scope, epoch: 'bad' }, { ...scope, root: 'bad' }]) {
+    await gate.run(incorrect, async () => {
+      expect(() => store.spaceRoot()).toThrow()
+      expect(() => store.getStoreValue('custom')).toThrow()
+      expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
+      expect(() => store.setStoreValue('settings', {})).toThrow()
+    })
+  }
+  let late!: () => void
+  await gate.run(scope, async () => { late = gate.bind(() => store.setStoreValue('custom', 'late')) })
+  expect(() => late()).toThrow()
+  expect(store.getStoreValue('custom')).toBe('first')
+  expect(readFileSync(registry, 'utf8')).toBe(bytes)
+})
+it('控制失败后的裸写/注册管理持续阻断，任务保护不能被替换', async () => {
+  const { store, registry } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  expect(() => store.installWorkspaceOperationProtection(new WorkspaceOperationGate())).toThrow()
+  const bytes = readFileSync(registry, 'utf8')
+  await expect(gate.runControl(1000, async () => { throw Error('failed shutdown') })).rejects.toThrow()
+  expect(() => store.setStoreValue('settings', {})).toThrow()
+  expect(() => store.renameWorkspace('a', 'changed')).toThrow()
+  expect(readFileSync(registry, 'utf8')).toBe(bytes)
+})
+it('控制内同步临时文件写入耗尽预算后不能rename发布指针', async () => {
+  const { store, registry, first, second } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  const before = readFileSync(registry, 'utf8')
+  state.slowTemp = true
+  await expect(gate.runControl(10, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
+  expect(readFileSync(registry, 'utf8')).toBe(before)
+  expect(store.getActiveWorkspace()?.id).toBe('a')
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(existsSync(join(second, '.mimir/workspace.writer-lock'))).toBe(false)
+})
+it('指针已发布而同步读新缓存耗尽预算时保持两锁并阻断，不假装回滚指针', async () => {
+  const { store, registry, first, second } = await fixture()
+  const gate = new WorkspaceOperationGate()
+  store.installWorkspaceOperationProtection(gate)
+  state.slowRead = true
+  await expect(gate.runControl(10, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
+  expect(JSON.parse(readFileSync(registry, 'utf8')).activeWorkspaceId).toBe('b')
+  expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(existsSync(join(second, '.mimir/workspace.writer-lock'))).toBe(true)
+  expect(() => store.setStoreValue('custom', 'unsafe')).toThrow()
 })
