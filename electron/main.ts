@@ -3,7 +3,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { is } from '@electron-toolkit/utils'
 import { setupIpcHandlers, disposeIpcResources } from './ipc'
-import { agentService, stopAllAgentTasks } from './agent/agentService'
+import { agentService, stopAllAgentTasks, stopAllAgentTasksAndWait } from './agent/agentService'
 import { shutdownOtel } from './agent/otelTrace'
 import { resetApprovalSender } from './agent/approval'
 import { isLatexPdfAllowed } from './latex'
@@ -19,13 +19,14 @@ import { MaintenanceHandoff } from './workspaceBackup/handoff'
 import { homedir } from 'node:os'
 import { setS2KeyProvider, setOpenAlexKeyProvider } from './agent/paperSearch'
 import { setOpenAlexKeyProvider as oaLocationSetOpenAlexKeyProvider } from './library/oaLocation'
-import { startVenueDeadlineLoop } from './venues/venuesService'
+import { startVenueDeadlineLoop, stopVenueDeadlineLoop } from './venues/venuesService'
 import { setTokenCounter } from './agent/contextManager'
 import { countTokensCached } from './agent/tokenizer'
 import { isSafeExternalUrl } from './safeUrl'
 import { stopBridge } from './plugins/bridge'
 import log, { initLogger } from './logger'
 import { assetsStoreManager } from './assets/store'
+import { stopAllAssetsAiTasksAndWait } from './assets/aiTasks'
 import { createQuitFlow } from './quitFlow'
 import { startAssetsMcpHost, externalApprovalPreview } from './assets/mcp/host'
 import { createExternalApproval } from './assets/mcp/approval'
@@ -338,10 +339,16 @@ app.whenReady().then(async () => {
     gate: workspaceOperationGate,
     timeoutMs: WORKSPACE_HANDOFF_TIMEOUT_MS,
     cancelApprovals: async () => { resetApprovalSender() },
-    stopProducers: async () => { stopAllAgentTasks() },
+    // 生产入口必须「停止新增并等待实际收口」，不能只发 abort：
+    // Agent 轮次/工具/委派、资产 AI 的模型请求与发布、会议刷新定时器各自持有 supervisor；
+    // 任一失败都会抛出，从而不授予交接（这是「失败交接」语义的落点）。
+    stopProducers: async () => {
+      await stopVenueDeadlineLoop()
+      await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait()])
+    },
     closeMcp: async () => { assetsMcpAbort?.abort(); await (await assetsMcpStartup)?.close() },
     closeManagedProcesses: async () => { disposeIpcResources() },
-    // 维护窗口需要独占资产库：先排空在途写入再真正放开 db 连接与文件锁。
+    // 维护窗口需要独占资产库：先排空在途写入（含慢开库）再真正放开 db 连接与文件锁。
     closeAssets: async () => { await assetsStoreManager.beforeSpaceSwitch(); await assetsStoreManager.close() },
     // 最终端口只**同步**安排重新拉起着维护模式并退出本进程；不得在此另启异步清理。
     launchMaintenance: () => {
