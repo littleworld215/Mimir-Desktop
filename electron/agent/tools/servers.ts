@@ -11,7 +11,7 @@
  * - delete 需批准，且 summary 以「删除」开头（`isDestructiveApproval` 据此在全权档仍弹卡）；
  * - 不改变 `probeServer` 的只读定位。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { listServers, createServer, updateServer, deleteServer, findServer } from '../../servers/serversService'
 import type { ServerRecord } from '../../servers/types'

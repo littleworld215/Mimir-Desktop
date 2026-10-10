@@ -1,5 +1,5 @@
 /** 主 Agent 与资产能力域共用的固定工具；任何副作用都在主进程执行批准与空间复验。 */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import type { RunnableConfig } from '@langchain/core/runnables'
 import type { WorkspaceRequest } from '../../../shared/assetsContracts'

@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+## I6直接图与实际执行范围（2026-10-10）
+
+2026-10-10 I6直接图执行续项：直接评分对话现绑定监督器；原工具函数和文件后端实际结束前不释放任务，停止信号仅传入原函数及模型传输，避免SDK提前取消race。正常网络重试保留，根结束时取消未消费正文。流式入口未安装本轮执行范围，普通main完整锁/闸门及严格退出未装配，资产AI、其它下载和受管子进程待纳管；第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-execution-20261010.md)。
+
+executionScope观察真实原函数、后端及响应正文；trackedTool在SDK包装前监督双参数Promise工具，将范围signal仅传给原始runtime。sendMessage不向graph.invoke传外部signal，由传输和原函数协作停止，runModelRequest等待范围排空。根已处理的可恢复错误由根结果决定；取消/关闭后晚到非Abort失败优先传播。未消费正文在根退出或停止时取消，根退出后才收到响应头同样收尾。已执行效果不回滚。本轮journal未安装streamMessage，不宣称所有Agent执行寿命已解决。当前生产无headless或异步生成器工具；这两种factory重载监督与Response url/redirected/type保留延期。自定义流的cancel不证明不可观测异步pull已结束。旧段落中的“直接图保持基线”属于前轮历史，现状以本段为准。
+
 ## I6独立AI请求接线（2026-10-10）
 
 `compressHistory` 与 `generateSubagentFromPrompt` 入口共用 `workspaceAgentTasks`；接受时登记空间租约，回调开始及实际模型返回后校验取消和代际。历史压缩的调用方信号与维护停止信号合并，父轮已接受的子压缩继承父租约并单独计数；暂停外部入口不丢弃它。实际模型fetch合并本轮与SDK自身信号，Runnable调用不传可提前race的signal。旧直接对话入口仍待工具执行级跟踪，保持基线行为。停止等待请求实际返回，不能以abort或返回部分结果替代结束。

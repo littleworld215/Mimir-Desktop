@@ -1,4 +1,4 @@
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { searchVenueCache } from '../../venues/venuesService'
 import type { CcfRank } from '../../venues/deadlines'

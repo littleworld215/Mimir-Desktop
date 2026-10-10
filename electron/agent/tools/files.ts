@@ -11,7 +11,7 @@
  *
  * read_dir 不在内置工具名单内、不冲突，保留在此：只读列目录，空间外读取弹批准卡。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { readdir } from 'fs/promises'
 import { resolve } from 'path'

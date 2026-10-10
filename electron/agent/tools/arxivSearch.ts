@@ -1,4 +1,4 @@
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import type { ArxivEntry as LibraryEntry } from '../../library/types'
 

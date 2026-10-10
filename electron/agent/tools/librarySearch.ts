@@ -4,7 +4,7 @@
  * 返回 top-K 命中的来源与片段（≤400 字/条），供 Agent 按需取用，不复制整库进 prompt。
  * 关键词匹配，不做语义检索；未命中时明确引导其它检索工具。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { listPapers } from '../../library/libraryService'
 

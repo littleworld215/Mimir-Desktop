@@ -1,4 +1,4 @@
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { importPaper, updatePaper, listProjects } from '../../library/libraryService'
 import { getStoreValue, currentSpaceEpoch, assertSpaceUnchanged } from '../../library/store'

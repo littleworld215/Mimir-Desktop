@@ -2,7 +2,7 @@
  * 成长记录模块桥工具：读写 store key `ledger:entries`，与「记录」模块同一份数据。
  * 条目类型：milestone(里程碑)/progress(进展)/paper(论文)/experiment(实验)，date 为 YYYY-MM-DD。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { getStoreValue, setStoreValue, currentSpaceEpoch, assertSpaceUnchanged } from '../../library/store'
 import { requireBusinessApproval } from '../approval'

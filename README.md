@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-10 I6直接图执行续项：直接评分对话现绑定监督器；原工具函数和文件后端实际结束前不释放任务，停止信号仅传入原函数及模型传输，避免SDK提前取消race。正常网络重试保留，根结束时取消未消费正文。流式入口未安装本轮执行范围，普通main完整锁/闸门及严格退出未装配，资产AI、其它下载和受管子进程待纳管；第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-execution-20261010.md)。
+
 2026-10-10 I6独立AI请求续项：历史压缩与能力域生成入口已接入同一任务监督器；停止拒绝新请求、传递取消并等待实际返回，空间切换或取消后的晚到结果不能返回成功。原有压缩文本/生成草稿契约保留。普通main整体保护及严格退出仍未装配，资产AI与其它生产入口生命周期继续待审计，备份恢复不可用，安装版未更新。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-independent-ai-20261010.md)。
 
 2026-10-10 I6 Agent续项：对话整轮在接受时固定空间，正文结束后工具/委派/图最终状态继续受跟踪；立即停止不遗漏未启动轮次，非取消流错误不能冒充成功。普通main退出和整体锁/闸门尚未装配，独立AI入口/其它下载及受管子进程待纳管，备份恢复不可用。见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-agent-20261010.md)，安装版未更新。

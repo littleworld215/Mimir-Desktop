@@ -5,7 +5,7 @@
  * - rename：重命名并同步各项目论文目录 .tex 中的引用；
  * - remove：删除图片（会从论文 .tex 引用中留下缺图——请先向用户说明风险并确认）。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { readFile } from 'fs/promises'
 import { extname, basename } from 'path'

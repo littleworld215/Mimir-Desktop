@@ -3,7 +3,7 @@
  * 记忆默认不注入任何一轮 prompt；仅当任务与用户长期方向/偏好相关时，由 Supervisor 判定后调用本工具按需加载。
  * 档案在「设置 → 长期记忆」中维护，内容存在本机，不会随对话自动写入。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { getStoreValue } from '../../library/store'
 

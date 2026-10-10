@@ -3,7 +3,7 @@
  * 生成逻辑与「组会」模块同一套（pptxgenjs 渲染，enhance 需配置模型，失败自动降级）。
  * 生成可能耗时较长（数十秒至数分钟），请先与用户确认主题与选材后再调用。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { generateMeetingDeck, listMeetingDecks } from '../../meetings/service'
 import { requireBusinessApproval } from '../approval'

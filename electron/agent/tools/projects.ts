@@ -8,7 +8,7 @@
  * 因此本工具不维护任何当前项目状态；需要项目上下文时先 action='list' 拿列表，
  * 按标题匹配后仍不确定就向用户确认 projectId。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { listProjects, createProject, updateProject, deleteProject } from '../../library/libraryService'
 import type { ProjectRecord } from '../../library/types'

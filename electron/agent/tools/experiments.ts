@@ -3,7 +3,7 @@
  * （store key `experiments:list`，与「实验」模块同一份数据）。
  * 结构与 src/lib/experiments.ts / electron/meetings/types.ts 保持一致。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { getStoreValue, setStoreValue, currentSpaceEpoch, assertSpaceUnchanged } from '../../library/store'
 import { listServers, findServer } from '../../servers/serversService'

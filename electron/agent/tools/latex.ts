@@ -3,7 +3,7 @@
  * 只读编译，不修改源文件；编译产物 main.pdf 会登记进 mimir-tex 预览白名单
  * （用户随后可在「论文」模块预览）。无本地引擎时返回安装引导，不自动下载。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { existsSync } from 'fs'
 import { compileLatex } from '../../latex'

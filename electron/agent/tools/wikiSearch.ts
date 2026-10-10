@@ -3,7 +3,7 @@
  * 只读扫描当前科研空间 wiki/*.md，按标题/正文关键词命中并返回 top-K 文件与片段（≤400 字），
  * 供 Agent 按需取片段，不把整篇笔记复制进 prompt。
  */
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { readdir, readFile } from 'fs/promises'
 import { join } from 'path'

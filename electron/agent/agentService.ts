@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createDeepAgent } from 'deepagents'
 import { ChatOpenAI } from '@langchain/openai'
-import { tool } from 'langchain/tools'
+import { tool } from './trackedTool'
 import { z } from 'zod'
 import { loadMemoryTool } from './tools/memory'
 import { getStoreValue, assertSpaceUnchanged } from '../library/store'
 import { workspaceAgentTasks } from '../workspaceBackup/productionTasks'
 import { workspaceOperationGate } from '../workspaceBackup/operationGate'
 import { agentModelFetch, withModelTransportSignal } from './modelTransport'
+import { trackAgentBackend, withAgentExecution } from './executionScope'
 import { loadSkillRegistry } from './skills'
 import { candidatesToContext, routeSkills, SKILL_TOP_K } from './skillRouter'
 import type { RouterCandidate } from './skillRouter'
@@ -607,7 +608,7 @@ export class AgentService {
       subagents: subagents as never,
       // 内置文件工具（read_file/write_file/edit_file/ls/glob/grep/delete）默认走内存 StateBackend，
       // 不会落到真实磁盘。注入 MimirFsBackend：真实磁盘读写 + 写/空间外读的批准卡。
-      backend: new MimirFsBackend() as never,
+      backend: trackAgentBackend(new MimirFsBackend()) as never,
       // 语言约束中间件：每次模型调用时读取最新「交流语言」并前置注入——修复
       // 「最终回答中文、工具间过程叙述整段英文」的问题，且改设置免重启即生效。
       middleware: [createLanguageMiddleware()] as never
@@ -693,10 +694,13 @@ export class AgentService {
       throw new Error('Agent 未初始化，请先在设置中配置 API Key')
     }
 
-    const result = await agent.invoke({
-      messages: [{ role: 'user', content: message }]
-    })
-    return this.lastTextOf(result)
+    return this.runModelRequest(signal => withAgentExecution(signal, async () => {
+      // 不把取消交给会先退出节点的图runner；真实模型传输及原工具函数自行感知取消。
+      const result = await this.toolEventConv.run(conversationId, () => agent.invoke({
+        messages: [{ role: 'user', content: message }]
+      }))
+      return this.lastTextOf(result)
+    }))
   }
 
   /**

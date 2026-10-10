@@ -1,5 +1,7 @@
 import type { RunnableConfig } from '@langchain/core/runnables'
 import { withApprovalSource, type ApprovalSource } from './approval'
+import { trackAgentExecution } from './executionScope'
+export { withAgentExecution } from './executionScope'
 
 export interface TraceTool {
   name: string
@@ -24,7 +26,7 @@ export function withToolTrace(base: TraceTool, hooks: Hooks): TraceTool {
       hooks.onDone?.(base.name, out, Date.now() - t0)
       return out
     }
-    try { return hooks.source === undefined ? await run() : await withApprovalSource(hooks.source, run) }
+    try { return await trackAgentExecution(() => hooks.source === undefined ? run() : withApprovalSource(hooks.source, run)) }
     catch (error) { hooks.onError?.(base.name, error, Date.now() - t0); throw error }
   }
   return proxied

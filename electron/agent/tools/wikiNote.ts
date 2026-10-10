@@ -1,4 +1,4 @@
-import { tool } from 'langchain/tools'
+import { tool } from '../trackedTool'
 import { z } from 'zod'
 import { existsSync } from 'node:fs'
 import { writeFile, mkdir, readFile } from 'fs/promises'
