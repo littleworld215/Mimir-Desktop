@@ -32,3 +32,22 @@ export function installWorkspaceIpcGate(
     return handle(channel, control.has(channel) ? fn : (...args) => gate.run(capture(), async () => fn(...args)))
   }
 }
+
+/**
+ * 维护交接入口：渲染层显式请求进入维护窗口。
+ *
+ * 与其它控制通道一样**不被排空阻塞**（否则交接会等待自身）。处理函数只做两件事：
+ * ① 校验请求来自当前窗口主框架；② 只触发交接状态机（request），不在此关闭资源。
+ * 真正的排空/关资源由主进程在窗口 `closed` 后调用 handoff.windowClosed() 完成。
+ */
+export function installWorkspaceMaintenanceHandler(
+  ipc: { handle(channel: string, fn: Handler): any },
+  request: () => void,
+  isTrustedSender?: (event: unknown) => boolean
+) {
+  ipc.handle('workspaceBackup:enterMaintenance', async (event: unknown) => {
+    if (isTrustedSender && !isTrustedSender(event)) throw Error('UNAUTHORIZED_SENDER')
+    request()
+    return { ok: true }
+  })
+}

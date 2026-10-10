@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, protocol, net, dialog } from 'electron'
+import { app, shell, BrowserWindow, protocol, net, dialog, ipcMain } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { is } from '@electron-toolkit/utils'
@@ -10,7 +10,13 @@ import { isLatexPdfAllowed } from './latex'
 import { existsSync } from 'fs'
 import { paperPdfFileName } from './library/arxiv'
 import { figureFilePath } from './figures/figuresService'
-import { loadStore, getStoreValue, spaceRoot } from './library/store'
+import { loadStore, getStoreValue, spaceRoot, captureWorkspaceOperation, installWorkspaceOperationProtection } from './library/store'
+import { workspaceOperationGate } from './workspaceBackup/operationGate'
+import { WorkspaceWriterSession } from './workspaceBackup/writerSession'
+import { assertWindowsLocalDisk } from './workspaceBackup/localDisk'
+import { installWorkspaceIpcGate, installWorkspaceMaintenanceHandler } from './workspaceBackup/ipcGate'
+import { MaintenanceHandoff } from './workspaceBackup/handoff'
+import { homedir } from 'node:os'
 import { setS2KeyProvider, setOpenAlexKeyProvider } from './agent/paperSearch'
 import { setOpenAlexKeyProvider as oaLocationSetOpenAlexKeyProvider } from './library/oaLocation'
 import { startVenueDeadlineLoop } from './venues/venuesService'
@@ -37,6 +43,27 @@ initLogger()
 let mainWindow: BrowserWindow | null = null
 /** 供 IPC 层读取当前窗口的可变引用：窗口重建/关闭后始终指向最新实例。 */
 const windowRef: { current: BrowserWindow | null } = { current: null }
+
+/**
+ * **I6 整科研空间保护**：普通启动持有的写者会话（注册表锁 + 当前空间锁）。
+ *
+ * 为什么必须在启动时先持有：`~/` 注册表与空间根各自有独立写锁，加载 store 前先占锁，
+ * 才能保证「受保护初始化」期间不会有两个写者同时改指针/缓存。锁的获取/释放语义见
+ * `workspaceBackup/writerSession.ts` 与 `operationGate.ts`；本文件只负责装配与退出清理。
+ */
+let writerSession: WorkspaceWriterSession | undefined
+/** 维护交接状态机：窗口关闭 → 排空 → 关闭资源 → 启动维护窗口。 */
+let maintenanceHandoff: MaintenanceHandoff | undefined
+
+/**
+ * 空间管理控制（workspaces:*）与维护交接的**统一超时预算**。
+ *
+ * 为什么单独给预算：这类操作要先排空所有在途任务再串行执行，耗时取决于在途写入；
+ * 超时后闸门保持阻断（不接受新写入），而不是放行进入半完成状态——由用户重启恢复。
+ */
+const WORKSPACE_CONTROL_TIMEOUT_MS = 60_000
+/** 维护交接（排空 + 关资源 + 启动维护窗口）的总预算，含同步原生调用阻塞。 */
+const WORKSPACE_HANDOFF_TIMEOUT_MS = 30_000
 
 /**
  * **单实例保护**（I0-03 / 见整合计划 §2.4）。
@@ -142,7 +169,17 @@ function createWindow(): void {
     stopAllAgentTasks()
     if (windowRef.current === mainWindow) windowRef.current = null
     mainWindow = null
-    quitFlow.windowClosed()
+    // I6 维护交接：仅当已显式请求进入维护时推进状态机（否则保持 idle，走普通退出）。
+    // 交接失败时状态机自身置 blocked，不放行第二写者；但窗口已关闭，必须回退到
+    // 普通退出流程，否则会留下「无窗口且永不 quit」的僵尸进程。
+    if (maintenanceHandoff && maintenanceHandoff.state === 'requested') {
+      void maintenanceHandoff.windowClosed().catch(error => {
+        log.warn('[maintenance] 交接未完成：', error)
+        quitFlow.windowClosed()
+      })
+    } else {
+      quitFlow.windowClosed()
+    }
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -236,9 +273,30 @@ app.whenReady().then(async () => {
     }
   })
 
-  // 装载全局 store（首次会迁移旧版 userData/store.json → ~/.mimir/），
-  // 并完成默认科研空间注册 / 恢复上次激活的空间
-  loadStore()
+  // ── I6 受保护初始化（普通启动装配）───────────────────────────────
+  // ① 先占「注册表锁 + 当前空间锁」：写者会话在构造时校验本机磁盘并锁住 ~/.mimir。
+  //    第二步 loadStore(session) 会以该会话为「空间切换保护」完成首次装载；
+  //    初始化失败（含损坏 store）时 `transitionBlocked` 置位，后续写入一律拒绝——
+  //    宁可只读，也不让空数据覆盖磁盘（详见 library/store.ts assertLayerWritable）。
+  writerSession = new WorkspaceWriterSession(homedir(), assertWindowsLocalDisk)
+  try {
+    // 装载全局 store（首次会迁移旧版 userData/store.json → ~/.mimir/），
+    // 并完成默认科研空间注册 / 恢复上次激活的空间。
+    loadStore(writerSession)
+  } catch (error) {
+    // 受保护装载失败：立刻释放已占锁再退出，避免留下残锁让下次启动也起不来。
+    try { writerSession.close() } catch { /* 关闭失败已在错误框提示用户手动检查 */ }
+    writerSession = undefined
+    throw error
+  }
+  // ② 装载完成后安装「任务保护」：把操作闸门接到 store 的写边界校验上。
+  //    安装时会调用 gate.assertWritable()，gate 处于初始 accepting 态，通过。
+  installWorkspaceOperationProtection(workspaceOperationGate)
+  // ③ 在任何业务 IPC 注册**之前**包装 ipcMain.handle：
+  //    - 普通通道统一经 gate.run(capture, fn) 跟踪，排空时拒绝新写入；
+  //    - 批准/取消/终端关闭/维护入口为控制通道，不被排空阻塞；
+  //    - workspaces:* 走 runControl（串行排空其它 IPC 后再执行空间变更）。
+  installWorkspaceIpcGate(ipcMain, workspaceOperationGate, captureWorkspaceOperation, { timeoutMs: WORKSPACE_CONTROL_TIMEOUT_MS })
 
   // S2 API key 接缝：统一访问层经 provider 读设置页保存的 key（环境变量兜底）。
   // 不直读 process.env——打包后的 ESM bundle 里它会被构建期静态替换，运行时改值失效。
@@ -271,6 +329,31 @@ app.whenReady().then(async () => {
   // IPC handler 只在进程启动时注册一次；渲染层窗口重建（macOS dock 重新激活）
   // 时通过 windowRef 指向最新窗口，避免 ipcMain.handle 重复注册崩溃。
   setupIpcHandlers(windowRef)
+
+  // ── I6 维护交接入口 ────────────────────────────────────────────────
+  // 状态机：渲染层请求 → 窗口关闭 → 排空在途任务 → 逐个关闭资源 → 启动维护窗口。
+  // 任一步失败/超时即「阻断」，不放行第二写者；用户需确认资源退出后重试。
+  // 各端口**复用已有**关闭接口，不新造生命周期（见文件末尾 shutdown 的同类清理）。
+  maintenanceHandoff = new MaintenanceHandoff({
+    gate: workspaceOperationGate,
+    timeoutMs: WORKSPACE_HANDOFF_TIMEOUT_MS,
+    cancelApprovals: async () => { resetApprovalSender() },
+    stopProducers: async () => { stopAllAgentTasks() },
+    closeMcp: async () => { assetsMcpAbort?.abort(); await (await assetsMcpStartup)?.close() },
+    closeManagedProcesses: async () => { disposeIpcResources() },
+    // 维护窗口需要独占资产库：先排空在途写入再真正放开 db 连接与文件锁。
+    closeAssets: async () => { await assetsStoreManager.beforeSpaceSwitch(); await assetsStoreManager.close() },
+    // 最终端口只**同步**安排重新拉起着维护模式并退出本进程；不得在此另启异步清理。
+    launchMaintenance: () => {
+      app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== '--assets-mcp').concat('--workspace-maintenance') })
+      app.exit(0)
+    }
+  })
+  installWorkspaceMaintenanceHandler(ipcMain, () => maintenanceHandoff?.request(), event => {
+    const win = mainWindow
+    // 只信任当前普通窗口主框架：防止被注入的子框架/其它窗口旁路进入维护模式。
+    return Boolean(win && !win.isDestroyed() && (event as { sender?: unknown }).sender === win.webContents)
+  })
 
   createWindow()
   if (process.argv.includes('--assets-mcp')) {
@@ -395,6 +478,14 @@ const quitFlow = createQuitFlow({
         setTimeout(resolve, SHUTDOWN_TIMEOUT_MS).unref?.()
       })
     ])
+    // ③ 最后释放写者会话（注册表锁 + 空间锁）：
+    //    这一步**不能被 3 秒通用预算截断**——残留写锁会让下次启动直接失败；
+    //    失败也不能吞掉：如实告警，提示用户手动检查 .mimir 下的残锁。
+    try {
+      writerSession?.close()
+    } catch (error) {
+      log.warn('[shutdown] 写者会话锁未完全释放，请检查 ~/.mimir 与科研空间 .mimir 下的残锁：', error)
+    }
   }
 })
 app.on('before-quit', event => quitFlow.beforeQuit(event))

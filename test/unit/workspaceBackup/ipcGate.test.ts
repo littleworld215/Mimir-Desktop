@@ -60,3 +60,20 @@ it('管理处理器把异常转换为ok:false时仍阻断控制，原失败结�
   await expect(handlers.get('workspaces:rename')!()).rejects.toThrow()
   expect(() => gate.assertWritable()).toThrow()
 })
+it('维护入口只在受信主框架请求时触发，且不被排空阻塞；未受信请求被拒', async () => {
+  const mod = await import(/* @vite-ignore */ join(process.cwd(), 'electron/workspaceBackup/ipcGate.ts'))
+  expect(mod.installWorkspaceMaintenanceHandler).toBeTypeOf('function')
+  const gate = new WorkspaceOperationGate(), handlers = new Map<string, (...args: any[]) => any>()
+  const ipc = { handle: (name: string, fn: (...args: any[]) => any) => { handlers.set(name, fn) } }
+  mod.installWorkspaceIpcGate(ipc, gate, () => ({ id: 'a', epoch: '1', root: '/captured' }), { timeoutMs: 1000 })
+  let requested = 0
+  const trusted = { sender: 'trusted' }
+  mod.installWorkspaceMaintenanceHandler(ipc, () => { requested += 1 }, event => (event as { sender?: unknown }).sender === 'trusted')
+  // 排空开始后维护入口仍可触发（属控制通道，不被 drain 阻塞）。
+  const drain = gate.drain(1000)
+  expect(await handlers.get('workspaceBackup:enterMaintenance')!(trusted)).toEqual({ ok: true })
+  expect(requested).toBe(1)
+  await drain
+  await expect(handlers.get('workspaceBackup:enterMaintenance')!({ sender: 'untrusted' })).rejects.toThrow('UNAUTHORIZED_SENDER')
+  expect(requested).toBe(1)
+})
