@@ -10,8 +10,12 @@ import { addTags } from './tagService'
 import { assertContentBytes, assertTagName } from './validation'
 import { buildTagSuggestPrompt, parseTagSuggestions, truncateForSuggest } from './tagSuggestions'
 import { AssetsStoreError, type AssetsContext } from './types'
+import { recordUnreportedAssetsAiFailure, runAssetsAiTask } from './aiTasks'
+export { stopAllAssetsAiTasksAndWait } from './aiTasks'
 
-export interface AssetsAiOptions { provider?: AssetsAiProvider | null; signal?: AbortSignal; timeoutMs?: number }
+/** 主进程持有的实际寿命，不能通过渲染层DTO指定。 */
+export interface AssetsAiLifetime { completion?: Promise<unknown> }
+export interface AssetsAiOptions { provider?: AssetsAiProvider | null; signal?: AbortSignal; timeoutMs?: number; lifetime?: AssetsAiLifetime }
 function bad(message = 'AI 参数非法。'): never { throw new AssetsStoreError('BAD_REQUEST', message) }
 function object(value: unknown, allowed: string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !allowed.includes(k))) bad()
@@ -54,8 +58,8 @@ function provider(options: AssetsAiOptions): AssetsAiProvider {
   if (!p) throw new AssetsStoreError('AI_NO_MODEL', '请在设置中配置并选择可用模型。')
   return p
 }
-/** 对不理会signal的适配器也执行deadline；晚返回不继续写入，所有监听器与timer均清理。 */
-async function complete(p: AssetsAiProvider, prompt: string, options: AssetsAiOptions): Promise<AssetsAiResponse> {
+/** 公开deadline及时反馈；原模型及同步发布仍受监督到实际结束。 */
+async function complete<T>(ctx: AssetsContext, p: AssetsAiProvider, prompt: string, options: AssetsAiOptions, publish: (response: AssetsAiResponse) => T): Promise<T> {
   const timeout = options.timeoutMs ?? 60_000
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000) bad('请求超时配置必须为1–120000毫秒。')
   const controller = new AbortController()
@@ -65,20 +69,47 @@ async function complete(p: AssetsAiProvider, prompt: string, options: AssetsAiOp
   if (options.signal?.aborted) controller.abort()
   const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeout)
   let onAbort!: () => void
+  let published = false, publicCanceled = false
+  let actualFailure: AssetsStoreError | undefined
+  const rememberUnreported = () => { if (publicCanceled && actualFailure) recordUnreportedAssetsAiFailure() }
+  const normalize = (error: unknown) => error instanceof AssetsStoreError ? error
+    : new AssetsStoreError('AI_FAILED', '模型请求失败，请检查模型设置或稍后重试。')
+  const isCancellation = (error: unknown) => error instanceof AssetsStoreError && (error.code === 'AI_ABORTED' || error.code === 'AI_TIMEOUT')
+    || error instanceof Error && (error.name === 'AbortError' || error.name === 'APIUserAbortError')
+  const cancellation = () => new AssetsStoreError(timedOut ? 'AI_TIMEOUT' : 'AI_ABORTED', timedOut ? '模型请求超时，请稍后重试。' : '已取消模型请求。')
   try {
     const aborted = new Promise<never>((_resolve, reject) => {
-      onAbort = () => reject(new AssetsStoreError(timedOut ? 'AI_TIMEOUT' : 'AI_ABORTED', timedOut ? '模型请求超时，请稍后重试。' : '已取消模型请求。'))
+      onAbort = () => { if (!published) reject(cancellation()) }
       controller.signal.addEventListener('abort', onAbort, { once: true })
       if (controller.signal.aborted) onAbort()
     })
-    const result = await Promise.race([aborted, Promise.resolve().then(() => {
-      if (controller.signal.aborted) onAbort()
-      if (controller.signal.aborted) throw new AssetsStoreError('AI_ABORTED', '已取消模型请求。')
-      return p.complete(prompt, controller.signal)
-    })])
+    const actual = runAssetsAiTask(ctx, controller, async signal => {
+      try {
+        if (signal.aborted) throw cancellation()
+        ctx.assertCurrent()
+        const response = await p.complete(prompt, signal)
+        if (signal.aborted) throw cancellation()
+        ctx.assertCurrent()
+        // 发布不离开租约；检查与同步事务之间不能让控制任务插入。
+        const value = publish(response)
+        // 业务同步发布成功即结果确定；不能在Promise收尾间隙伪装为零写取消。
+        published = true
+        return value
+      } catch (error) {
+        const safe = normalize(error)
+        if (!isCancellation(error)) { actualFailure = safe; rememberUnreported() }
+        throw safe
+      }
+    })
+    if (options.lifetime) options.lifetime.completion = actual
+    const result = await Promise.race([aborted, actual])
     if (controller.signal.aborted) onAbort()
     return result
   } catch (error) {
+    if (error instanceof AssetsStoreError && (error.code === 'AI_ABORTED' || error.code === 'AI_TIMEOUT')) {
+      publicCanceled = true
+      rememberUnreported()
+    }
     if (error instanceof AssetsStoreError) throw error
     // Provider异常可能包含请求正文/Authorization；不向IPC/UI/日志转发上游原始信息。
     throw new AssetsStoreError('AI_FAILED', '模型请求失败，请检查模型设置或稍后重试。')
@@ -102,12 +133,12 @@ export async function generateAiDraft(ctx: AssetsContext, input: unknown, option
   const prompt = buildConfiguredFinalPrompt(template.content, supplied, source.content, template.config)
   // JSON转义后的快照预留4KiB给模型、时间、safe整数标识与usage，调用前拒绝不可持久化请求。
   if (Buffer.byteLength(JSON.stringify(prompt), 'utf8') > 60 * 1024) bad('最终Prompt超过60KiB快照预算，请缩小原文或模板。')
-  const p = provider(options), response = await complete(p, prompt, options)
-  ctx.assertCurrent()
-  if (options.signal?.aborted) throw new AssetsStoreError('AI_ABORTED', '已取消模型请求。')
-  if (typeof response?.content !== 'string' || !response.content.trim()) throw new AssetsStoreError('AI_EMPTY_RESULT', '模型未返回可用正文。')
-  return saveAiDraft(ctx, { assetId: source.assetId, sourceVersionId: source.sourceVersionId, sourceRevision: source.sourceRevision,
-    mode: request.mode, content: response.content, model: p.model, promptAssetId, promptSnapshot: prompt, usage: response.usage })
+  const p = provider(options)
+  return complete(ctx, p, prompt, options, response => {
+    if (typeof response?.content !== 'string' || !response.content.trim()) throw new AssetsStoreError('AI_EMPTY_RESULT', '模型未返回可用正文。')
+    return saveAiDraft(ctx, { assetId: source.assetId, sourceVersionId: source.sourceVersionId, sourceRevision: source.sourceRevision,
+      mode: request.mode as 'polish' | 'restructure', content: response.content, model: p.model, promptAssetId, promptSnapshot: prompt, usage: response.usage })
+  })
 }
 
 export async function suggestAiTags(ctx: AssetsContext, input: unknown, options: AssetsAiOptions = {}): Promise<AiTagsResult> {
@@ -117,14 +148,14 @@ export async function suggestAiTags(ctx: AssetsContext, input: unknown, options:
   const existing = ctx.write(s => s.all<{ id: number; name: string }>(`SELECT t.id,t.name FROM tag t LEFT JOIN asset_tag a ON a.tag_id=t.id
     GROUP BY t.id ORDER BY count(a.asset_id) DESC,t.normalized_name,t.id LIMIT 40`))
   const text = truncateForSuggest(source.content), prompt = buildTagSuggestPrompt(text.text, existing.map(t => t.name), max, TAG_SUGGEST_PROMPT)
-  const p = provider(options), response = await complete(p, prompt, options)
-  ctx.assertCurrent()
-  if (options.signal?.aborted) throw new AssetsStoreError('AI_ABORTED', '已取消模型请求。')
-  if (typeof response?.content !== 'string') throw new AssetsStoreError('AI_EMPTY_RESULT', '模型未返回可用标签。')
-  try { assertContentBytes(response.content) } catch { bad('标签返回过大或包含非法文本。') }
-  const parsed = parseTagSuggestions(response.content, existing, max)
-  return { suggestions: parsed.items, contentTruncated: text.truncated, truncated: parsed.truncated, model: p.model,
-    sourceVersionId: source.sourceVersionId, sourceRevision: source.sourceRevision }
+  const p = provider(options)
+  return complete(ctx, p, prompt, options, response => {
+    if (typeof response?.content !== 'string') throw new AssetsStoreError('AI_EMPTY_RESULT', '模型未返回可用标签。')
+    try { assertContentBytes(response.content) } catch { bad('标签返回过大或包含非法文本。') }
+    const parsed = parseTagSuggestions(response.content, existing, max)
+    return { suggestions: parsed.items, contentTruncated: text.truncated, truncated: parsed.truncated, model: p.model,
+      sourceVersionId: source.sourceVersionId, sourceRevision: source.sourceRevision }
+  })
 }
 
 /** 当前事务按名称重新查找并复用标签，不相信模型的旧ID；保留已有标签，revision冲突零写。 */

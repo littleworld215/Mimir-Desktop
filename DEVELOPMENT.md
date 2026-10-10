@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+## I6资产AI任务寿命（2026-10-10）
+
+2026-10-10 I6资产AI续项：润色、重构与标签建议保留及时取消/超时反馈；底层模型与同步草稿保存/标签解析持续受监督至实际完成，晚到结果拒绝。窗口四名额和销毁监听跟随真实完成，取消不提前释放名额。主进程维护停止接口尚未装配；慢开库及普通采纳/同步IPC仍待统一生命周期接线，第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-assets-ai-20261010.md)。
+
+aiTasks从主进程AssetsContext推导ID/epoch/根，校验父租约，跟踪provider原Promise及同步草稿发布/标签解析。stopAllAssetsAiTasksAndWait仅供主进程编排，拒新/取消后等待真实完成，任何在途任务失败都保守阻断交接。同步业务发布成功确定公开结果，随后取消不能误报失败。公开取消/超时后的非取消晚失败只留无正文故障位，后续stop仍失败；正常已报告故障及已结束的正常AbortError不永久锁死。公开AI_ABORTED/AI_TIMEOUT可以先返回；内部AssetsAiLifetime使IPC仍保留原窗口四名额与destroyed监听，真实请求完成后再释放。lifetime不可从DTO指定。无需更改模型设置、provider重试、草稿来源和版本规则；AI provider真实SDK合成fetch在基线已证明等待实际返回，本轮未改provider。source snapshot及纯验证在接受前，慢manager开库、采纳和其它同步IPC不在本轮完整保护范围。普通main仍未调用该停止接口，不代表维护可用。
+
 ## I6直接图与实际执行范围（2026-10-10）
 
 2026-10-10 I6直接图执行续项：直接评分对话现绑定监督器；原工具函数和文件后端实际结束前不释放任务，停止信号仅传入原函数及模型传输，避免SDK提前取消race。正常网络重试保留，根结束时取消未消费正文。流式入口未安装本轮执行范围，普通main完整锁/闸门及严格退出未装配，资产AI、其它下载和受管子进程待纳管；第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-execution-20261010.md)。

@@ -3,14 +3,14 @@ import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { ASSETS_CHANNELS, type WorkspaceRequest } from '../../shared/assetsContracts'
 import { assetsStoreManager, type AssetsStoreManager } from '../assets/store'
 import { AssetsStoreError } from '../assets/types'
-import { generateAiDraft, suggestAiTags, adoptSuggestedTags } from '../assets/aiService'
+import { generateAiDraft, suggestAiTags, adoptSuggestedTags, type AssetsAiLifetime } from '../assets/aiService'
 import { listAiDrafts, getAiDraft, adoptAiDraft, discardAiDraft } from '../assets/aiDraftService'
 
 interface Options {
   manager?: Pick<AssetsStoreManager, 'getForRequest'>
   failure: (error: unknown) => object
 }
-interface Pending { controller: AbortController; scope: WorkspaceRequest }
+interface Pending extends AssetsAiLifetime { controller: AbortController; scope: WorkspaceRequest }
 function request(input: unknown, keys: string[]) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AssetsStoreError('BAD_REQUEST', 'AI 请求必须为对象。')
   const r = input as Record<string, unknown>
@@ -31,6 +31,7 @@ export function registerAssetsAiHandlers({ manager = assetsStoreManager, failure
   const modelHandler = (generate: boolean) => async (event: IpcMainInvokeEvent, input: unknown) => {
     let requests: Map<string, Pending> | undefined, id: string | undefined
     let owned = false, cleanup: (() => void) | undefined
+    let lifetime: Pending | undefined
     try {
       const { r, scope } = request(input, ['requestId', 'confirmSend', 'input'])
       confirm(r.confirmSend); id = requestId(r.requestId)
@@ -40,22 +41,28 @@ export function registerAssetsAiHandlers({ manager = assetsStoreManager, failure
       if (!requests) { requests = new Map(); pending.set(sender.id, requests) }
       if (requests.has(id) || requests.size >= 4) throw new AssetsStoreError('BAD_REQUEST', '重复或过多的在途模型请求。')
       const controller = new AbortController()
-      requests.set(id, { controller, scope }); owned = true
+      lifetime = { controller, scope }
+      requests.set(id, lifetime); owned = true
       const onDestroy = () => controller.abort()
       sender.once('destroyed', onDestroy)
       cleanup = () => sender.removeListener?.('destroyed', onDestroy)
       const ctx = await manager.getForRequest(scope)
-      const result = generate ? { draft: await generateAiDraft(ctx, r.input, { signal: controller.signal }) }
-        : await suggestAiTags(ctx, r.input, { signal: controller.signal })
+      const result = generate ? { draft: await generateAiDraft(ctx, r.input, { signal: controller.signal, lifetime }) }
+        : await suggestAiTags(ctx, r.input, { signal: controller.signal, lifetime })
       ctx.assertCurrent()
       return { ok: true, ...result }
     } catch (error) { return failure(error) }
     finally {
-      cleanup?.()
-      if (owned && requests && id) {
-        requests.delete(id)
-        if (requests.size === 0) for (const [owner, entries] of pending) if (entries === requests) pending.delete(owner)
+      const release = () => {
+        cleanup?.()
+        if (owned && requests && id) {
+          requests.delete(id)
+          if (requests.size === 0) for (const [owner, entries] of pending) if (entries === requests) pending.delete(owner)
+        }
       }
+      // 取消/超时响应可先回UI，真实请求仍占名额并监听窗口销毁。
+      if (lifetime?.completion) void lifetime.completion.then(release, release)
+      else release()
     }
   }
   ipcMain.handle(ASSETS_CHANNELS.generateAiDraft, modelHandler(true))

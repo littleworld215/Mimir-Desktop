@@ -10,6 +10,7 @@ import { AssetsStoreManager } from '../../electron/assets/store'
 import { createAsset, getAsset } from '../../electron/assets/assetService'
 import { listAiDrafts } from '../../electron/assets/aiDraftService'
 import { registerAssetsAiHandlers } from '../../electron/ipc/assetsAi'
+import { workspaceOperationGate } from '../../electron/workspaceBackup/operationGate'
 import type { AssetsContext } from '../../electron/assets/types'
 let root: string, manager: AssetsStoreManager, ctx: AssetsContext, epoch: string
 const scope = { workspaceId: 'A', spaceEpoch: 'A#1' }
@@ -24,6 +25,26 @@ beforeEach(async () => {
 })
 afterEach(async () => { await manager.close(); rmSync(root, { recursive: true, force: true }) })
 function source() { return createAsset(ctx, { name: '原文', category: 'inbox', storageType: 'inline_text', content: '原文' }) }
+it('及时取消不释放仍在执行的模型名额，真实完成后才允许同窗新请求', async () => {
+  const asset = source(), e = event(23), releases: Array<(value: typeof success) => void> = []
+  h.complete.mockImplementation(() => releases.length < 4 ? new Promise(resolve => { releases.push(resolve) }) : Promise.resolve(success))
+  try {
+    for (let index = 0; index < 4; index++) {
+      const task = invoke('generateAiDraft', { requestId: 'held-' + index, confirmSend: true, input: { assetId: asset.id, mode: 'polish' } }, e)
+      await vi.waitFor(() => expect(h.complete).toHaveBeenCalledTimes(index + 1))
+      await invoke('cancelAiRequest', { requestId: 'held-' + index }, e)
+      expect(await task).toMatchObject({ code: 'AI_ABORTED' })
+    }
+    const fifth = await invoke('generateAiDraft', { requestId: 'fifth', confirmSend: true, input: { assetId: asset.id, mode: 'polish' } }, e)
+    expect(fifth).toMatchObject({ code: 'BAD_REQUEST' }); expect(h.complete).toHaveBeenCalledTimes(4)
+    releases.forEach(resolve => resolve(success))
+    await vi.waitFor(() => expect(workspaceOperationGate.pendingCount).toBe(0))
+    expect(await invoke('generateAiDraft', { requestId: 'fifth', confirmSend: true, input: { assetId: asset.id, mode: 'polish' } }, e)).toMatchObject({ ok: true })
+  } finally {
+    releases.forEach(resolve => resolve(success))
+    await vi.waitFor(() => expect(workspaceOperationGate.pendingCount).toBe(0))
+  }
+})
 it('8固定方法，无确认/未知字段/伪造provider时零模型；显式生成后分页读取及条件采纳', async () => {
   expect(h.handlers.size).toBe(8)
   const asset = source(), req = { requestId: 'r1', input: { assetId: asset.id, mode: 'polish' } }
