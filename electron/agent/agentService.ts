@@ -7,6 +7,7 @@ import { loadMemoryTool } from './tools/memory'
 import { getStoreValue, assertSpaceUnchanged } from '../library/store'
 import { workspaceAgentTasks } from '../workspaceBackup/productionTasks'
 import { workspaceOperationGate } from '../workspaceBackup/operationGate'
+import { agentModelFetch, withModelTransportSignal } from './modelTransport'
 import { loadSkillRegistry } from './skills'
 import { candidatesToContext, routeSkills, SKILL_TOP_K } from './skillRouter'
 import type { RouterCandidate } from './skillRouter'
@@ -564,7 +565,7 @@ export class AgentService {
         apiKey: config.apiKey,
         model: config.model,
         temperature,
-        ...(config.baseUrl ? { configuration: { baseURL: config.baseUrl } } : {}),
+        configuration: { ...(config.baseUrl ? { baseURL: config.baseUrl } : {}), fetch: agentModelFetch },
         ...(reasoningOn
           ? { modelKwargs: { thinking: { type: 'enabled' }, reasoning_effort: 'high' } }
           : {})
@@ -641,8 +642,22 @@ export class AgentService {
     signal?: AbortSignal
   ): Promise<string> {
     signal?.throwIfAborted()
-    const out = await model.invoke(messages, signal ? { signal } : undefined)
+    const out = await model.invoke(messages)
     return this.textContentOf(out.content)
+  }
+
+  /** 独立请求与父轮子请求共用监督器；等待实际返回后再判定取消/旧空间，不能提前遗弃模型。 */
+  private async runModelRequest<T>(fn: (signal: AbortSignal) => Promise<T>, callerSignal?: AbortSignal): Promise<T> {
+    return workspaceAgentTasks.run(async stopSignal => {
+      const signal = callerSignal ? AbortSignal.any([callerSignal, stopSignal]) : stopSignal
+      signal.throwIfAborted()
+      const scope = workspaceOperationGate.current()!
+      assertSpaceUnchanged(scope.epoch)
+      const result = await withModelTransportSignal(signal, () => fn(signal))
+      signal.throwIfAborted()
+      assertSpaceUnchanged(scope.epoch)
+      return result
+    })
   }
 
 
@@ -681,7 +696,6 @@ export class AgentService {
     const result = await agent.invoke({
       messages: [{ role: 'user', content: message }]
     })
-
     return this.lastTextOf(result)
   }
 
@@ -1464,13 +1478,12 @@ export class AgentService {
     const body = history
       .map((m) => `${m.role === 'user' ? '【用户】' : '【助手】'}\n${m.content}`)
       .join('\n\n')
-    const text = (
+    return this.runModelRequest(async requestSignal => (
       await this.invokeModelText(judge, [
         { role: 'system', content: COMPRESS_HISTORY_SYSTEM },
         { role: 'user', content: body }
-      ], signal)
-    ).trim()
-    return text
+      ], requestSignal)
+    ).trim(), signal)
   }
 
   /** 读取全局设置布尔开关（settings.<key>；缺省 def）。 */
@@ -1711,12 +1724,12 @@ ${toolLines}
 
 用户职责描述：${p}`
     try {
-      const parsed = await judge
+      const parsed = await this.runModelRequest(() => judge
         .withStructuredOutput(GEN_SCHEMA, { name: 'subagent_design', method: pickStructuredMethod(this.reasoningOn) })
         .invoke([
           { role: 'system', content: system },
           { role: 'user', content: `一句话职责描述：\n${p}` }
-        ])
+        ]))
       const name = (parsed.name ?? '').trim().toLowerCase()
       if (name === '') return { ok: false, message: '模型未产出有效 name，请重试。' }
       const allowed = new Set(toolIds)
