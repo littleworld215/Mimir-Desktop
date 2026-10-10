@@ -4,7 +4,9 @@ import { ChatOpenAI } from '@langchain/openai'
 import { tool } from 'langchain/tools'
 import { z } from 'zod'
 import { loadMemoryTool } from './tools/memory'
-import { getStoreValue, getActiveWorkspace, currentSpaceEpoch } from '../library/store'
+import { getStoreValue, assertSpaceUnchanged } from '../library/store'
+import { workspaceAgentTasks } from '../workspaceBackup/productionTasks'
+import { workspaceOperationGate } from '../workspaceBackup/operationGate'
 import { loadSkillRegistry } from './skills'
 import { candidatesToContext, routeSkills, SKILL_TOP_K } from './skillRouter'
 import type { RouterCandidate } from './skillRouter'
@@ -635,9 +637,11 @@ export class AgentService {
   /** 单次模型调用并抽取纯文本（SC 各子阶段通用）。 */
   private async invokeModelText(
     model: ChatOpenAI,
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: string }>,
+    signal?: AbortSignal
   ): Promise<string> {
-    const out = await model.invoke(messages)
+    signal?.throwIfAborted()
+    const out = await model.invoke(messages, signal ? { signal } : undefined)
     return this.textContentOf(out.content)
   }
 
@@ -751,23 +755,38 @@ export class AgentService {
     // 可观测性：在会话上下文外层再包一层 OTel 根 span（`agent.turn`），本轮所有
     // 模型/工具 span 都会挂到它下面，在 Langfuse 里呈现为「一轮对话一棵树」。
     // 未启用 OTel 时 `turn` 为 null，两个包装函数都直接透传 —— 零开销。
-    const turn = startAgentTurnSpan(message, conversationId, {
-      'agent.model': this.config?.model ?? '',
-      'agent.manual': options?.manual === true,
-      'agent.ultra': options?.ultra?.enabled === true
+    // 同步登记取消控制器，接受后立即stop也不能遗漏尚未开始的回调。
+    const controller = new AbortController()
+    this.runningTasks.get(conversationId)?.abort.abort()
+    this.runningTasks.set(conversationId, {
+      abort: controller,
+      emit: event => onEvent({ type: 'worker', payload: withPhase(event) })
     })
-    return withAgentTurnContext(turn, () =>
-      this.toolEventConv
-        .run(conversationId, () => this.runConversation(agent, message, conversationId, onEvent, options))
-        .then((content) => {
-          endAgentTurnSpan(turn, content)
-          return content
-        })
-        .catch((error: unknown) => {
-          failAgentTurnSpan(turn, error)
-          throw error
-        })
-    )
+    return workspaceAgentTasks.run(async signal => {
+      if (signal.aborted) return ''
+      const scope = workspaceOperationGate.current()!
+      assertSpaceUnchanged(scope.epoch)
+      const turn = startAgentTurnSpan(message, conversationId, {
+        'agent.model': this.config?.model ?? '',
+        'agent.manual': options?.manual === true,
+        'agent.ultra': options?.ultra?.enabled === true
+      })
+      return withAgentTurnContext(turn, () =>
+        this.toolEventConv
+          .run(conversationId, () => this.runConversation(agent, message, conversationId, onEvent, options, controller))
+          .then((content) => {
+            endAgentTurnSpan(turn, content)
+            return content
+          })
+          .catch((error: unknown) => {
+            failAgentTurnSpan(turn, error)
+            throw error
+          })
+      )
+    }, controller).finally(() => {
+      // 同会话重发时不能让旧轮清理掉新轮的取消/事件登记。
+      if (this.runningTasks.get(conversationId)?.abort === controller) this.runningTasks.delete(conversationId)
+    })
   }
 
   /**
@@ -928,11 +947,10 @@ export class AgentService {
           }
         }
       })()
-      try {
-        await Promise.all([inner, innerText])
-      } catch {
-        /* 子代理内部异常不应中断主流；细节已由内层捕获或 task 的 ToolMessage 带回 */
-      }
+      // 一路迭代失败不能让另一路脱离整轮任务的寿命。
+      const results = await Promise.allSettled([inner, innerText])
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
       emit({
         taskId: `subagent:${domainId}`,
         title: domainLabel !== '' ? domainLabel : '子代理',
@@ -1071,20 +1089,18 @@ export class AgentService {
       history?: HistoryMsg[]
       skills?: SkillRef[]
       manual?: boolean
-    } | undefined
+    } | undefined,
+    controller: AbortController
   ): Promise<string> {
-    const controller = new AbortController()
     // 在路由/模型异步工作之前绑定本轮空间，后续排队工具不能跟随新空间指针。
-    const assetsScope = { workspaceId: getActiveWorkspace()?.id ?? '', spaceEpoch: currentSpaceEpoch() }
+    const scope = workspaceOperationGate.current()!
+    const assetsScope = { workspaceId: scope.id, spaceEpoch: scope.epoch }
     /** 本次回复的轨迹外发器；主流程各阶段用它补齐 Agent 自身的节点。 */
     // 所有过程事件都从这里出去 —— 因此 `phase` 在这里统一补全，各 emit 站点无需重复标注。
     // 过程事件与正文增量共用同一个 onEvent 出口（协议统一），不再区分两条回调。
     const emit = (event: AgentWorkerEvent): void =>
       onEvent({ type: 'worker', payload: withPhase(event) })
-    // 多会话并行：本会话登记自己的任务运行时。若同会话已有任务在跑，先中止旧的，
-    // 避免同一会话内两条流交叉；不同会话互不影响。
-    this.runningTasks.get(conversationId)?.abort.abort()
-    this.runningTasks.set(conversationId, { abort: controller, emit })
+    // 会话的同步登记/取消已在streamMessage入口完成，回调不能重置自己的控制器。
     let fullContent = ''
     const isManual = options?.manual === true || message.trim().startsWith('/')
     // 进入主流程前的上下文片段（当前消息 → 技能路由候选 → Ultra 增强产出）
@@ -1109,7 +1125,7 @@ export class AgentService {
           skills: options?.skills ?? [],
           compress: async (chunk) => {
             try {
-              const summary = await this.compressHistory(chunk)
+              const summary = await this.compressHistory(chunk, controller.signal)
               return summary.trim() === ''
                 ? { ok: false, message: '摘要为空' }
                 : { ok: true, summary }
@@ -1138,6 +1154,8 @@ export class AgentService {
         }
       }
 
+      if (controller.signal.aborted) return ''
+      assertSpaceUnchanged(scope.epoch)
       console.log(
         `[agent] 回复开始（v3 逐字流）会话=${conversationId}${ultraOn ? `（Ultra 增强：策略 ${ultraCfg?.strategy ?? 'auto'}）` : ''}` +
           `${governed.length > 0 ? `（携带 ${governed.length} 条历史 / 约 ${sumTokens(governed)} token）` : ''}` +
@@ -1171,6 +1189,8 @@ export class AgentService {
         }
       }
 
+      if (controller.signal.aborted) return ''
+      assertSpaceUnchanged(scope.epoch)
       // Ultra 增强控制器（可选增强层，默认关闭；Agent 之上的策略调度）：
       // 选策略（自动/手动 + token 预算降级）→ 跑对应子图 → 产出「约束段」拼入本轮请求，
       // 执行动作全部下沉 Agent（含工具核验）。
@@ -1200,6 +1220,8 @@ export class AgentService {
         if (uc.output !== '') contextParts.push(uc.output)
       }
       const finalMessage = contextParts.join('\n\n')
+      if (controller.signal.aborted) return ''
+      assertSpaceUnchanged(scope.epoch)
 
       // 上下文治理（主进程侧）：治理后的历史（失效提醒 + 摘要 + 尾窗口）以「引用」方式前置注入；
       // Ultra 增强子图不读历史（隔离）；历史只含 user/assistant 纯文本，不含工具产物/附件全文。
@@ -1221,6 +1243,7 @@ export class AgentService {
       let toolLoop: Promise<void> = Promise.resolve()
       let subagentLoop: Promise<void> = Promise.resolve()
       const reasoningLoops: Array<Promise<void>> = []
+      let graphOutput: Promise<unknown> | undefined
 
       // 官方推荐：streamEvents(state, { version: 'v3' }) → run.messages 内每条
       // AI 消息的 .text 是逐字 AsyncIterable。deepagents legacy `.stream()` 的
@@ -1244,9 +1267,13 @@ export class AgentService {
           { messages: inputMessages },
           { version: 'v3', signal: controller.signal, configurable: { assetsScope } },
         )
+        graphOutput = run.output
+        void graphOutput?.catch(() => {})
 
         // 委派子代理事件由 collectSubagentEvents 采集（与正文流并行）。
         subagentLoop = this.collectSubagentEvents(run, controller.signal, emit)
+        // 旁路可能早于正文失败；立即观察拒绝，仍由下方join负责传播/排空。
+        void subagentLoop.catch(() => {})
 
         // ── 正文流消费 ───────────────────────────────────────────────────────
         // msgSeq/msgChars 仅用于观测（见下方 stream.msg / stream.reconcile 日志）。
@@ -1268,6 +1295,7 @@ export class AgentService {
 
         // 工具调用事件由 collectToolEvents 与正文流并行采集（见方法注释）。
         toolLoop = this.collectToolEvents(run, controller.signal, emit)
+        void toolLoop.catch(() => {})
 
         for await (const msg of run.messages) {
           msgSeq += 1
@@ -1301,20 +1329,20 @@ export class AgentService {
               thinkBufState.buf = ''
             }
             // 与正文流并行推进，不阻塞 text 消费；收尾时统一 await 收敛（见下方 Promise.all）。
-            reasoningLoops.push(
-              (async (): Promise<void> => {
-                for await (const piece of reasoning) {
-                  if (controller.signal.aborted) break
-                  thinkBufState.buf += piece
-                  const now = Date.now()
-                  if (now - thinkBufState.lastFlush >= 200) {
-                    flushThink()
-                    thinkBufState.lastFlush = now
-                  }
+            const reasoningLoop = (async (): Promise<void> => {
+              for await (const piece of reasoning) {
+                if (controller.signal.aborted) break
+                thinkBufState.buf += piece
+                const now = Date.now()
+                if (now - thinkBufState.lastFlush >= 200) {
+                  flushThink()
+                  thinkBufState.lastFlush = now
                 }
-                flushThink()
-              })()
-            )
+              }
+              flushThink()
+            })()
+            void reasoningLoop.catch(() => {})
+            reasoningLoops.push(reasoningLoop)
           }
           for await (const token of msg.text) {
             if (controller.signal.aborted) break
@@ -1359,6 +1387,8 @@ export class AgentService {
         // 若 output 末条 AI 文本显著长于 fullContent，则问题在**流消费**（提前结束 / 漏轮次）；
         // 若两者一致，则模型/网关本身只产出了这么多，与 IPC 和渲染层无关。
         {
+          // 旧文本提取器会降级吞错；任务寿命必须先观察真实图失败。
+          if (graphOutput) await graphOutput
           const finalAiText = await extractFinalAiText(run.output)
           const finalLen = finalAiText.length
           const gap = finalLen - fullContent.length
@@ -1373,20 +1403,29 @@ export class AgentService {
         }
         emit({ taskId: 'main', title: 'Mimir', status: 'done' })
       } catch (streamError) {
+        const wasCancelled = controller.signal.aborted
+        controller.abort()
         // 异常路径同样收敛并发循环：reasoningLoops 会随 controller.abort 退出，但必须等它们
         // 真正结束，避免其在函数返回后仍向已关闭的 renderer 发事件（toolLoop/subagentLoop 同）。
-        await Promise.allSettled([toolLoop, subagentLoop, ...reasoningLoops])
-        if (controller.signal.aborted) {
+        const results = await Promise.allSettled([
+          toolLoop, subagentLoop, ...reasoningLoops,
+          ...(graphOutput ? [graphOutput] : [])
+        ])
+        const isAbort = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError'
+        const failure = results.find(result => result.status === 'rejected' && !isAbort(result.reason))
+        const finalError = failure?.status === 'rejected' ? failure.reason : streamError
+        if (wasCancelled && isAbort(finalError)) {
           console.log('[agent] v3 流被用户中止')
           emit({ taskId: 'main', title: 'Mimir', status: 'error', text: '已被用户中止。' })
         } else {
-          console.warn('[agent] v3 逐字流执行异常，回退 invoke：', streamError)
+          console.warn('[agent] v3 逐字流执行异常：', finalError)
           emit({
             taskId: 'main',
             title: 'Mimir',
             status: 'error',
-            text: `执行异常：${humanizeAgentError(streamError)}`
+            text: `执行异常：${humanizeAgentError(finalError)}`
           })
+          throw finalError
         }
       }
 
@@ -1407,12 +1446,6 @@ export class AgentService {
     } catch (error) {
       console.error('[agent] 回复失败：', error)
       throw error
-    } finally {
-      // 只在「本会话登记的任务仍是自己」时清理，避免误清新任务（同会话重发场景）
-      const registered = this.runningTasks.get(conversationId)
-      if (registered !== undefined && registered.abort === controller) {
-        this.runningTasks.delete(conversationId)
-      }
     }
   }
 
@@ -1422,7 +1455,8 @@ export class AgentService {
    * @returns 结构化摘要文本；history 为空返回 ''
    */
   async compressHistory(
-    history: { role: 'user' | 'assistant'; content: string }[]
+    history: { role: 'user' | 'assistant'; content: string }[],
+    signal?: AbortSignal
   ): Promise<string> {
     const judge = this.scJudgeModel
     if (judge === null) throw new Error('Agent 未初始化，请先在设置中配置 API Key')
@@ -1434,7 +1468,7 @@ export class AgentService {
       await this.invokeModelText(judge, [
         { role: 'system', content: COMPRESS_HISTORY_SYSTEM },
         { role: 'user', content: body }
-      ])
+      ], signal)
     ).trim()
     return text
   }
@@ -1509,7 +1543,7 @@ export class AgentService {
         .invoke([
           { role: 'system', content: ROUTE_META_SYSTEM },
           { role: 'user', content: `用户请求：\n${message}` }
-        ])
+        ], { signal })
       intents = meta.intents ?? []
       categories = (meta.categories ?? []).slice(0, 3)
       complexity = meta.complexity
@@ -1537,7 +1571,7 @@ export class AgentService {
         ? undefined
         : async (cands: RouterCandidate[], q: string): Promise<RouterCandidate[] | null> => {
             try {
-              return await rerankByEmbedding(cands, q, embedCfg)
+              return await rerankByEmbedding(cands, q, embedCfg, signal)
             } catch (error) {
               if (isEmbeddingUnavailable(error)) {
                 console.warn('[skill-router] embedding 精排不可用，回退规则排序：', error instanceof Error ? error.message : error)
@@ -1711,4 +1745,9 @@ export const agentService = new AgentService()
 /** 中止全部会话的后台任务（窗口关闭 / 应用退出时调用）。 */
 export function stopAllAgentTasks(): void {
   agentService.stopStreaming()
+}
+
+/** 维护使用的关闭接口：停止接受新轮并等待图、工具与委派收尾，不等同发出abort。 */
+export async function stopAllAgentTasksAndWait(): Promise<void> {
+  await workspaceAgentTasks.stop()
 }

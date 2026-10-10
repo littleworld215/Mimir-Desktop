@@ -59,15 +59,21 @@ function candidateText(c: RouterCandidate): string {
 export async function rerankByEmbedding(
   cands: RouterCandidate[],
   query: string,
-  config: EmbeddingConfig
+  config: EmbeddingConfig,
+  signal?: AbortSignal
 ): Promise<RouterCandidate[]> {
+  signal?.throwIfAborted()
   if (cands.length === 0) return cands
   const embedder = new OpenAIEmbeddings({
     apiKey: config.apiKey,
     model: config.model !== undefined && config.model.trim() !== '' ? config.model.trim() : DEFAULT_EMBEDDING_MODEL,
-    ...(config.baseUrl !== undefined && config.baseUrl !== ''
-      ? { configuration: { baseURL: config.baseUrl } }
-      : {})
+    configuration: {
+      ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      ...(signal ? { fetch: (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        signal.throwIfAborted()
+        return fetch(url, { ...init, signal: AbortSignal.any([signal, ...(init?.signal ? [init.signal] : [])]) })
+      } } : {})
+    }
   })
 
   const texts = [query, ...cands.map(candidateText)]

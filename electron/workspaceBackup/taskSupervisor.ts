@@ -6,9 +6,8 @@ export class WorkspaceTaskSupervisor {
   private tasks = new Set<{ controller: AbortController; promise: Promise<unknown> }>()
   private stopping?: Promise<void>
   constructor(private readonly gate: WorkspaceOperationGate, private readonly capture: () => OperationScope) {}
-  async run<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async run<T>(fn: (signal: AbortSignal) => Promise<T>, controller = new AbortController()): Promise<T> {
     if (!this.accepting) throw Error('后台任务入口已关闭。')
-    const controller = new AbortController()
     const promise = this.gate.run(this.capture(), async () => {
       // 在回调开始前先登记任务，避免同步停止遗漏刚被接受的任务。
       await Promise.resolve()

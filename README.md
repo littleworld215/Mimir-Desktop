@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-10 I6 Agent续项：对话整轮在接受时固定空间，正文结束后工具/委派/图最终状态继续受跟踪；立即停止不遗漏未启动轮次，非取消流错误不能冒充成功。普通main退出和整体锁/闸门尚未装配，独立AI入口/其它下载及受管子进程待纳管，备份恢复不可用。见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-agent-20261010.md)，安装版未更新。
+
 2026-10-10 I6后台任务续项：会议缓存刷新与独立arXiv PDF下载现按接受时空间跟踪到实际结束，切换或取消后拒绝发布，旧文件保留。停止接口已提供，但普通main退出及完整空间闸门尚未装配；Agent、其它下载和子进程继续待纳管。备份恢复不可用，安装版未更新，[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-producers-20261010.md)区分自验与静态复核。
 
 2026-10-10 I6续项：新增可安装的固定任务上下文与串行空间控制协议，任务绑定空间ID/代际/根；迟到读写与未跟踪写入拒绝，控制先排空、失败/超时保持阻断。普通main尚未装配，Agent/下载/PTY等后台纳管及维护交接仍待，备份恢复不可用。[本轮验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-context-control-20261010.md)与上一轮初始化结果分开登记。

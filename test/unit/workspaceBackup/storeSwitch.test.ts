@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { WorkspaceWriterSession } from '../../../electron/workspaceBackup/writerSession'
 import { WorkspaceOperationGate } from '../../../electron/workspaceBackup/operationGate'
-import { performance } from 'node:perf_hooks'
 
-const state = vi.hoisted(() => ({ home: '', failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, slowTemp: false, slowRead: false, checkWrites: false, copies: [] as string[] }))
+const state = vi.hoisted(() => ({ home: '', elapsed: 0, failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, slowTemp: false, slowRead: false, checkWrites: false, copies: [] as string[] }))
+// 只在指定IO边界推进单调时钟，避免10ms预算先被无关磁盘调度耗尽。
+vi.mock('node:perf_hooks', async original => {
+  const actual = await original<typeof import('node:perf_hooks')>()
+  return { ...actual, performance: { now: () => actual.performance.now() + state.elapsed } }
+})
 vi.mock('os', async original => ({ ...await original<typeof import('node:os')>(), homedir: () => state.home }))
 vi.mock('electron', () => ({ app: { getPath: () => join(state.home, 'profile') } }))
 vi.mock('node:fs', async original => {
@@ -18,15 +22,13 @@ vi.mock('node:fs', async original => {
     }
     if (state.slowTemp && typeof path === 'string' && path.includes('.tmp-store.json-')) {
       state.slowTemp = false
-      const until = performance.now() + 30
-      while (performance.now() < until) { /* synthetic slow synchronous IO */ }
+      state.elapsed += 6000
     }
     ;(fs.writeFileSync as any)(path, ...args)
   }, readFileSync: (path: string, ...args: any[]) => {
     if (state.slowRead && path === join(state.home, 'b/.mimir/store.json')) {
       state.slowRead = false
-      const until = performance.now() + 30
-      while (performance.now() < until) { /* synthetic slow synchronous IO */ }
+      state.elapsed += 6000
     }
     return (fs.readFileSync as any)(path, ...args)
   }, readdirSync: (path: string, ...args: any[]) => {
@@ -53,6 +55,7 @@ vi.mock('node:fs', async original => {
 })
 let session: WorkspaceWriterSession | undefined
 afterEach(() => {
+  state.elapsed = 0
   state.failRename = false; state.failUnlink = false; state.failOldUnlink = false
   state.checkWrites = false
   state.failCopy = false
@@ -352,7 +355,7 @@ it('控制内同步临时文件写入耗尽预算后不能rename发布指针', a
   store.installWorkspaceOperationProtection(gate)
   const before = readFileSync(registry, 'utf8')
   state.slowTemp = true
-  await expect(gate.runControl(10, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
+  await expect(gate.runControl(5000, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
   expect(readFileSync(registry, 'utf8')).toBe(before)
   expect(store.getActiveWorkspace()?.id).toBe('a')
   expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
@@ -363,7 +366,7 @@ it('指针已发布而同步读新缓存耗尽预算时保持两锁并阻断，�
   const gate = new WorkspaceOperationGate()
   store.installWorkspaceOperationProtection(gate)
   state.slowRead = true
-  await expect(gate.runControl(10, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
+  await expect(gate.runControl(5000, async () => { store.switchWorkspace('b') })).rejects.toThrow('超时')
   expect(JSON.parse(readFileSync(registry, 'utf8')).activeWorkspaceId).toBe('b')
   expect(existsSync(join(first, '.mimir/workspace.writer-lock'))).toBe(true)
   expect(existsSync(join(second, '.mimir/workspace.writer-lock'))).toBe(true)

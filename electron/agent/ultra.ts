@@ -227,9 +227,11 @@ function textContentOf(content: unknown): string {
 /** 单次模型调用并抽取纯文本（各子阶段通用）。 */
 async function invokeModelText(
   model: ChatOpenAI,
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
+  signal: AbortSignal
 ): Promise<string> {
-  const out = await model.invoke(messages)
+  signal.throwIfAborted()
+  const out = await model.invoke(messages, { signal })
   return textContentOf(out.content)
 }
 
@@ -508,7 +510,7 @@ export class UltraController {
         .invoke([
           { role: 'system', content: SC_META_SYSTEM },
           { role: 'user', content: `用户请求：\n${taskText}${forceDirective}` }
-        ])
+        ], { signal })
       reason = parsed.reason ?? ''
       roles = [...new Set(parsed.roles)].slice(0, opts?.maxRoles ?? 5)
       if (roles.length === 0 && opts?.force === true) {
@@ -558,7 +560,7 @@ export class UltraController {
                   `结构：## 结论 / ## 依据 / ## 我关注的风险与待验证点。你与其它评审相互不可见，独立作答。`
               },
               { role: 'user', content: `用户请求：\n${taskText}` }
-            ])
+            ], signal)
           ).trim()
           if (text === '') throw new Error('专家返回为空')
           candidates.push({ label: ex.label, text })
@@ -593,7 +595,7 @@ export class UltraController {
         await invokeModelText(this.judge, [
           { role: 'system', content: SC_AGG_SYSTEM },
           { role: 'user', content: `# 合议对象\n\n${taskText}\n\n# 各专家候选意见\n\n${body}` }
-        ])
+        ], signal)
       ).trim()
       if (aborted()) return { brief: null }
       this.emit({ taskId: 'sc:aggregate', title: '共识与分歧聚合', status: 'done', text: aggregated })
@@ -615,7 +617,7 @@ export class UltraController {
         await invokeModelText(this.judge, [
           { role: 'system', content: SC_REFLECT_SYSTEM },
           { role: 'user', content: `# 用户请求\n\n${taskText}\n\n# 聚合纪要\n\n${aggregated}` }
-        ])
+        ], signal)
       ).trim()
       if (aborted()) return { brief: null }
       this.emit({ taskId: 'sc:reflect', title: '反思校验', status: 'done', text: reflectText })
@@ -643,7 +645,7 @@ export class UltraController {
         .invoke([
           { role: 'system', content: VOTE_META_SYSTEM },
           { role: 'user', content: `用户请求：\n${message}` }
-        ])
+        ], { signal })
       roles = [...new Set(parsed.roles)].slice(0, 3)
       if (roles.length < 2) roles = ['reviewer', 'empiricist']
       if (aborted()) return { brief: null }
@@ -676,7 +678,7 @@ export class UltraController {
                 content: `${ex.prompt}\n\n请用 Markdown 输出你的独立意见，控制在 260 字内，结构：## 结论 / ## 依据。你与其它投票者相互不可见。`
               },
               { role: 'user', content: `用户请求：\n${message}` }
-            ])
+            ], signal)
           ).trim()
           if (text === '') throw new Error('投票者返回为空')
           candidates.push({ label: ex.label, text })
@@ -698,7 +700,7 @@ export class UltraController {
         await invokeModelText(this.judge, [
           { role: 'system', content: VOTE_AGG_SYSTEM },
           { role: 'user', content: `# 投票问题\n\n${message}\n\n# 各候选意见\n\n${body}` }
-        ])
+        ], signal)
       ).trim()
       if (aborted()) return { brief: null }
       this.emit({ taskId: 'svc:vote', title: '一致性投票', status: 'done', text: voted })
@@ -726,7 +728,7 @@ export class UltraController {
           await invokeModelText(this.judge, [
             { role: 'system', content: ULTRA_DRAFT_SYSTEM },
             { role: 'user', content: `用户任务：\n${message}` }
-          ])
+          ], signal)
         ).trim()
       }
       if (aborted()) return { brief: null }
@@ -746,7 +748,7 @@ export class UltraController {
           await invokeModelText(this.judge, [
             { role: 'system', content: ULTRA_CRITIQUE_SYSTEM },
             { role: 'user', content: `用户任务：\n${message}\n\n# 方案草案\n\n${draft}` }
-          ])
+          ], signal)
         ).trim()
         this.emit({ taskId: critTask, title: `批判评审（${round}/${rounds}）`, status: 'done', text: lastCritique })
       } catch (error) {
@@ -764,7 +766,7 @@ export class UltraController {
               role: 'user',
               content: `用户任务：\n${message}\n\n# 方案草案\n\n${draft}\n\n# 批判意见\n\n${lastCritique !== '' ? lastCritique : '（本轮未产生批判，请自查补漏后给出修订稿）'}`
             }
-          ])
+          ], signal)
         ).trim()
         this.emit({ taskId: revTask, title: `方案修订（${round}/${rounds}）`, status: 'done', text: draft })
       } catch (error) {
@@ -789,7 +791,7 @@ export class UltraController {
         .invoke([
           { role: 'system', content: ULTRA_HYBRID_META_SYSTEM },
           { role: 'user', content: `用户任务：\n${message}` }
-        ])
+        ], { signal })
       plan = (meta.plan ?? '').trim()
       hasCritical = meta.hasCritical === true
       criticalQuestion = (meta.criticalQuestion ?? '').trim()
