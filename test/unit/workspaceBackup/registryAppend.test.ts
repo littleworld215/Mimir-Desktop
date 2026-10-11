@@ -264,6 +264,38 @@ it('空注册表（无 workspaces:list）也能只追加，不创建默认空间
   expect(readdirSync(root)).toEqual(['.mimir'])
 })
 
+// ─── 时间戳工厂（给 T04b/T05 编排层注入可测时钟，不动冻结签名） ──────
+
+it('buildRegistryAppendInput 用注入时钟填 createdAt/updatedAt（可测、不猜时钟）', async () => {
+  const { buildRegistryAppendInput } = await subject()
+  const input = buildRegistryAppendInput({ id: 'x', name: 'n', path: 'C:/spaces/x' }, () => '2026-01-01T00:00:00.000Z')
+  expect(input).toEqual({
+    id: 'x',
+    name: 'n',
+    path: 'C:/spaces/x',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z'
+  })
+})
+
+it('buildRegistryAppendInput 缺省时钟产出 ISO-8601 时间戳', async () => {
+  const { buildRegistryAppendInput } = await subject()
+  const input = buildRegistryAppendInput({ id: 'x', name: 'n', path: 'C:/spaces/x' })
+  expect(input.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+  expect(input.updatedAt).toBe(input.createdAt)
+})
+
+it('工厂产出的入参可直接被 appendWorkspaceRecord 接受并落盘', async () => {
+  const { appendWorkspaceRecord, buildRegistryAppendInput } = await subject()
+  const root = home()
+  const path = seedRegistry(root)
+  const input = buildRegistryAppendInput({ id: 'x', name: 'n', path: 'C:/spaces/x' }, () => '2026-01-01T00:00:00.000Z')
+  const outcome = appendWorkspaceRecord(root, input)
+  expect(outcome.appended).toBe(true)
+  const after = JSON.parse(readFileSync(path, 'utf8'))
+  expect(after['workspaces:list'][1]).toEqual(input)
+})
+
 it('RestoreError 类型可用（错误码契约一致）', async () => {
   const { RestoreError } = await contracts()
   const error = new RestoreError('REGISTER_FAILED', 'x')

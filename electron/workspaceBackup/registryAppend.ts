@@ -58,6 +58,22 @@ export interface RegistryAppendOutcome {
   readonly spaces: number
 }
 
+/**
+ * 便捷构造 `RegistryAppendInput`：时间戳由**注入**的时钟给出（缺省 `new Date().toISOString()`）。
+ *
+ * 存在理由：`RegistryAppendInput.createdAt` / `updatedAt` 是**必填**（本模块不替调用方猜时钟，
+ * 冻结签名如此），但 T04b（`restoreRunner`）/ T05 的编排层需要在闭包里拿到**可测**的时钟：
+ * 直接写 `new Date()` 会让注册时间不可断言。本工厂把「取时」收在一处——
+ * **不改动冻结签名**，又让调用方能注入确定时间戳（如 runner 的 `opts.now`）。
+ */
+export function buildRegistryAppendInput(
+  space: { readonly id: string; readonly name: string; readonly path: string },
+  now: () => string = () => new Date().toISOString()
+): RegistryAppendInput {
+  const stamp = now()
+  return { id: space.id, name: space.name, path: space.path, createdAt: stamp, updatedAt: stamp }
+}
+
 /** 注册表文件路径（`<home>/.mimir/store.json`）。 */
 function registryFilePath(homeDir: string): string {
   return join(homeDir, '.mimir', REGISTRY_FILE_NAME)
