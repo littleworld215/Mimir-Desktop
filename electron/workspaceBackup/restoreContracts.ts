@@ -55,6 +55,18 @@ export type RestoreErrorCode =
   | 'PATH_ESCAPE'
   | 'ENTRY_LIMIT'
   | 'UNSAFE_ENTRY'
+  // 验包（inspecting 阶段：来自批次 2 的 `verify.ts`，必须如实透出而非降级为 INTERNAL）
+  // 设计 §1.3 第 1 行明写「明文错误码 + 中文说明」——故这些码必须在白名单内，
+  // 否则 `restoreRunner.asRestoreError` 会把它们归一成无信息量的 `INTERNAL`。
+  | 'OPEN_FAILED'
+  | 'READ_FAILED'
+  | 'MANIFEST_MISSING'
+  | 'MANIFEST_INVALID'
+  | 'MISSING_ENTRY'
+  | 'EXTRA_ENTRY'
+  | 'DUPLICATE_ENTRY'
+  | 'SIZE_MISMATCH'
+  | 'VERSION_UNSUPPORTED'
   // 复校
   | 'RECHECK_FAILED'
   | 'DIGEST_MISMATCH'

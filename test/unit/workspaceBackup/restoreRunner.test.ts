@@ -447,6 +447,27 @@ it('错误码归一：带无关 code 的系统错误（ENOENT）不会被误认�
   expect(outcome.failure?.detail).toContain('ENOENT')
 })
 
+it('错误码归一：验包码（OPEN_FAILED 等）必须如实透出，**不**降级为 INTERNAL', async () => {
+  // 设计 §1.3 第 1 行明写 inspecting 失败要「明文错误码 + 中文说明」。
+  // T05 联调实测：批次 2 的 `verify.ts` 产出的 `OPEN_FAILED` / `MANIFEST_INVALID` 等
+  // 不在 `RESTORE_ERROR_CODES` 白名单里，会被 `asRestoreError` 归一成无信息量的 `INTERNAL`
+  // —— 用户拿到「非 zip 归档」时看到的是 INTERNAL，与设计相悖。此用例锁定修复。
+  const { runRestore } = await runnerModule()
+  for (const code of ['OPEN_FAILED', 'MANIFEST_INVALID', 'MANIFEST_MISSING', 'VERSION_UNSUPPORTED', 'SIZE_MISMATCH'] as const) {
+    const fake = fakeSteps({
+      inspect: () => {
+        const verifyError = new Error(`验包失败：${code}`) as Error & { code: string }
+        verifyError.code = code
+        throw verifyError
+      }
+    })
+    const outcome = await runRestore(INPUT, fake.steps, OPTS)
+    expect(outcome.failure?.stage).toBe('inspecting')
+    expect(outcome.failure?.code).toBe(code)
+    expect(outcome.failure?.detail).toContain(code)
+  }
+})
+
 // ─── ⑨ 注册不重复：appended=false 仍正常 done ───────────────────────
 
 it('注册不重复：register 返回 appended=false（幂等命中）仍 done，不报错', async () => {

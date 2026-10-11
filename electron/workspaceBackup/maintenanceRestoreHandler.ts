@@ -35,6 +35,7 @@ import type {
   MaintenanceRestoreRequest,
   MaintenanceRestoreResult
 } from '../../shared/workspaceBackupContracts'
+import { WORKSPACE_BACKUP_CHANNELS } from '../../shared/workspaceBackupContracts'
 
 /**
  * 规范化渲染层回传的请求（§4.2 S7：**绝不信任**渲染层拼的路径）。
@@ -219,7 +220,7 @@ export function registerRestoreHandler(
   trusted: (event: unknown) => boolean,
   handler: RestoreHandler
 ): void {
-  ipc.handle('workspaceBackup:restore', (event: unknown, request: unknown): Promise<MaintenanceRestoreResult> => {
+  ipc.handle(WORKSPACE_BACKUP_CHANNELS.restore, (event: unknown, request: unknown): Promise<MaintenanceRestoreResult> => {
     if (!trusted(event)) throw Error('UNAUTHORIZED_SENDER')
     // 渲染层请求未经信任：`buildRestoreHandler` 内部会再规范化（此处只做类型收窄）。
     return handler(request as MaintenanceRestoreRequest)
