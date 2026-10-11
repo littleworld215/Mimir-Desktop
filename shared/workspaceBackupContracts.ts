@@ -25,7 +25,44 @@ export const WORKSPACE_BACKUP_CHANNELS = {
    * 之所以走**独立事件**而非 invoke 返回值：invoke 只能给一个终值，而进度可能在一次
    * 恢复里多次到达。通道名进常量表是为了与 preload 的硬编码字符串保持单一事实源。
    */
-  restoreProgress: 'workspaceBackup:restoreProgress'
+  restoreProgress: 'workspaceBackup:restoreProgress',
+  /**
+   * 只读自检（doctor，I6 批次 4 · T01）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**：本通道由 `maintenanceMain`
+   * 在维护模式下用**独立** `ipcMain` 注册，从不经过 `installWorkspaceIpcGate`（控制不可嵌套）。
+   * 语义：**纯只读**。自检不取锁、不建目录、不写任何文件，结果只陈述技术事实（对齐 D-038）。
+   */
+  doctor: 'workspaceBackup:doctor',
+  /**
+   * 自检进度（I6 批次 4 · T01；主进程 `webContents.send` → 渲染层 `ipcRenderer.on`）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
+   * 语义：**纯信号/可观测性**——最佳努力，丢一两条不影响自检结果；`detail` 不含本机绝对路径。
+   */
+  doctorProgress: 'workspaceBackup:doctorProgress',
+  /**
+   * 取消自检（I6 批次 4 · T01）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
+   * 语义：**只读取消**——自检无副作用，取消 = 停止继续跑剩余检查项（不中止、不回滚任何写动作）。
+   */
+  doctorCancel: 'workspaceBackup:doctorCancel',
+  /**
+   * 取消恢复（I6 批次 4 · T01）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
+   * 语义：**纯信号**——只设「请求在下一个安全点中止」标志，不写盘；一旦进入
+   * `publishing` / `registering` 阶段即拒绝（避免半成品/未注册目录）。
+   */
+  restoreCancel: 'workspaceBackup:restoreCancel',
+  /**
+   * 读取最近维护审计（I6 批次 4 · T01）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
+   * 语义：**纯只读**——读 JSONL 最近 N 条，返回**已脱敏**条目；**不**暴露 JSONL 文件路径本身。
+   */
+  auditRecent: 'workspaceBackup:auditRecent'
 } as const
 
 /**
@@ -80,6 +117,29 @@ export interface WorkspaceBackupMaintenanceApi {
    * 与 `restore` 一样为**可选**：旧版本不提供时渲染层应优雅降级（不显示进度）。
    */
   onRestoreProgress?(listener: (progress: MaintenanceRestoreProgress) => void): () => void
+  /**
+   * 运行**只读**自检（I6 批次 4 · T01，可选）。
+   *
+   * 全部只读；`request` 为最保守形态（空对象，见 `MaintenanceDoctorRequest` 注释）。
+   * 旧主进程不提供时渲染层须先判存在再调用（对齐 `restore` 的可选纪律）。
+   */
+  doctor?(request?: MaintenanceDoctorRequest): Promise<MaintenanceDoctorResult>
+  /**
+   * 订阅自检进度（可选增强；返回取消订阅函数）。
+   *
+   * `progress.detail` **不含本机绝对路径**。旧版本不提供时渲染层应优雅降级（不显示进度）。
+   */
+  onDoctorProgress?(listener: (progress: MaintenanceDoctorProgress) => void): () => void
+  /** 取消自检（可选）：只读取消，停止继续跑剩余检查项。 */
+  cancelDoctor?(): Promise<MaintenanceCancelResult>
+  /** 取消恢复（可选）：信号语义，只在 `publish` 之前被接受；不可取消阶段返回 `ok:false`。 */
+  cancelRestore?(): Promise<MaintenanceCancelResult>
+  /**
+   * 读取最近维护审计（可选，只读）。
+   *
+   * 返回**已脱敏**条目数组；**不**暴露 JSONL 文件路径。`limit` 由主进程钳制到安全上限。
+   */
+  auditRecent?(limit?: number): Promise<MaintenanceAuditView>
 }
 
 /** 恢复进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
@@ -142,3 +202,154 @@ export type MaintenanceRestoreResult =
       /** 是否可通过「重试」再次执行（`inspecting` 失败需换归档 → false）。 */
       retryable: boolean
     }
+
+/* ------------------------------------------------------------------------- *
+ * I6 批次 4 · T01：自检（doctor）与脱敏审计的共享契约（**全部新增、全部可选**）。
+ *
+ * 兼容纪律：本段所有类型都是**新增**的；`WorkspaceBackupMaintenanceApi` 上的新增方法
+ * 全部为**可选**（`?`），旧渲染层忽略即可、旧主进程不提供时新渲染层需判存在再调用。
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 单条检查的结论严重度（四级）。
+ *
+ * ⚠️ `severity` 只描述「技术一致性」的偏离程度，**不含任何科研语义**（对齐 D-038：
+ * 拒绝替用户做科研判断，不给「健康度」/「评分」/「是否该清理」的结论）。
+ */
+export type DoctorSeverity =
+  | 'ok' // 通过
+  | 'notice' // 可注意（如：发现残留暂存根，可清理但非错误）
+  | 'warning' // 偏离（如：某空间 assets.db 缺表 / 外键违规）
+  | 'error' // 阻塞性（如：注册表不可读 → 无法继续）
+
+/**
+ * 单条自检结论。
+ *
+ * 形状在**共享契约**中定义（渲染层要消费它），`electron/workspaceBackup/doctorReport.ts`
+ * 从此处 import 并 re-export，**只此一处定义**。
+ */
+export interface DoctorCheck {
+  /** 稳定检查 id（SCREAMING_SNAKE，供 UI 与人话映射，不随文案变）。 */
+  readonly id: string
+  /** 中文短标题。 */
+  readonly title: string
+  /** 结论严重度（四级）。 */
+  readonly severity: DoctorSeverity
+  /**
+   * 面向用户的说明（中文）。
+   *
+   * ⚠️ **不含本机绝对路径 / 凭据**：路径只以 basename 或根别名（`<space-root>` / `<home>`）
+   * 呈现。这是批次 3 一次真实泄漏（`restoreMain.ts:305` 把 `oldRoot` 绝对路径塞进 detail）
+   * 留下的教训，本批所有 detail/文案类字段一律重申此纪律。
+   */
+  readonly detail: string
+  /** 结构化事实计数（可空）。 */
+  readonly facts?: Readonly<Record<string, number>>
+}
+
+/**
+ * 自检报告（四级严重度 + 逐项结论，**绝不汇总成「健康分」**）。
+ *
+ * `DoctorReport` 的 `checks[].detail` 与整体均已脱敏，可被沙箱渲染层安全消费。
+ */
+export interface DoctorReport {
+  /** 报告生成时刻（ISO）。 */
+  readonly at: string
+  /** 逐项检查结论（顺序稳定）。 */
+  readonly checks: DoctorCheck[]
+  /** 汇总计数（便于 UI 概览；**不是**评分）。 */
+  readonly summary: { ok: number; notice: number; warning: number; error: number }
+}
+
+/**
+ * 自检请求（渲染层 → 主进程）。
+ *
+ * ⚠️ §4.2 纪律：**不接受**渲染层拼的任意路径。为最保守起见，本批 doctor 请求为**空对象**
+ * （`Record<string, never>`）——自检所需的 home/归档目录等服务层内部概念一律由主进程从自身
+ * 运行环境推导，渲染层无法也不得影响。若将来需限制扫描规模，只允许追加 `limit` 类无害数值
+ * 参数，**绝不**允许 `archiveDir` 等路径字段。
+ */
+export type MaintenanceDoctorRequest = Record<string, never>
+
+/**
+ * 自检进度上报（主进程 → 渲染层；对齐 `MaintenanceRestoreProgress` 的形态）。
+ *
+ * `detail` **不含任何本机绝对路径**（只报「正在检查 X（第 i/n 项）」这类文案，不给百分比，
+ * 避免暗示「接近完成」的假象——设计 §8 U4）。
+ */
+export interface MaintenanceDoctorProgress {
+  /** 阶段标识（如 `scanning-registry` / `verifying-archive` / `checking-space` / `residual`）。 */
+  readonly stage: string
+  /** 面向用户的阶段说明（中文，**不含本机绝对路径 / 凭据**）。 */
+  readonly detail: string
+}
+
+/**
+ * 自检结果（主进程 → 渲染层）：**单向裁剪**，可被沙箱渲染层安全消费。
+ *
+ * - 成功：只出 `{ ok:true, at, checks[], summary }`（`checks[].detail` **已脱敏**）。
+ * - 失败：只出 `{ ok:false, code, detail }`（**不含**任何本机路径 / 凭据）。
+ */
+export type MaintenanceDoctorResult =
+  | {
+      readonly ok: true
+      /** 报告生成时刻（ISO）。 */
+      readonly at: string
+      /** 逐项检查结论（已脱敏）。 */
+      readonly checks: DoctorCheck[]
+      /** 汇总计数（**不是**评分）。 */
+      readonly summary: { ok: number; notice: number; warning: number; error: number }
+    }
+  | {
+      readonly ok: false
+      /** 失败码（SCREAMING_SNAKE；渲染层据此给出人话文案）。 */
+      readonly code: string
+      /** 面向用户的说明（**不含**本机绝对路径 / 凭据）。 */
+      readonly detail: string
+    }
+
+/**
+ * 取消类请求的返回（`cancelDoctor` / `cancelRestore` 共用）。
+ *
+ * 语义：**信号**——`ok:true` 表示取消请求已被接受（自检：停止继续跑；恢复：在下一个安全点
+ * 中止），**不**代表动作已立即停止，也**不**代表任何写动作被回滚。
+ */
+export interface MaintenanceCancelResult {
+  /** 取消请求是否被接受。 */
+  readonly ok: boolean
+  /** 未接受时的原因码（SCREAMING_SNAKE；如不可取消阶段）。 */
+  readonly code?: string
+}
+
+/**
+ * 允许落审计的条目形状（**白名单字段，无自由挂载位**）。
+ *
+ * 审计 writer 只接受本形状，**不接受任意对象**——从类型上就杜绝「顺手塞进整条记录」。
+ * 所有值均已脱敏：`labels` 的值只允许空间**名** / 归档**文件名（basename）**，**绝不含绝对路径**。
+ */
+export interface MaintenanceAuditEntry {
+  /** 记录时刻（ISO）。 */
+  readonly at: string
+  /** 动作类别（本批两类）。 */
+  readonly action: 'restore' | 'doctor'
+  /** 结果。 */
+  readonly outcome: 'ok' | 'failed'
+  /** 失败码（SCREAMING_SNAKE，非自由文本）。 */
+  readonly code?: string
+  /** 计数类事实（条目数 / 字节 / 改写数 / 检查项数…）。 */
+  readonly counts?: Readonly<Record<string, number>>
+  /** 脱敏后的**标识**：空间**名**、归档**文件名（basename）**；**绝不含绝对路径 / 凭据**。 */
+  readonly labels?: Readonly<Record<string, string>>
+}
+
+/**
+ * 审计查看结果（主进程 → 渲染层）。
+ *
+ * 只出**已脱敏**条目数组；**不**暴露 JSONL 文件路径本身（对齐 §4.3 裁剪纪律）。
+ */
+export interface MaintenanceAuditView {
+  /** 最近 N 条审计条目（已脱敏；按时间倒序或读者既定顺序）。 */
+  readonly entries: MaintenanceAuditEntry[]
+  /** 读取时跳过的坏行数（半行截断容错计数；无则为 0）。 */
+  readonly skipped: number
+}
