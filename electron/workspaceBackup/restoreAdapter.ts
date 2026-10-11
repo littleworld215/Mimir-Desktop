@@ -49,6 +49,18 @@ export interface RestoreAdapterOptions {
    * → 由 T05 主进程接线注入真实实现。
    */
   readonly checkAssetsIntegrity?: (dbPath: string) => Promise<void>
+  /**
+   * **目标是否在本次操作开始前就已存在**（§2.1 落点不可覆盖的判据）。
+   *
+   * ⚠️ 生产接线**必须**注入，否则 `inspect` 只能退化为实时 `existsSync(targetRoot)`——
+   * 而调用方为了按 §4.2 S5 取写锁，往往不得不**先把目标目录建出来**（见
+   * `restoreMain.runMaintenanceRestore` 的函数头注释），届时实时 stat 永远为真，
+   * 每次恢复都会以 `TARGET_EXISTS` 失败。
+   *
+   * 缺省 `undefined` = 走实时 `existsSync`（保持本层可脱离 `restoreMain` 单测的旧行为，
+   * 且对「调用方自己保证目录不存在」的用法无害）。
+   */
+  readonly targetExistedBefore?: boolean
 }
 
 /** 读取并解析暂存根内的空间层 store.json。 */
@@ -81,6 +93,7 @@ function readStagedSpaceStore(stagingRoot: string): Record<string, unknown> {
 export function createRestoreSteps(options: RestoreAdapterOptions = {}): RestoreSteps {
   const nowIso = options.now ?? (() => new Date().toISOString())
   const checkAssetsIntegrity = options.checkAssetsIntegrity
+  const targetExistedBefore = options.targetExistedBefore
 
   /** inspect 生成、createStaging 消费的本次暂存 token。 */
   let pendingToken = ''
@@ -89,8 +102,10 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
 
   return {
     async inspect(input: RestoreInput) {
-      // 目标是否已存在由**调用方 stat**得到：`planRestore` 是零 IO 纯函数。
-      const targetExists = existsSync(input.targetRoot)
+      // 目标是否已存在由**调用方**给出优先：`planRestore` 是零 IO 纯函数，
+      // 而调用方可能为了取写锁而先建了空目录——此时实时 stat 会把它误判成「用户既有目录」。
+      // 未注入时退回实时 stat（见 RestoreAdapterOptions.targetExistedBefore 注释）。
+      const targetExists = targetExistedBefore ?? existsSync(input.targetRoot)
       const verified = await verifyBackup(input.archivePath)
       pendingToken = randomUUID()
       return planRestore({
@@ -124,9 +139,19 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
      * T03 改写（§3.4 a/b）：读暂存副本 → 白名单改写 → 原子写回。
      *
      * 这是整条链路里**唯一**的复合 IO 步骤；编排层只认 `RemapAuditReport`。
+     *
+     * ⚠️ **空间层 store.json 不存在 ≠ 失败**（设计 §3.5：「允许结论是『零处需重写』，
+     * 不算失败」）。一个刚创建、尚未写入任何内容的科研空间本来就没有 `.mimir/store.json`
+     * （见 `store.ts` 的 `spaceRoot()` 兜底语义）；若把它当 `RECHECK_FAILED`，
+     * 就会让**空空间永远无法恢复**——这是本函数在 T05 联调时被真实用例抓到的缺陷。
+     * 故：文件缺失 → 视为空 store（`{}`），不写盘、不产生改写，直接返回空报告。
      */
     async remap(input: RestoreInput, stagingRoot: string): Promise<RemapAuditReport> {
       const storePath = join(stagingRoot, ...SPACE_STORE_REL)
+      if (!existsSync(storePath)) {
+        // 空 store：白名单一项都没命中（也无可改写处），审计报告如实为空。
+        return { found: [], rewritten: [], skipped: [], observed: [] }
+      }
       const store = readStagedSpaceStore(stagingRoot)
       const { store: remapped, report } = remapSpaceStore(store, input.oldRoot, input.targetRoot)
       // 原子写回（temp + rename）。注：该辅助在 POSIX 下给 0600，比 store.ts 对空间层的
@@ -136,8 +161,11 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async recheck(_input: RestoreInput, stagingRoot: string) {
-      // ① 空间层配置必须可解析（remap 刚写过，这里再读一次确认落盘结果成立）。
-      readStagedSpaceStore(stagingRoot)
+      // ① 空间层配置：**存在才需要**校验可解析（remap 刚写过就再读一次确认落盘成立）。
+      //    不存在是合法状态（空空间，见 remap 注释），此时无从校验、也不该失败。
+      if (existsSync(join(stagingRoot, ...SPACE_STORE_REL))) {
+        readStagedSpaceStore(stagingRoot)
+      }
       // ② 资产库：存在就必须真验；未注入钩子则跳过（理由见 RestoreAdapterOptions 注释）。
       const dbPath = join(stagingRoot, ...ASSETS_DB_REL)
       if (!existsSync(dbPath)) return
