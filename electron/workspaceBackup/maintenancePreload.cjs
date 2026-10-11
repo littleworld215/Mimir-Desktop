@@ -29,5 +29,11 @@ contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
   cancelDoctor: () => ipcRenderer.invoke('workspaceBackup:doctorCancel'),
   cancelRestore: () => ipcRenderer.invoke('workspaceBackup:restoreCancel'),
   // 读取最近维护审计（只读；返回已脱敏条目，不暴露 JSONL 文件路径）。
-  auditRecent: limit => ipcRenderer.invoke('workspaceBackup:auditRecent', limit)
+  auditRecent: limit => ipcRenderer.invoke('workspaceBackup:auditRecent', limit),
+  // 保留策略预览（I6 批次 5 · T04；只读 dry-run）：返回脱敏视图（只含文件名 / 大小 / 时间 /
+  // 保留或清理标记 + 一次性 confirmToken），**绝不含绝对路径**。
+  retentionPreview: () => ipcRenderer.invoke('workspaceBackup:retentionPreview'),
+  // 保留策略确认清理（写路径）：入参**只有一个** { confirmToken }（来自上一次预览）——
+  // **绝不回传文件列表**：主进程据 token 自己重算候选，渲染层不得指定删除目标（设计 §2.2 / K2）。
+  applyRetention: (token) => ipcRenderer.invoke('workspaceBackup:retentionApply', { confirmToken: token })
 }))

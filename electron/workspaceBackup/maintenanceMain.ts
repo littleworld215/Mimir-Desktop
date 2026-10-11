@@ -8,6 +8,7 @@ import { readRegistryOverview } from './registryView'
 import { listRestoreArchives } from './restoreMain'
 import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
 import { buildDoctorHandler, registerDoctorHandler } from './maintenanceDoctorHandler'
+import { buildRetentionHandler, registerRetentionHandler } from './maintenanceRetentionHandler'
 import { redactText } from './redact'
 import type { MaintenanceCancelResult } from '../../shared/workspaceBackupContracts'
 import {
@@ -126,6 +127,20 @@ void app.whenReady().then(async () => {
     }
   })
   registerDoctorHandler(ipcMain, trusted, doctorHandler)
+
+  /**
+   * 保留预览 / 清理 handler（I6 批次 5 · T04）。
+   *
+   * ⚠️ **纪律「控制不可嵌套」**：本 handler **不**经 `installWorkspaceIpcGate`；预览是**只读**
+   * （不取锁、不建目录、不写文件），清理**只**调服务层（`retentionService`），**绝不**调任何
+   * `workspaces:*` IPC。**不要**把本通道加进 `ipcGate.ts` 的 `control` / `workspaceChanges`
+   * 集合（K9）。
+   *
+   * 入参纪律（K2）：`apply` **只收 `{ confirmToken }`**——渲染层不得回传路径 / 文件列表；
+   * 主进程据 token **自己重算**候选（`maintenanceRetentionHandler` 内严格规范化后再交服务层）。
+   */
+  const retentionHandler = buildRetentionHandler({ homeDir: home })
+  registerRetentionHandler(ipcMain, trusted, retentionHandler)
 
   /**
    * 取消通道（批次 4 · T04）。
