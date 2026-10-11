@@ -30,6 +30,7 @@ import { basename, dirname, isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { RestoreError } from './restoreContracts'
 import { readRegistryOverview } from './registryView'
+import { normalizeRootForMatch } from './remapRules'
 
 /** 注册表文件名（本机，非空间层）。 */
 const REGISTRY_FILE_NAME = 'store.json'
@@ -52,7 +53,12 @@ export interface RegistryAppendInput {
 /** 追加结果：`appended:false` 表示 id 已存在（幂等，未重复写入）。 */
 export interface RegistryAppendOutcome {
   readonly appended: boolean
-  /** 本次写入前的原字节快照路径。 */
+  /**
+   * 本次写入前的原字节快照路径。
+   *
+   * `''` 表示**未写入故未拍快照**（幂等命中分支）——保护快照的意义是「写前留原字节」，
+   * 既然不写盘就没有可保护的变更，也不该在 `.mimir` 里留下会被 retry 不断堆积的文件。
+   */
   readonly snapshotPath: string
   /** 写入后 `workspaces:list` 的条目总数。 */
   readonly spaces: number
@@ -176,10 +182,33 @@ function readSpacesList(registry: Record<string, unknown>, path: string): Array<
 }
 
 /**
+ * 两条登记是否指向**同一个目录**。
+ *
+ * 必须归一化后再比：Windows 下同一目录有 `C:\spaces\x` / `C:/spaces/x` /
+ * `C:/spaces/x/` / 大小写变体等多种写法，直接 `===` 会**漏判**——而漏判的后果正是
+ * 幂等防线要防的「同一个目录被登记两次」。
+ *
+ * 复用 T03 的 `normalizeRootForMatch`（零 IO 纯函数，已有用例覆盖盘符大小写与尾分隔符），
+ * 不在此处另写正则。它缺省在 win32 大小写不敏感、其余平台敏感，与文件系统语义一致。
+ */
+function sameSpacePath(recorded: unknown, candidate: string): boolean {
+  if (typeof recorded !== 'string' || recorded === '') return false
+  return normalizeRootForMatch(recorded) === normalizeRootForMatch(candidate)
+}
+
+/**
  * 只追加一条空间登记（S1–S10）。
  *
- * 顺序：① 读原始 JSON ② 快照原字节 ③ id 已存在 → 幂等返回 ④ 只替换 `workspaces:list`
- * ⑤ 原子写 ⑥ 用 `readRegistryOverview` 复核新 id 存在。
+ * 顺序：① 读原始 JSON ② **先判重**（命中即返回，**不拍快照**）③ 拍保护快照
+ * ④ 只替换 `workspaces:list` ⑤ 原子写 ⑥ 用 `readRegistryOverview` 复核新 id 存在。
+ *
+ * ⚠️ 判重看 **`id` 或 `path` 任一**命中，不能只看 `id`：设计 §4.2 S9 明文写着
+ * 「以**新 UUID** 追加」——重试时 id 本就会变，只按 id 判重永远命中不了，
+ * 同一个目录会被登记两次。而 `path` 在一次恢复操作的各次重试之间是稳定的，
+ * 注册表正是「该路径是否已登记」的权威判据。
+ *
+ * ⚠️ 判重**先于**快照：保护快照的意义是「写前留原字节」，既然幂等命中不写盘，
+ * 就没有可保护的变更。否则每次 retry 都会在 `.mimir` 里留下一份无用快照并持续堆积。
  *
  * @throws RestoreError `REGISTRY_INVALID`（注册表损坏 / 入参非法）| `REGISTER_FAILED`（写失败 / 复核失败）
  */
@@ -195,14 +224,17 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
   const path = registryFilePath(homeDir)
   // ① 原始对象（绝不走 loadStore）
   const registry = readRegistryRaw(homeDir)
-  // ② 本机保护快照（写在最前，任何后续失败都有原字节可回滚）
-  const snapshotPath = snapshotRegistryFile(homeDir)
-  // ③ 幂等（S9）：retry 不得产生重复记录
+  // ② 判重（**先于**快照：幂等命中不写盘，就没有需要保护的变更）
   const spaces = readSpacesList(registry, path)
-  const existing = spaces.find((space) => space['id'] === input.id)
+  const existing = spaces.find(
+    (space) => space['id'] === input.id || sameSpacePath(space['path'], input.path)
+  )
   if (existing !== undefined) {
-    return { appended: false, snapshotPath, spaces: spaces.length }
+    // `snapshotPath` 为 '' = 未写入故未拍快照（它是必填 string，不用 undefined 强转）。
+    return { appended: false, snapshotPath: '', spaces: spaces.length }
   }
+  // ③ 本机保护快照（仅在确定要写盘之后拍，避免 retry 堆积无用快照）
+  const snapshotPath = snapshotRegistryFile(homeDir)
 
   // ④ 只替换 workspaces:list；其余键（settings / servers:list / active / default …）逐字保留。
   const record: Record<string, unknown> = {

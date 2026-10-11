@@ -172,6 +172,54 @@ it('同一 id 追加两次 → 第二次 appended:false，条目数不变', asyn
   expect(JSON.parse(readFileSync(path, 'utf8'))['workspaces:list']).toHaveLength(2)
 })
 
+/**
+ * ⚠️ 这是幂等防线**最关键**的一条：设计 §4.2 S9 明文写着「以**新 UUID** 追加」，
+ * 即重试时 id 本就会变。若只按 id 判重，这条用例会失败——同一目录被登记两次。
+ */
+it('不同 id 但同一路径 → 幂等，绝不产生第二条登记（S9：重试时 id 本就会变）', async () => {
+  const { appendWorkspaceRecord } = await subject()
+  const root = home()
+  const path = seedRegistry(root)
+  const first = appendWorkspaceRecord(root, NEW_SPACE)
+  const retried = appendWorkspaceRecord(root, { ...NEW_SPACE, id: 'another-uuid' })
+  expect(first.appended).toBe(true)
+  expect(retried.appended).toBe(false)
+  expect(JSON.parse(readFileSync(path, 'utf8'))['workspaces:list']).toHaveLength(2)
+})
+
+/**
+ * 路径必须归一化后再比，否则等于没判：同一目录在 Windows 下有
+ * `C:\spaces\x` / `C:/spaces/x` / `C:/spaces/x/` 等多种写法，直接 `===` 会漏判。
+ *
+ * 这里用**平台无关**的写法（仅尾分隔符不同）断言，避免大小写断言在 Linux CI 上失真——
+ * 大小写敏感性由 `normalizeRootForMatch` 按平台缺省决定，不在此处固化。
+ */
+it('路径仅尾分隔符不同 → 仍判为同一目录，不重复登记', async () => {
+  const { appendWorkspaceRecord } = await subject()
+  const root = home()
+  const path = seedRegistry(root)
+  appendWorkspaceRecord(root, { ...NEW_SPACE, path: '/root/spaces/restored' })
+  const second = appendWorkspaceRecord(root, { ...NEW_SPACE, id: 'another-uuid', path: '/root/spaces/restored/' })
+  expect(second.appended).toBe(false)
+  expect(JSON.parse(readFileSync(path, 'utf8'))['workspaces:list']).toHaveLength(2)
+})
+
+/** 保护快照的意义是「写前留原字节」；幂等命中不写盘，就不该留下会被 retry 不断堆积的 `.bak`。 */
+it('幂等命中不拍快照（未写盘就没有需要保护的变更），.mimir 内文件数不增长', async () => {
+  const { appendWorkspaceRecord } = await subject()
+  const root = home()
+  seedRegistry(root)
+  const first = appendWorkspaceRecord(root, NEW_SPACE)
+  const before = readdirSync(join(root, '.mimir')).length
+  const second = appendWorkspaceRecord(root, { ...NEW_SPACE, id: 'another-uuid' })
+  const after = readdirSync(join(root, '.mimir')).length
+  expect(first.appended).toBe(true)
+  expect(first.snapshotPath).not.toBe('')
+  expect(second.appended).toBe(false)
+  expect(second.snapshotPath).toBe('')
+  expect(after).toBe(before)
+})
+
 // ─── 失败组：rename 失败 → REGISTER_FAILED，原文件未被改写 ───────────
 
 it('rename 失败 → REGISTER_FAILED，原 store.json 逐字未被改写，临时文件已清理', async () => {
