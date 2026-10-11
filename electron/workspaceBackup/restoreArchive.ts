@@ -14,16 +14,29 @@
  * - 推导值是**相对路径**（不是绝对路径）。设计 §3.4 R1 的匹配语义是
  *   「`pdfPath` 以**旧空间根为前缀**」——只要两边用同一口径（都取相对形态），
  *   `matchRootPrefix` 就能命中。因此这里**不**、也**不能**臆造一个绝对盘符。
- * - 匹配**宁可不中**：推不出（空清单、单根层文件、路径形态异常）时返回 `null`，
- *   由调用方把 `oldRoot` 退化为空串——此时 T03 一条都不改写（`skipped: not-absolute`），
- *   空间仍能完整恢复，只是 `pdfPath` 保持旧值。**绝不猜测**：猜错会把
- *   用户空间外的 PDF 路径改到新空间里（K2/§7 高危误写）。
+ *
+ * ⚠️ **上面这条「同口径就能命中」的推断是错的，已被实测推翻（T05 联调）**：
+ * `remapRules.matchRootPrefix` 第 147 行要求「旧根与待改写值**都是绝对路径**」才可能命中
+ * （`isAbsolutePathLike` 双侧判定）。而 store 里的 `pdfPath` 是**绝对**路径
+ * （`electron/library/types.ts` 明写「已下载 PDF 的绝对路径」），
+ * 于是把**相对**根喂进 T03 → `rewritten=0`（`reason: outside-old-root`），
+ * 换成绝对根 → `rewritten=1`。**结论：T03 的路径改写只能以绝对旧根为基准。**
+ *
+ * 因此本文件的 `oldRootFromArchive` **不再是 T03 的匹配基准**，它的正确用途有二：
+ * 1. `canDeriveOldRoot` —— 在**选归档阶段**给用户提示「这份归档的条目形态是否规整」；
+ * 2. 作为 `sourceRoot` 缺失（批次 2/3 早期归档）时的**诊断信息**，不作改写依据。
+ *
+ * 权威基准改由 `readArchiveManifest` 读出的 **`ArchiveManifest.sourceRoot`**（绝对路径，
+ * 打包时写入）担任，见 `restoreMain.runMaintenanceRestore` 的旧根选择逻辑。
+ * 匹配**宁可不中**：`sourceRoot` 缺失时 `oldRoot` 退化为空串——此时 T03 一条都不改写，
+ * 空间仍能完整恢复，只是 `pdfPath` 保持旧值。**绝不猜测**：猜错会把
+ * 用户空间外的 PDF 路径改到新空间里（K2/§7 高危误写）。
  *
  * 纪律：
  * - 推导逻辑（`oldRootFromArchive` / `canDeriveOldRoot`）**零 IO**：输入是已读出的清单条目
- *   数组，不打开归档、不 stat。归档读取由 `readArchiveManifestEntries` 负责，
- *   它是本文件**唯一**触碰 IO 的函数（沿用 `extract.ts` 的 yauzl 手法，不引新依赖）。
- * - 不 import 任何 `electron` 模块；`fs` 也只用在 `readArchiveManifestEntries` 一处。
+ *   数组，不打开归档、不 stat。归档读取由 `readArchiveManifest` / `readArchiveManifestEntries`
+ *   负责，它们是本文件**唯一**触碰 IO 的函数（沿用 `extract.ts` 的 yauzl 手法，不引新依赖）。
+ * - 不 import 任何 `electron` 模块；`fs` 也只用在归档读取两处。
  */
 
 import yauzl from 'yauzl'
@@ -61,6 +74,10 @@ function commonDirectoryPrefix(a: readonly string[], b: readonly string[]): stri
 /**
  * 从清单条目推导归档内记录的**旧空间根（相对形态）**。
  *
+ * ⚠️ **本函数的结果不再是 T03 的匹配基准**（相对根与绝对 `pdfPath` 永不匹配，实测见文件头
+ * 注释）。它的正确用途是「形态诊断」与 `canDeriveOldRoot`，以及作为 `sourceRoot` 缺失时的
+ * 参考信息。**T03 必须用 `ArchiveManifest.sourceRoot`（绝对路径）。**
+ *
  * ⚠️ **只看文件条目，忽略目录条目。** 这条规则是被真实归档形态逼出来的，不是偏好：
  * 一份源为 `<src>/papers/a.pdf` 的归档，清单是
  * `papers [directory]` + `papers/a.pdf [file]`。
@@ -73,7 +90,7 @@ function commonDirectoryPrefix(a: readonly string[], b: readonly string[]): stri
  * 若归档只有目录条目（真实打包不会发生），则推不出根，返回 `null`。
  *
  * @param entries 归档内清单条目（`ArchiveManifest.entries`）
- * @returns 归一化后的相对根；**推不出时返回 `null`**（调用方须退化为「不改写」）
+ * @returns 归一化后的**相对**根；**推不出时返回 `null`**（调用方须退化为「不改写」）
  */
 export function oldRootFromArchive(entries: readonly ManifestEntry[]): string | null {
   let prefix: string[] | null = null
@@ -156,6 +173,24 @@ function readEntryBytes(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buf
  * @throws RestoreError `RECHECK_FAILED` 当清单缺失 / 不可解析 / 归档无法打开
  */
 export async function readArchiveManifestEntries(archivePath: string): Promise<ManifestEntry[]> {
+  const manifest = await readArchiveManifest(archivePath)
+  return manifest.entries
+}
+
+/**
+ * 从归档读出**完整清单**（含 `sourceRoot`）。
+ *
+ * 与 `readArchiveManifestEntries` 的分工：后者只返回 `entries`（推导相对旧根只需要它）；
+ * 本函数额外带出 `sourceRoot` —— 恢复侧 T03 的**唯一权威**匹配基准（**绝对**路径）。
+ *
+ * 为什么必须有它：`remapRules.matchRootPrefix` 硬要求「旧根与待改写值都为绝对路径」，
+ * 而 `oldRootFromArchive` 推导出的是**相对**根 → 两者永不匹配（实测：`rewritten=0`，
+ * 理由 `outside-old-root`）。绝对根无法从归档条目反推，只能由打包侧写进清单。
+ *
+ * @returns 完整清单；`sourceRoot` 缺失（早期归档）时为 `undefined`，调用方须退化为「不改写」。
+ * @throws RestoreError `RECHECK_FAILED` 当清单缺失 / 不可解析 / 归档无法打开
+ */
+export async function readArchiveManifest(archivePath: string): Promise<ArchiveManifest> {
   const zipfile = await openArchive(archivePath)
   try {
     const buffer = await new Promise<Buffer | null>((resolveFound, rejectFound) => {
@@ -197,7 +232,7 @@ export async function readArchiveManifestEntries(archivePath: string): Promise<M
     if (!Array.isArray(manifest.entries)) {
       throw new RestoreError('RECHECK_FAILED', `归档清单 entries 不是数组：${archivePath}`)
     }
-    return manifest.entries
+    return manifest
   } catch (error) {
     throw error instanceof RestoreError
       ? error

@@ -12,6 +12,13 @@ export function installWorkspaceIpcGate(
   spaceControl?: { timeoutMs: number }
 ) {
   const handle = ipc.handle.bind(ipc)
+  // **控制通道**：不被排空阻塞（否则会等待自身），由处理器自行完成串行化与 timeout。
+  // - `workspaceBackup:enterMaintenance`：交接状态机入口（维护窗口启动前置动作）。
+  // - 恢复类通道（见 `WORKSPACE_RESTORE_CHANNELS`）**刻意不在此列**，也不在下方
+  //   `workspaceChanges` 里：它们在**维护模式**下由 `maintenanceMain` 用**独立** ipcMain
+  //   注册，压根不经过本闸门。把它们放进 `workspaceChanges` 会让恢复被
+  //   `runControl` 包一层——而恢复自身已持有写者会话、并在内部按 §1.3 规则 4
+  //   禁止嵌套控制，包两层即「控制嵌套」死锁。
   const control = new Set(['agent:approval-respond', 'agent:stop', 'terminal:close', 'workspaceBackup:enterMaintenance'])
   const workspaceChanges = new Set(['workspaces:create', 'workspaces:switch', 'workspaces:rename', 'workspaces:remove', 'workspaces:setDefault'])
   ipc.handle = (channel, fn) => {

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { canDeriveOldRoot, oldRootFromArchive, readArchiveManifestEntries } from '../../../electron/workspaceBackup/restoreArchive'
+import { canDeriveOldRoot, oldRootFromArchive, readArchiveManifest, readArchiveManifestEntries } from '../../../electron/workspaceBackup/restoreArchive'
 import { buildManifest } from '../../../electron/workspaceBackup/manifest'
 import { createBackup } from '../../../electron/workspaceBackup/packer'
 import type { ManifestEntry } from '../../../electron/workspaceBackup/manifest'
@@ -119,6 +119,28 @@ it('真实归档：从 packer 产物读出的清单能推导出与打包根同�
   const archive = join(root, 'backups', 'space.zip')
   await createBackup({ root: src, destination: archive, stagingDir: join(root, 'staging'), assetsDb: null })
   expect(oldRootFromArchive(await readArchiveManifestEntries(archive))).toBeNull()
+})
+
+it('readArchiveManifest 带出 sourceRoot（T03 的绝对匹配基准，打包时写入）', async () => {
+  // 存在理由（实测更正）：`remapRules.matchRootPrefix` 要求旧根与待改写值**都为绝对路径**，
+  // 而 `oldRootFromArchive` 推导的是**相对**根 → 永不命中（`rewritten=0`）。
+  // 故绝对旧根只能由打包侧写进清单，恢复侧从 `sourceRoot` 读。
+  const root = sandbox()
+  const src = join(root, 'src')
+  mkdirSync(join(src, 'papers'), { recursive: true })
+  writeFileSync(join(src, 'papers', 'a.pdf'), 'A', 'utf8')
+  mkdirSync(join(root, 'backups'), { recursive: true })
+  const archive = join(root, 'backups', 'space.zip')
+  await createBackup({ root: src, destination: archive, stagingDir: join(root, 'staging'), assetsDb: null })
+
+  const manifest = await readArchiveManifest(archive)
+  // `resolve(root)` 的结果：绝对且与本用例的 src 同路径（分隔符归一后比较）。
+  expect(typeof manifest.sourceRoot).toBe('string')
+  expect(manifest.sourceRoot!.replace(/\\/g, '/')).toBe(src.replace(/\\/g, '/'))
+  // 相对推导仍照旧可用（形态诊断），但**不再**是 T03 的匹配基准。
+  expect(oldRootFromArchive(manifest.entries)).toBe('papers')
+  // entries 与只读 entries 的旧入口一致（后者是前者的薄封装）。
+  expect(await readArchiveManifestEntries(archive)).toEqual(manifest.entries)
 })
 
 it('清单缺失 / 归档损坏 → 抛 RECHECK_FAILED（绝不静默返回空数组）', async () => {

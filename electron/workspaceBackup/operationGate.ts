@@ -157,3 +157,59 @@ export function acquireWriterLockFile(path: string, canonicalRoot: string) {
     active = false
   } }
 }
+
+/**
+ * **可随目录 rename 迁移**的写锁（I6 批次 3 · T05）。
+ *
+ * 与 `acquireWriterLockFile` 的唯一区别：**写完立即关闭句柄**，只留文件内容作为凭据。
+ *
+ * 为什么需要它（实测结论，不是推测）：
+ * - 恢复的发布动作是对暂存根做一次 `renameSync(staging, target)`，把锁一并带到新空间根；
+ *   这样既满足 §4.2 S5「写新空间目录前已持该目录写锁」，又不必**预先建出**目标目录
+ *   （预建会撞上 §2.1「目标必须不存在」的硬约束，见 `restoreMain` 函数头注释）。
+ * - 但 Windows 下 `renameSync` 一个**内含打开句柄文件**的目录会直接 `EPERM`。
+ *   → 必须不持句柄。
+ *
+ * 语义上与 `acquireWriterLockFile`**等强**：原子独占创建（`wx`）+ token 复核删除。
+ * 关闭句柄**不**削弱任何保证——「谁是锁主」的凭据自始就是文件里的 token，
+ * fd 只用于「写完之前不让别人读到半截内容」，这一点由 `writeFileSync(fd)` 同步完成。
+ *
+ * ⚠️ 因此 `release()` **必须在 rename 之后用新路径调用**（`releaseAt`）：
+ * 原路径在 rename 后已不存在。为防误用，本函数返回的 `release()` 绑定**创建时**的路径，
+ * 并额外提供 `releaseAt(nextPath)` 供迁移后显式切换。
+ */
+export function acquireMigratableWriterLock(path: string, canonicalRoot: string) {
+  const directory = dirname(path)
+  if (lstatSync(directory).isSymbolicLink() || realpathSync(directory) !== directory) throw Error('写锁父目录不能使用链接。')
+  const token = randomUUID()
+  const fd = openSync(path, 'wx', 0o600)
+  try { writeFileSync(fd, JSON.stringify({ token, pid: process.pid, createdAt: new Date().toISOString() })) }
+  catch (error) { closeSync(fd); unlinkSync(path); throw error }
+  // 关键差异：写完即关。此后锁只以「文件 + token」形态存在，可随目录迁移。
+  closeSync(fd)
+  let active = true
+  let currentPath = path
+  const releaseAt = (target: string) => {
+    if (!active) return
+    const saved = JSON.parse(readFileSync(target, 'utf8'))
+    if (saved.token !== token) throw Error('写锁已被替换；不删除其他写者的锁。')
+    unlinkSync(target)
+    active = false
+  }
+  return {
+    root: canonicalRoot,
+    token,
+    /** 当前锁文件路径（迁移后为**新**路径）。 */
+    get lockPath() { return currentPath },
+    /**
+     * 迁移到新路径：**只更新记录**，不做任何文件操作（文件已由 `rename` 带过去）。
+     * 迁移后 `release()` 才会作用于正确路径。
+     */
+    migrate(nextPath: string) {
+      if (!active) throw Error('写锁已释放，不能迁移。')
+      currentPath = nextPath
+    },
+    release() { releaseAt(currentPath) },
+    releaseAt
+  }
+}

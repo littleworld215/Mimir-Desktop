@@ -16,7 +16,7 @@
 
 import { createReadStream, createWriteStream, existsSync, mkdirSync, openSync, closeSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
@@ -120,9 +120,13 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
       }
     }
     // 清单作为最后一条写入归档；验包方据此逐条比对。
+    // `sourceRoot` 记录**打包时的源空间绝对根**：恢复侧要按「旧空间绝对根为前缀」改写
+    // `pdfPath`（T03 的 `matchRootPrefix` 硬要求绝对路径，见 restoreArchive.ts 长注释），
+    // 而归档条目一律是相对路径，故绝对根只能由打包侧显式带来。
     const manifestBuffer = Buffer.from(JSON.stringify({
       version: BACKUP_FORMAT_VERSION,
       generatedAt: new Date().toISOString(),
+      sourceRoot: resolve(root),
       entries: manifest.entries
     }), 'utf8')
     zip.addBuffer(manifestBuffer, MANIFEST_IN_ARCHIVE, { mtime: new Date(0) })
@@ -161,6 +165,17 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
 export interface ArchiveManifest {
   version: number
   generatedAt: string
+  /**
+   * 打包时源空间的**绝对根**（可选）。
+   *
+   * 存在理由：恢复侧 T03 要按旧空间**绝对**根前缀改写 `pdfPath`（`remapRules.matchRootPrefix`
+   * 硬要求两边都是绝对路径），而归档条目全是相对路径，绝对根无法从条目反推。
+   * 记在这里让恢复能直接拿到。
+   *
+   * ⚠️ **可选**：批次 2/3 早期产出的归档没有本字段；恢复侧读到 `undefined` 时必须退化为
+   * 「不改写」（可用 `oldRootFromArchive` 的相对根做**非权威**提示，但绝不据此改写）。
+   */
+  sourceRoot?: string
   entries: ManifestEntry[]
 }
 

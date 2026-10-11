@@ -33,6 +33,10 @@ import type { RestoreInput, RestoreSteps } from './restoreRunner'
 
 /** 空间层 store 在暂存根内的相对路径。 */
 const SPACE_STORE_REL = ['.mimir', 'store.json'] as const
+/** 空间控制目录名（锁所在处；`acquireWorkspaceLock` 同口径）。 */
+const MIMIR_DIR = '.mimir'
+/** 新空间写锁文件名（`acquireWorkspaceLock` 的默认名）。 */
+const WORKSPACE_LOCK_NAME = 'workspace.writer-lock'
 /** 资产库在暂存根内的相对路径（存在才校验，不存在则跳过）。 */
 const ASSETS_DB_REL = ['assets', 'assets.db'] as const
 
@@ -61,6 +65,19 @@ export interface RestoreAdapterOptions {
    * 且对「调用方自己保证目录不存在」的用法无害）。
    */
   readonly targetExistedBefore?: boolean
+  /**
+   * 解压到暂存根**之后、发布之前**对暂存根取新空间写锁（§4.2 S5）。
+   *
+   * 为什么锁建在**暂存根**内而不是目标目录：
+   * - 目标目录此刻**尚不存在**，且 §2.1 要求它必须不存在（publish 靠原子 `rename` 落地）；
+   * - 暂存根随后被 `rename` 成目标 → 锁**随目录迁移**到 `<targetRoot>/.mimir/`，
+   *   于是「写新空间目录时已持其写锁」依然成立。
+   *
+   * ⚠️ 调用方必须用**写完即关句柄**的获取器（`acquireMigratableWriterLock`）：
+   * Windows 下 `renameSync` 内含打开句柄文件（或目录）会 `EPERM`（实测）。
+   * 返回一个 `release()` 供失败清理使用。
+   */
+  readonly lockStagingRoot?: (stagingRoot: string) => { release(): void }
 }
 
 /** 读取并解析暂存根内的空间层 store.json。 */
@@ -94,11 +111,14 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
   const nowIso = options.now ?? (() => new Date().toISOString())
   const checkAssetsIntegrity = options.checkAssetsIntegrity
   const targetExistedBefore = options.targetExistedBefore
+  const lockStagingRoot = options.lockStagingRoot
 
   /** inspect 生成、createStaging 消费的本次暂存 token。 */
   let pendingToken = ''
   /** 本次实际使用的暂存根（`targetCreated` 探针判据之一）。 */
   let activeStaging = ''
+  /** 建在暂存根内的新空间写锁（§4.2 S5；由 `lockStagingRoot` 提供，供失败清理释放）。 */
+  let stagingLock: { release(): void } | null = null
 
   return {
     async inspect(input: RestoreInput) {
@@ -127,6 +147,12 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
       pendingToken = token
       const staging = createStagingRoot(input.targetRoot, token)
       activeStaging = staging.root
+      // §4.2 S5 锁先行：**解压任何内容之前**就在暂存根内建锁（暂存根已存在，锁的父目录
+      // `<staging>/.mimir` 由获取器自行 mkdir）。锁随发布 rename 迁移到目标目录，
+      // 因此「写新空间目录时已持其写锁」成立，而目标目录始终无需预先存在。
+      if (lockStagingRoot !== undefined) {
+        stagingLock = lockStagingRoot(staging.root)
+      }
       return staging.root
     },
 
@@ -175,6 +201,13 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
 
     async publish(input: RestoreInput, stagingRoot: string) {
       await publishStagedSpace(stagingRoot, input.targetRoot)
+      // rename 已把暂存根（连同其内的 `.mimir/workspace.writer-lock`）搬到目标目录。
+      // 锁对象记录的仍是**旧路径**，必须迁移到新路径，否则 `release()` 会 ENOENT。
+      // 这是 `lockStagingRoot` 必须返回可迁移锁对象（`acquireMigratableWriterLock`）的原因。
+      if (stagingLock !== null && 'migrate' in stagingLock) {
+        const migrated = join(input.targetRoot, MIMIR_DIR, WORKSPACE_LOCK_NAME)
+        ;(stagingLock as { migrate(next: string): void }).migrate(migrated)
+      }
     },
 
     /**
@@ -203,7 +236,22 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async cleanupStaging(stagingRoot: string) {
+      // 先释放暂存根内的写锁再删目录：锁文件就在待删目录里，若不显式释放会留下
+      // 「锁凭据随目录被删」的状态——虽不致命（目录都没了），但会让会话以为仍持锁。
+      releaseStagingLockBestEffort()
       cleanupStagingRoot(stagingRoot)
+    }
+  }
+
+  /** 释放暂存根锁（尽力而为；失败不改变主流程语义，交由会话自身的阻断机制兜底）。 */
+  function releaseStagingLockBestEffort(): void {
+    const lock = stagingLock
+    if (lock === null) return
+    stagingLock = null
+    try {
+      lock.release()
+    } catch {
+      // 锁文件已随目录消失（ENOENT）或已被替换：两者都不该让清理失败。
     }
   }
 }
