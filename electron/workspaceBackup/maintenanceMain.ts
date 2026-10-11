@@ -6,6 +6,7 @@ import { WorkspaceWriterSession } from './writerSession'
 import { assertWindowsLocalDisk } from './localDisk'
 import { readRegistryOverview } from './registryView'
 import { listRestoreArchives } from './restoreMain'
+import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
 import {
   WORKSPACE_BACKUP_CHANNELS,
   type MaintenanceArchiveCandidate,
@@ -67,6 +68,32 @@ void app.whenReady().then(async () => {
     if (!trusted(event)) throw Error('UNAUTHORIZED_SENDER')
     return buildOverview()
   })
+
+  /**
+   * 恢复 handler（批次 3 · T05 收口）。
+   *
+   * ⚠️ **纪律「控制不可嵌套」**：本 handler **不**经 `installWorkspaceIpcGate`，也**不**调
+   * 任何 `workspaces:*` 通道；它直接调服务层（`runMaintenanceRestore`）。恢复自身已持有
+   * 写者会话（`session` 构造时即持 `registry.writer-lock`）并在内部按 §1.3 规则 4 自串行，
+   * 若再被 `runControl` 包一层即死锁。**不要**把本通道加进 `ipcGate.ts` 的 `control` /
+   * `workspaceChanges` 集合（那里有注释解释原因）。
+   *
+   * 会话健康检查用 `session?.assertUsable` 读**调用时**的模块级变量：`session` 在窗口
+   * `whenReady` 时构造，handler 也在此后注册，二者时序已对齐；用可选链兜住「未就绪 → undefined」，
+   * 此时 `buildRestoreHandler` 会以 `LOCK_UNAVAILABLE` 拒绝（绝不无锁写入）。
+   */
+  const restoreHandler = buildRestoreHandler({
+    session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
+    homeDir: home,
+    onProgress: (progress) => {
+      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响恢复本身。
+      if (owner && !owner.isDestroyed()) {
+        owner.webContents.send('workspaceBackup:restoreProgress', progress)
+      }
+    }
+  })
+  registerRestoreHandler(ipcMain, trusted, restoreHandler)
+
   owner.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   owner.webContents.on('will-navigate', event => event.preventDefault())
   owner.on('ready-to-show', () => owner.show())
