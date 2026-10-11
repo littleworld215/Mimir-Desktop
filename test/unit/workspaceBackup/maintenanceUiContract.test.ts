@@ -62,3 +62,42 @@ it('doctor / auditRecent 有判存在的降级（保持向后兼容）', () => {
   expect(src).toContain('api.doctor')
   expect(src).toContain('api.auditRecent(50)')
 })
+
+it('保留区块不引入后台自动行为文案（K4 红线，对齐 D-032）', () => {
+  const src = source()
+  // 本功能只能由用户点按钮**显式**触发；**绝不**出现暗示后台 / 定时 / 一键的文案。
+  expect(src).not.toContain('自动清理')
+  expect(src).not.toContain('一键清理')
+  expect(src).not.toContain('定时清理')
+  expect(src).not.toContain('定时')
+  expect(src).not.toContain('智能清理')
+  expect(src).not.toContain('自动删除')
+  expect(src).not.toContain('后台清理')
+})
+
+it('retentionPreview / applyRetention 有判存在的降级（保持向后兼容）', () => {
+  const src = source()
+  // 旧主进程不提供新方法时，渲染层必须判存在再调用，不能直接抛错。
+  expect(src).toContain("typeof api.retentionPreview !== 'function'")
+  expect(src).toContain("typeof api.applyRetention !== 'function'")
+  // 两个方法本身必须被实际调用（判存在之后）。
+  expect(src).toContain('api.retentionPreview()')
+  expect(src).toContain('api.applyRetention(')
+  // 旧主进程不提供清理时如实提示，不假装成功。
+  expect(src).toContain('当前版本不支持清理')
+  // 二次确认文案必须写明「删除不可撤销」（§7 K5）。
+  expect(src).toContain('删除不可撤销')
+  // 诚实反映 TOKEN_MISMATCH（不假装成功）。
+  expect(src).toContain('TOKEN_MISMATCH')
+  expect(src).toContain('备份已变化，请重新预览')
+})
+
+it('保留区块不回传路径：apply 只接收 token（K2 红线，对齐 §2.2 / §4.2 S7）', () => {
+  const src = source()
+  // item 契约只有 name（basename），**没有** path——渲染层不得读 `item.path`。
+  expect(src).not.toContain('item.path')
+  // apply 的实参必须是渲染层持有的 token 变量，**不得**是任何 item 字段 / 文件名。
+  expect(src).toMatch(/applyRetention\(\s*retentionToken\s*\)/)
+  expect(src).not.toMatch(/applyRetention\(\s*item\./)
+  expect(src).not.toMatch(/applyRetention\(\s*\{\s*name:/)
+})

@@ -21,6 +21,10 @@ th { font-weight: 600; }
 .severity-notice { color: #7a5b12; background: #fbf0d5; }
 .severity-warning { color: #8a4a10; background: #fde8d3; }
 .severity-error { color: #a52621; background: #fbe0dd; }
+/* 保留 / 清理标记（保留 = 中性，清理 = 警示色）：每级独立配色，浅色深色都配套。 */
+.disposition { display: inline-block; border: 1px solid currentColor; border-radius: 6px; padding: 1px 8px; font-size: 13px; white-space: nowrap; }
+.disposition-keep { color: #3d5675; background: #eef2f8; }
+.disposition-remove { color: #a52621; background: #fbe0dd; }
 @media (prefers-color-scheme: dark) {
   :root { background: #141b26; color: #e0e7f1; }
   section { background: #1d2838; border-color: #495b73; }
@@ -33,4 +37,7 @@ th { font-weight: 600; }
   .severity-notice { color: #f0d38a; background: #332a14; }
   .severity-warning { color: #f2b98a; background: #33231a; }
   .severity-error { color: #ffb0a8; background: #331c1a; }
+  /* 深色下保留 = 中性（灰蓝），清理 = 警示（红）。 */
+  .disposition-keep { color: #a9bcd6; background: #1f2a3a; }
+  .disposition-remove { color: #ffb0a8; background: #331c1a; }
 }

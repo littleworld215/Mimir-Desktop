@@ -11,6 +11,9 @@ import type {
   MaintenanceOverview,
   MaintenanceRestoreProgress,
   MaintenanceRestoreResult,
+  MaintenanceRetentionItem,
+  MaintenanceRetentionPreview,
+  MaintenanceRetentionResult,
   WorkspaceBackupMaintenanceApi
 } from '../../shared/workspaceBackupContracts'
 import './maintenance.css'
@@ -115,6 +118,39 @@ function auditCountsText(counts: Readonly<Record<string, number>> | undefined): 
   return parts.join('，')
 }
 
+/**
+ * 保留预览「处置」→ 中文标记（保留 or 清理）。
+ *
+ * ⚠️ 文案红线（K4）：只陈述本次预览对每条归档的处置，**绝不含**暗示任何后台行为的字样；
+ * 处置是用户**由按钮显式触发**的预览结果，不是系统自行决定。
+ */
+function retentionDispositionText(disposition: MaintenanceRetentionItem['disposition']): string {
+  return disposition === 'remove' ? '清理' : '保留'
+}
+
+/**
+ * 保留预览「原因」→ 人话文案（`recent` / `within-days` / `beyond-keep`）。
+ *
+ * 未知原因一律回退为「按策略保留」，**不**原样透出内部标识。
+ */
+function retentionReasonText(reason: string): string {
+  switch (reason) {
+    case 'recent':
+      return '最近 20 份'
+    case 'within-days':
+      return '保护期内'
+    case 'beyond-keep':
+      return '超出保留份数'
+    default:
+      return '按策略保留'
+  }
+}
+
+/** 把字节压成 MB 短串（与归档清单同一口径）。 */
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 /** 单个归档候选的恢复表单状态。 */
 interface RestoreForm { archive: MaintenanceArchiveCandidate; spaceName: string; targetRoot: string }
 
@@ -136,6 +172,14 @@ function MaintenanceApp() {
 
   // 取消接线状态：恢复取消被拒时如实显示原因（不假装成功）。
   const [cancelNotice, setCancelNotice] = useState<string>()
+
+  // 保留区块状态：只读预览 / 显式清理结果 / 预览时的一次性 token / 进行中标志。
+  const [retention, setRetention] = useState<MaintenanceRetentionPreview>()
+  const [retentionBusy, setRetentionBusy] = useState(false)
+  const [retentionApply, setRetentionApply] = useState<MaintenanceRetentionResult>()
+  // 预览时持有的一次性 token（**绝非路径**）：只用于随后调 `applyRetention`。
+  const [retentionToken, setRetentionToken] = useState<string>()
+  const [retentionNotice, setRetentionNotice] = useState<string>()
 
   const api = window.workspaceBackupMaintenance
 
@@ -272,6 +316,81 @@ function MaintenanceApp() {
   }
   useEffect(() => { void loadAudit() }, [api])
 
+  /**
+   * 只读预览保留情况（dry-run）：判存在再调 `api.retentionPreview`，照 `api.doctor` 的降级写法。
+   *
+   * ⚠️ 只读：**不**删除任何文件；只在内存里渲染脱敏列表（文件名 / 大小 / 时间 / 处置 / 原因）。
+   * 预览返回的一次性 token 存起来，供随后的**显式**确认清理使用（**不是**路径）。
+   */
+  async function previewRetention() {
+    if (retentionBusy) return
+    setRetentionApply(undefined)
+    setRetentionNotice(undefined)
+    // 判存在再调用（旧主进程不提供 retentionPreview）；不假装成功。
+    if (typeof api.retentionPreview !== 'function') {
+      setRetention({ ok: false, code: 'NOT_SUPPORTED', detail: '当前版本不支持保留预览，请更新应用后重试。' })
+      setRetentionToken(undefined)
+      return
+    }
+    setRetentionBusy(true)
+    setRetention(undefined)
+    setRetentionToken(undefined)
+    try {
+      const outcome = await api.retentionPreview()
+      setRetention(outcome)
+      setRetentionToken(outcome.ok ? outcome.confirmToken : undefined)
+    } catch {
+      setRetention({ ok: false, code: 'INTERNAL', detail: '预览请求未能送达主进程，请重试。' })
+    } finally {
+      setRetentionBusy(false)
+    }
+  }
+
+  /**
+   * 确认清理：**仅当**预览存在且有清理候选时可用；点击先经浏览器 `confirm()` **二次确认**
+   * （文案**必须**写明「删除不可撤销」），用户确认后再调 `api.applyRetention?.(token)`。
+   *
+   * ⚠️ 只传 token（**绝不**回传文件列表 / 路径）：主进程据 token 自己重算候选（设计 §2.2 / K2）。
+   * 返回如实展示；`TOKEN_MISMATCH` → 提示重新预览（**不**假装成功）。
+   */
+  async function applyRetention() {
+    if (retentionBusy || !retention?.ok) return
+    const pending = retention.items.filter((item: MaintenanceRetentionItem) => item.disposition === 'remove')
+    if (pending.length === 0) return
+    // 判存在再调用（旧主进程不提供 applyRetention）；不假装成功。
+    if (typeof api.applyRetention !== 'function') {
+      setRetentionNotice('当前版本不支持清理')
+      return
+    }
+    if (retentionToken === undefined) {
+      setRetentionNotice('备份已变化，请重新预览')
+      return
+    }
+    // 二次确认：文案明确「删除不可撤销」（设计 §7 K5）。
+    const confirmed = window.confirm(
+      `将清理 ${pending.length} 份超出保留份数的备份。删除不可撤销，清理后无法找回。是否继续？`
+    )
+    if (!confirmed) return
+    setRetentionBusy(true)
+    setRetentionApply(undefined)
+    setRetentionNotice(undefined)
+    try {
+      const outcome = await api.applyRetention(retentionToken)
+      setRetentionApply(outcome)
+      if (outcome.ok) {
+        // 清理成功后候选集已变，旧 token 作废；重新预览刷新列表（不自动重试清理）。
+        setRetentionToken(undefined)
+        await previewRetention()
+      } else if (outcome.code === 'TOKEN_MISMATCH') {
+        setRetentionNotice('备份已变化，请重新预览')
+      }
+    } catch {
+      setRetentionNotice('清理请求未能送达主进程，请重试。')
+    } finally {
+      setRetentionBusy(false)
+    }
+  }
+
   return <main>
     <h1>备份与恢复维护窗口</h1>
     <p>选择一份备份归档，即可把它恢复成一个新的科研空间。恢复过程不会改动你现有的任何空间。</p>
@@ -314,6 +433,43 @@ function MaintenanceApp() {
         </table>
         <p role="status">共 {doctorResult.checks.length} 项：通过 {doctorResult.summary.ok}，可注意 {doctorResult.summary.notice}，偏离 {doctorResult.summary.warning}，阻塞 {doctorResult.summary.error}。</p>
       </>}
+    </section>
+
+    {/* 备份保留（放在自检面板之下）：只读预览 + 由用户显式触发的确认清理；两份动作都需点击按钮。 */}
+    <section aria-label="备份保留" aria-busy={retentionBusy}>
+      <h2>备份保留</h2>
+      <p>先预览当前归档里哪些属于保留、哪些超出保留份数；确认后由你显式触发清理，超出保留份数的备份会被移除。保留份数为最近 20 份。</p>
+      <button type="button" disabled={retentionBusy} onClick={() => void previewRetention()}>
+        {retentionBusy ? '预览中…' : '预览保留情况'}
+      </button>
+      {retention && !retention.ok && <p role="alert">预览未能完成（{retention.code}）{retention.detail}</p>}
+      {retention?.ok && <>
+        {retention.items.length
+          ? <table>
+              <caption>保留预览（每行一份归档；处置由保留份数决定）</caption>
+              <thead><tr><th scope="col">文件名</th><th scope="col">大小</th><th scope="col">修改时间</th><th scope="col">处置</th><th scope="col">原因</th></tr></thead>
+              <tbody>
+                {retention.items.map((item: MaintenanceRetentionItem) => <tr key={item.name}>
+                  <td>{item.name}</td>
+                  <td>{formatMegabytes(item.bytes)}</td>
+                  <td>{new Date(item.modifiedAt).toLocaleString()}</td>
+                  <td><span className={`disposition disposition-${item.disposition}`}>{retentionDispositionText(item.disposition)}</span></td>
+                  <td>{retentionReasonText(item.reason)}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          : <p>未发现可管理的备份归档。</p>}
+        <p role="status">可释放 {formatMegabytes(retention.reclaimableBytes)}。</p>
+      </>}
+      {retentionNotice && <p role="status">{retentionNotice}</p>}
+      {retention?.ok && retention.items.some((item: MaintenanceRetentionItem) => item.disposition === 'remove') && <p>
+        <button type="button" disabled={retentionBusy} onClick={() => void applyRetention()}>
+          确认清理 {retention.items.filter((item: MaintenanceRetentionItem) => item.disposition === 'remove').length} 份
+        </button>
+      </p>}
+      {retentionApply && (retentionApply.ok
+        ? <p role="status">已清理 {retentionApply.removed} 份，失败 {retentionApply.failed} 份，释放 {formatMegabytes(retentionApply.reclaimedBytes)}。</p>
+        : <p role="alert">清理未完成（{retentionApply.code}）{retentionApply.detail}</p>)}
     </section>
 
     {form && <section aria-label="恢复为新空间" role="dialog" aria-modal="true">
