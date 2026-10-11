@@ -302,7 +302,11 @@ export async function runMaintenanceRestore(
     const relativeRoot = oldRootFromArchive(manifest.entries)
     if (sourceRoot !== '') {
       oldRoot = sourceRoot
-      report('inspecting', `归档内旧空间根：${oldRoot}`)
+      // ⚠️ 脱敏纪律（I6 批次 4 §0.3）：**绝不**把 `oldRoot`（本机绝对路径）塞进进度文案。
+      // `MaintenanceRestoreProgress.detail`（`workspaceBackupContracts.ts`）明写「不含任何本机
+      // 路径」，此前版本 `report('inspecting', \`归档内旧空间根：${oldRoot}\`)` 直接违反该契约。
+      // 现只报「已取到旧根」这一事实，位置信息由主进程内部使用，不外泄到渲染层。
+      report('inspecting', '已从归档清单取到旧空间根。')
     } else {
       // 早期归档（批次 2/3 之前产出）没有 sourceRoot：退化为「不改写」，**绝不猜测**。
       // 猜错会把用户空间外的 PDF 路径改到新空间里（§7 K2 高危误写）。

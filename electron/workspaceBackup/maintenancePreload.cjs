@@ -15,5 +15,19 @@ contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
     const wrapped = (_event, progress) => listener(progress)
     ipcRenderer.on('workspaceBackup:restoreProgress', wrapped)
     return () => { ipcRenderer.removeListener('workspaceBackup:restoreProgress', wrapped) }
-  }
+  },
+  // 只读自检（I6 批次 4 · T04）：请求体为最保守形态（空对象），主进程自行推导 home，
+  // 绝不接受渲染层拼的任意路径（对齐 restore 的输入纪律）。
+  doctor: () => ipcRenderer.invoke('workspaceBackup:doctor'),
+  // 自检进度订阅（可选增强）：形态同 onRestoreProgress（只透传 progress，不暴露 IpcRendererEvent）。
+  onDoctorProgress: listener => {
+    const wrapped = (_event, progress) => listener(progress)
+    ipcRenderer.on('workspaceBackup:doctorProgress', wrapped)
+    return () => { ipcRenderer.removeListener('workspaceBackup:doctorProgress', wrapped) }
+  },
+  // 取消自检（只读取消）/ 取消恢复（信号语义）：本批如实返回 { ok:false, code:'NOT_SUPPORTED' }。
+  cancelDoctor: () => ipcRenderer.invoke('workspaceBackup:doctorCancel'),
+  cancelRestore: () => ipcRenderer.invoke('workspaceBackup:restoreCancel'),
+  // 读取最近维护审计（只读；返回已脱敏条目，不暴露 JSONL 文件路径）。
+  auditRecent: limit => ipcRenderer.invoke('workspaceBackup:auditRecent', limit)
 }))

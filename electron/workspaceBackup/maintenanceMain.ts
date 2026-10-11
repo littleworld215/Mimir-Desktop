@@ -7,6 +7,9 @@ import { assertWindowsLocalDisk } from './localDisk'
 import { readRegistryOverview } from './registryView'
 import { listRestoreArchives } from './restoreMain'
 import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
+import { buildDoctorHandler, registerDoctorHandler } from './maintenanceDoctorHandler'
+import { redactText } from './redact'
+import type { MaintenanceCancelResult } from '../../shared/workspaceBackupContracts'
 import {
   WORKSPACE_BACKUP_CHANNELS,
   type MaintenanceArchiveCandidate,
@@ -88,11 +91,62 @@ void app.whenReady().then(async () => {
     onProgress: (progress) => {
       // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响恢复本身。
       if (owner && !owner.isDestroyed()) {
-        owner.webContents.send('workspaceBackup:restoreProgress', progress)
+        // ⚠️ 脱敏兜底（I6 批次 4 §0.3）：即便服务层某条文案混入了本机绝对路径，
+        // 也在**出口处**用 `redactText` 过滤（纵深防御：服务层已改文案，此处再包一层）。
+        // 通道名用 `WORKSPACE_BACKUP_CHANNELS.restoreProgress`（收口批次 3 的硬编码）。
+        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.restoreProgress, {
+          stage: progress.stage,
+          detail: redactText(progress.detail)
+        })
       }
     }
   })
   registerRestoreHandler(ipcMain, trusted, restoreHandler)
+
+  /**
+   * 自检 / 审计 handler（批次 4 · T04）。
+   *
+   * ⚠️ **纪律「控制不可嵌套」**：本 handler **不**经 `installWorkspaceIpcGate`；自检是**只读**的，
+   * 绝不调任何 `workspaces:*` IPC。**不要**把本通道加进 `ipcGate.ts` 的 `control` /
+   * `workspaceChanges` 集合（自检/审计是只读，取消是纯信号）。
+   *
+   * 进度推送形态照既有 `restoreProgress`：`if (owner && !owner.isDestroyed()) owner.webContents.send(...)`。
+   */
+  const doctorHandler = buildDoctorHandler({
+    homeDir: home,
+    onProgress: (progress) => {
+      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响自检本身。
+      if (owner && !owner.isDestroyed()) {
+        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.doctorProgress, {
+          stage: progress.stage,
+          // 同上：出口处再包一层脱敏，防任何绝对路径片段外泄。
+          detail: redactText(progress.detail)
+        })
+      }
+    }
+  })
+  registerDoctorHandler(ipcMain, trusted, doctorHandler)
+
+  /**
+   * 取消通道（批次 4 · T04）。
+   *
+   * ⚠️ **诚实优先**：本批 UI 侧（T05）暫不实现「真取消」（需要 AbortSignal 贯穿
+   * `runMaintenanceRestore` 的每一步与 `publish` 前的安全点——那是 T05 的范围）。
+   * 为避免做出「会留半成品的假取消」，此处**如实返回 `{ ok:false, code:'NOT_SUPPORTED' }`**
+   * ——不是假装成功、也不改变任何写路径语义（对齐设计稿 §3.2「宁可诚实返回，也不做假取消」）。
+   * 通道仍**注册**，以保证渲染层「进度/取消/结果」三件套在 UI 上可用（取消按钮会得到明确拒绝）。
+   *
+   * 语义（`MaintenanceCancelResult`）：`ok:true` 才代表取消请求被接受；本批恒为 `false`。
+   */
+  const cancelChannel = (channel: string): void => {
+    ipcMain.handle(channel, (event): MaintenanceCancelResult => {
+      if (!trusted(event)) throw Error('UNAUTHORIZED_SENDER')
+      // 本批不做「假取消」：无副作用、无竞态，明确告知暂不支持。
+      return { ok: false, code: 'NOT_SUPPORTED' }
+    })
+  }
+  cancelChannel(WORKSPACE_BACKUP_CHANNELS.doctorCancel)
+  cancelChannel(WORKSPACE_BACKUP_CHANNELS.restoreCancel)
 
   owner.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   owner.webContents.on('will-navigate', event => event.preventDefault())
