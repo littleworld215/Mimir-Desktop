@@ -61,8 +61,10 @@ function fakeSteps(overrides: Record<string, (...args: any[]) => any> = {}) {
     cleanupStaging: () => undefined
   }
   const steps: Record<string, (...args: any[]) => any> = {}
-  for (const name of Object.keys(defaults)) {
+  // 名称取并集：可选步骤（如 targetCreated）只会出现在 overrides 里。
+  for (const name of new Set([...Object.keys(defaults), ...Object.keys(overrides)])) {
     const impl = overrides[name] ?? defaults[name]
+    if (typeof impl !== 'function') continue
     steps[name] = async (...args: any[]) => {
       calls.push(name)
       seen[name] = args
@@ -213,6 +215,77 @@ it('publishing 失败：cleanupStaging 未被调用、register 未被调用、re
   expect(fake.times('register')).toBe(0)
   expect(outcome.cleanup?.createdTarget).toBeNull()
   expect(outcome.result).toBeNull()
+})
+
+it('publishing 病态失败（rename 已成功但复核失败）：targetCreated=true 时 createdTarget 必须给出，避免漏清本操作产物', async () => {
+  const { runRestore } = await runnerModule()
+  const { RestoreError } = await contracts()
+  const fake = fakeSteps({
+    publish: () => {
+      throw new RestoreError('PUBLISH_FAILED', '发布后复核失败')
+    },
+    targetCreated: () => true
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.failure?.stage).toBe('publishing')
+  expect(outcome.failure?.code).toBe('PUBLISH_FAILED')
+  expect(outcome.cleanup?.createdTarget).toBe(INPUT.targetRoot)
+  expect(outcome.cleanup?.stagingRoot).toBe(INPUT.stagingRoot)
+  expect(fake.times('cleanupStaging')).toBe(0)
+  expect(fake.times('register')).toBe(0)
+})
+
+it('publishing 失败：targetCreated=false（如 TARGET_EXISTS，目标是用户既有目录）→ createdTarget 为 null，绝不误删', async () => {
+  const { runRestore } = await runnerModule()
+  const { RestoreError } = await contracts()
+  const fake = fakeSteps({
+    publish: () => {
+      throw new RestoreError('TARGET_EXISTS', '目标已存在')
+    },
+    targetCreated: () => false
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.failure?.code).toBe('TARGET_EXISTS')
+  // 关键安全断言：目标是用户既有目录，绝不能进入本操作清理范围。
+  expect(outcome.cleanup?.createdTarget).toBeNull()
+})
+
+it('publishing 失败：未注入 targetCreated 探针 → 保守按「未创建」处理', async () => {
+  const { runRestore } = await runnerModule()
+  const { RestoreError } = await contracts()
+  const fake = fakeSteps({
+    publish: () => {
+      throw new RestoreError('PUBLISH_FAILED', 'rename 失败')
+    }
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.cleanup?.createdTarget).toBeNull()
+})
+
+it('publishing 失败：targetCreated 探针自身抛错 → 保守置 null，且错误码不被冲成 INTERNAL', async () => {
+  const { runRestore } = await runnerModule()
+  const { RestoreError } = await contracts()
+  const fake = fakeSteps({
+    publish: () => {
+      throw new RestoreError('PUBLISH_FAILED', 'rename 失败')
+    },
+    targetCreated: () => {
+      throw new Error('探针崩了')
+    }
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.stage).toBe('failed')
+  expect(outcome.failure?.code).toBe('PUBLISH_FAILED')
+  expect(outcome.failure?.detail).toContain('探测失败')
+  expect(outcome.cleanup?.createdTarget).toBeNull()
 })
 
 // ─── ⑤ registering 失败：目录已发布，仅需重试注册 ────────────────────

@@ -87,6 +87,17 @@ export interface RestoreSteps {
   readonly recheck: (input: RestoreInput, stagingRoot: string) => Promise<void>
   /** 同盘 `rename` 发布暂存根 → 目标新目录（rename 前双检 `TARGET_EXISTS`）。 */
   readonly publish: (input: RestoreInput, stagingRoot: string) => Promise<void>
+  /**
+   * 可选探针：**本次操作**是否已把目标目录造出来。仅在 `publishing` 失败时调用一次。
+   *
+   * 存在理由：病态的 `PUBLISH_FAILED`（rename 返回成功、但发布后复核失败）下目标**可能已存在**，
+   * 此时 `cleanup.createdTarget` 必须是它，否则 abort 会漏掉一件本操作产物。
+   *
+   * ⚠️ **绝不能**用 `existsSync(targetRoot)` 代替本探针：`TARGET_EXISTS` 场景下目标是
+   * **用户既有的目录**，本操作从未创建它——按「存在」判定会让 abort 删掉用户目录
+   * （违反 §1.3 规则 2「仅当它确由本操作创建」）。真值只有 `publish` 的实现知道。
+   */
+  readonly targetCreated?: (input: RestoreInput) => Promise<boolean>
   /** 注册表原始快照 + 原子追加新 UUID 记录（S1–S10）；**不经 IPC**。 */
   readonly register: (input: RestoreInput, spaceId: string) => Promise<RegisterReceipt>
   /** 清理**本操作**暂存根（只清本次产物）。 */
@@ -205,7 +216,7 @@ function defaultNewId(): string {
  * | `inspecting` | **未调用**（零副作用） | 未调用 | `null` | `false`（需换归档） |
  * | `extracting` | **调用**（清本操作暂存） | 未调用 | 本操作暂存范围 | `true` |
  * | `verifying` | **未调用**（保留暂存供排查） | 未调用 | 本操作暂存范围 | `true` |
- * | `publishing` | **未调用**（保留暂存） | 未调用（目标未创建） | 本操作暂存范围 | `true` |
+ * | `publishing` | **未调用**（保留暂存） | 未调用 | 暂存范围；`createdTarget` 由 `targetCreated` 探针给出（默认 `null`） | `true` |
  * | `registering` | 未调用（暂存已消费） | 调用过 | 暂存 + 已发布目标 | `true`（只重做注册） |
  *
  * @returns `RestoreOutcome`；**永不抛异常**
@@ -303,6 +314,25 @@ export async function runRestore(
       cleanup: scope,
       finishedAt: now().toISOString()
     }
+  }
+
+  /**
+   * `publishing` 失败出口：保留暂存根，并按**本操作是否真的造出了目标**决定 `createdTarget`。
+   *
+   * 未注入 `targetCreated` 探针时保守取 `null`（宁可漏清一件产物，也绝不误删用户目录）。
+   */
+  const failPublishing = async (error: unknown): Promise<RestoreOutcome> => {
+    const notes: string[] = []
+    let createdTarget: string | null = null
+    if (steps.targetCreated !== undefined) {
+      try {
+        createdTarget = (await steps.targetCreated(input)) ? input.targetRoot : null
+      } catch (probeError) {
+        notes.push(`目标创建状态探测失败（保守按「未创建」处理）：${describeError(probeError)}`)
+        createdTarget = null
+      }
+    }
+    return failAt('publishing', error, true, createdTarget, notes)
   }
 
   /** `extracting` 失败出口：先清理本操作暂存（§1.3 第 2 行），再落 `failed`。 */
@@ -423,12 +453,13 @@ export async function runRestore(
     }
 
     // ── ④ publishing：同盘 rename（rename 前不建目标） ───────────────────
-    // 失败保留暂存根、目标未创建 → 绝不调用 cleanupStaging、绝不调用 register。
+    // 失败保留暂存根 → 绝不调用 cleanupStaging、绝不调用 register；
+    // `createdTarget` 由 `targetCreated` 探针给出（默认 null，见 `failPublishing` 注释）。
     try {
       await steps.publish(input, stagingRoot)
       published = true
     } catch (error) {
-      return failAt('publishing', error, true, null)
+      return await failPublishing(error)
     }
 
     try {
