@@ -407,6 +407,46 @@ it('非 RestoreError 异常归一为 INTERNAL 且不向上抛出', async () => {
   expect(outcome.failure?.retryable).toBe(true)
 })
 
+it('错误码归一：RestoreError 子类（name 被改写）跨模块图时语义码不被降级成 INTERNAL', async () => {
+  const { runRestore } = await runnerModule()
+  // 模拟 T04a 规划中的 PublishError 子类：name 已改写为 'PublishError'，
+  // 且来自另一份模块图（instanceof 失效）——只认 name==='RestoreError' 的实现会漏判。
+  class PublishErrorLike extends Error {
+    readonly code = 'PUBLISH_FAILED'
+    constructor(message: string) {
+      super(message)
+      this.name = 'PublishError'
+    }
+  }
+  const fake = fakeSteps({
+    publish: () => {
+      throw new PublishErrorLike('rename 成功但发布后复核失败')
+    }
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.failure?.stage).toBe('publishing')
+  expect(outcome.failure?.code).toBe('PUBLISH_FAILED')
+  expect(outcome.failure?.detail).toContain('发布后复核失败')
+})
+
+it('错误码归一：带无关 code 的系统错误（ENOENT）不会被误认作恢复错误码', async () => {
+  const { runRestore } = await runnerModule()
+  const fake = fakeSteps({
+    publish: () => {
+      const ioError = new Error('ENOENT: no such file') as Error & { code: string }
+      ioError.code = 'ENOENT'
+      throw ioError
+    }
+  })
+
+  const outcome = await runRestore(INPUT, fake.steps, OPTS)
+
+  expect(outcome.failure?.code).toBe('INTERNAL')
+  expect(outcome.failure?.detail).toContain('ENOENT')
+})
+
 // ─── ⑨ 注册不重复：appended=false 仍正常 done ───────────────────────
 
 it('注册不重复：register 返回 appended=false（幂等命中）仍 done，不报错', async () => {

@@ -152,18 +152,41 @@ function describeError(error: unknown): string {
 }
 
 /**
+ * 全部合法恢复错误码（与 `RestoreErrorCode` 并列，唯一用途是**校验**鸭子判定到的 code）。
+ *
+ * 必须与该联合类型同步维护：`code` 来自外部模块传来的对象，只有落在白名单里才可信；
+ * 否则 Node 系统错误（如 `{ code: 'ENOENT' }`）会被误认作恢复错误码。
+ */
+const RESTORE_ERROR_CODES: ReadonlySet<string> = new Set<RestoreErrorCode>([
+  'TARGET_EXISTS', 'INVALID_TARGET', 'NOT_LOCAL_DISK',
+  'STAGING_CONFLICT', 'STAGING_CLEANUP_FAILED',
+  'EXTRACT_FAILED', 'PATH_ESCAPE', 'ENTRY_LIMIT', 'UNSAFE_ENTRY',
+  'RECHECK_FAILED', 'DIGEST_MISMATCH', 'INTEGRITY_FAILED',
+  'PUBLISH_FAILED',
+  'REGISTER_FAILED', 'REGISTRY_INVALID', 'LOCK_UNAVAILABLE',
+  'CONTROL_TIMEOUT', 'CONTROL_BLOCKED',
+  'INTERNAL'
+])
+
+/**
  * 归一为 `RestoreError`。
  *
- * 采用「`instanceof` + 名称/码鸭子判定」双通道：当 `restoreContracts` 被不同模块图
- * 各加载一份时（如测试用绝对路径动态 import），`instanceof` 会失效，
- * 鸭子判定保证错误码**不丢**——否则语义码会被静默降级成 `INTERNAL`。
+ * 双通道判定，**缺一不可**：
+ * 1. `instanceof RestoreError`（常规路径，零成本）；
+ * 2. 鸭子判定：`code` 是字符串且落在 `RESTORE_ERROR_CODES` 白名单内。
+ *
+ * 为什么必须留第 2 条：`restoreContracts` 可能被**不同模块图各加载一份**
+ * （测试用绝对路径动态 import 就会如此），此时 `instanceof` 失效；
+ * 且 `RestoreError` 的**子类**（如 T04a 规划中的 `PublishError`）`name` 会被改写，
+ * 只认 `name === 'RestoreError'` 同样会漏判——漏判的后果是语义码被静默降级成
+ * `INTERNAL`，用户拿到一个没有信息量的错误。
  */
 function asRestoreError(error: unknown): RestoreError | null {
   if (error instanceof RestoreError) return error
   if (!isRecord(error)) return null
-  if (error.name !== 'RestoreError') return null
-  if (typeof error.code !== 'string') return null
-  return new RestoreError(error.code as RestoreErrorCode, describeError(error))
+  const code = error.code
+  if (typeof code !== 'string' || !RESTORE_ERROR_CODES.has(code)) return null
+  return new RestoreError(code as RestoreErrorCode, describeError(error))
 }
 
 /** 由任意抛出物构造 `RestoreFailure`（非 `RestoreError` 归一为 `INTERNAL`）。 */
