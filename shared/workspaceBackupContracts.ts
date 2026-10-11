@@ -62,7 +62,25 @@ export const WORKSPACE_BACKUP_CHANNELS = {
    * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
    * 语义：**纯只读**——读 JSONL 最近 N 条，返回**已脱敏**条目；**不**暴露 JSONL 文件路径本身。
    */
-  auditRecent: 'workspaceBackup:auditRecent'
+  auditRecent: 'workspaceBackup:auditRecent',
+  /**
+   * 保留策略预览（I6 批次 5 · T01；**只读**，invoke）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**：本通道由
+   * `maintenanceMain` 在维护模式下用**独立** `ipcMain` 注册，从不经过 `installWorkspaceIpcGate`
+   * （控制不可嵌套）。语义：**纯只读 dry-run**——不取锁、不建目录、不写文件。
+   * 返回的视图**只含文件名 / 大小 / 时间 / 保留或清理标记**，**绝不含绝对路径**（对齐 §2.1）。
+   */
+  retentionPreview: 'workspaceBackup:retentionPreview',
+  /**
+   * 保留策略确认清理（I6 批次 5 · T01；**写路径**，invoke，带 `confirmToken`）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain`）。
+   * 语义：入参**只有一个** `{ confirmToken }`——**绝不收文件列表**。主进程据 token **自己重算**
+   * 候选集（渲染层不得指定删除目标，对齐批次 3 §4.2 S7）。执行是**显式、单次、可审计**的，
+   * **无后台自动清理**（D-032 铁律）。
+   */
+  retentionApply: 'workspaceBackup:retentionApply'
 } as const
 
 /**
@@ -140,6 +158,22 @@ export interface WorkspaceBackupMaintenanceApi {
    * 返回**已脱敏**条目数组；**不**暴露 JSONL 文件路径。`limit` 由主进程钳制到安全上限。
    */
   auditRecent?(limit?: number): Promise<MaintenanceAuditView>
+  /**
+   * 预览保留情况（可选，**只读 dry-run**，I6 批次 5 · T01）。
+   *
+   * ⚠️ 返回的 `MaintenanceRetentionPreview.items` **绝不含绝对路径**（只有文件名 basename）。
+   * 底层先 `listManagedArchives` + `planRetention`（**主进程自己算**），再裁剪成脱敏视图。
+   * 旧主进程不提供时渲染层须先判存在再调用（对齐 `auditRecent` 的可选纪律）。
+   */
+  retentionPreview?(): Promise<MaintenanceRetentionPreview>
+  /**
+   * 确认清理保留候选（可选，**写路径**，I6 批次 5 · T01）。
+   *
+   * ⚠️ 入参**只有一个** `token`（来自上一次 `retentionPreview`）——**绝不收文件列表**：
+   * 渲染层不得指定删除目标，主进程必须**自己重算**候选并校验 token 与候选集摘要匹配。
+   * 旧主进程不提供时渲染层须先判存在再调用。
+   */
+  applyRetention?(token: string): Promise<MaintenanceRetentionResult>
 }
 
 /** 恢复进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
@@ -353,3 +387,79 @@ export interface MaintenanceAuditView {
   /** 读取时跳过的坏行数（半行截断容错计数；无则为 0）。 */
   readonly skipped: number
 }
+
+/* ------------------------------------------------------------------------- *
+ * I6 批次 5 · T01：保留策略的共享契约（**全部新增、全部可选**）。
+ *
+ * 兼容纪律（沿用批次 3/4）：本段所有类型都是**新增**的；`WorkspaceBackupMaintenanceApi`
+ * 上的新增方法（`retentionPreview` / `applyRetention`）全部为**可选**（`?`），旧渲染层忽略
+ * 即可、旧主进程不提供时新渲染层需判存在再调用。
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 预览中的单条归档（**已脱敏**，可被沙箱渲染层安全消费）。
+ *
+ * ⚠️ `name` 是**文件名 basename**，**非绝对路径**：路径只由主进程内部持有（对齐 §2.1 与
+ * 批次 4 §4.3 裁剪纪律）。
+ */
+export interface MaintenanceRetentionItem {
+  /** 文件名（basename，**非绝对路径**）。 */
+  readonly name: string
+  /** 字节数。 */
+  readonly bytes: number
+  /** 最后修改时刻（ISO）。 */
+  readonly modifiedAt: string
+  /** 处置：保留 or 清理。 */
+  readonly disposition: 'keep' | 'remove'
+  /** 原因（`recent` | `within-days` | `beyond-keep`）。 */
+  readonly reason: string
+}
+
+/**
+ * 保留预览结果（主进程 → 渲染层）。
+ *
+ * 成功含 `confirmToken`（一次性，绑定「本次预览的候选集摘要」）与 `keepPolicy`（策略份数）。
+ * 失败只出 `{ ok:false, code, detail }`（**不含**本机路径）。
+ */
+export type MaintenanceRetentionPreview =
+  | {
+      readonly ok: true
+      /** 逐条归档（已脱敏；**不含绝对路径**）。 */
+      readonly items: MaintenanceRetentionItem[]
+      /** 可释放字节合计。 */
+      readonly reclaimableBytes: number
+      /** 一次性确认 token（由主进程生成，绑定本次候选集摘要）。 */
+      readonly confirmToken: string
+      /** 当前保留策略份数（本批固定 20）。 */
+      readonly keepPolicy: number
+    }
+  | {
+      readonly ok: false
+      /** 失败码（SCREAMING_SNAKE）。 */
+      readonly code: string
+      /** 面向用户的说明（**不含**本机绝对路径 / 凭据）。 */
+      readonly detail: string
+    }
+
+/**
+ * 确认清理结果（主进程 → 渲染层）。
+ *
+ * ⚠️ **不承诺全成功**：`failed` 如实上报（每条结果如实，不掩盖，对齐 §2.2 失败语义）。
+ */
+export type MaintenanceRetentionResult =
+  | {
+      readonly ok: true
+      /** 已删除份数。 */
+      readonly removed: number
+      /** 删除失败份数（如实上报，不掩盖）。 */
+      readonly failed: number
+      /** 实际释放字节。 */
+      readonly reclaimedBytes: number
+    }
+  | {
+      readonly ok: false
+      /** 失败码（SCREAMING_SNAKE；如 `TOKEN_MISMATCH`）。 */
+      readonly code: string
+      /** 面向用户的说明（**不含**本机绝对路径 / 凭据）。 */
+      readonly detail: string
+    }
