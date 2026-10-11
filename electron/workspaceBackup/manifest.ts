@@ -34,7 +34,27 @@ export interface ManifestLimits {
   maxEntries: number
   maxManifestBytes: number
   maxTotalBytes: number
+  /**
+   * **单文件**字节上限。超限文件不纳入清单（不 throw），改为记入 `excluded` 供上层报告，
+   * 默认排除、备份继续。见 `DEFAULT_MAX_FILE_BYTES` 的取值依据。
+   */
+  maxFileBytes: number
 }
+
+/**
+ * 单文件上限取值依据（1 GiB）：
+ *
+ * - **与 `maxTotalBytes`（1 TiB）区别**：后者约束空间总量，超限必须失败（否则备份不可控）；
+ *   本项约束**单个**文件，超限只需**排除它**——用一个 50GB 文件让整个备份永久失败，
+ *   是把可用性问题当成正确性问题处理。
+ * - **取 1 GiB 的理由**：① 绝大多数科研资料（论文 PDF、数据集、代码包）远小于此；
+ *   ② 备份默认保留 20 份，单文件 1 GiB 意味着最坏情况 20 GiB 增量，仍在可接受量级；
+ *   ③ 流式 SHA256 + ZIP64 对 1 GiB 文件耗时可接受（秒级），不产生明显的启停停顿。
+ * - **为什么不是 64 MiB**（与 `maxManifestBytes` 同量级）：那会把正常的单篇文献
+ *   或中等数据集误判为超限，排除率过高，反而让备份不可用。
+ * - 需要时调用方可用 `limits` 覆盖；上限一旦收紧，历史归档仍可正常验包（本项不影响格式）。
+ */
+export const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
 
 /**
  * 条目覆盖：用于「打包内容与磁盘内容不一致」的受控替换。
@@ -53,11 +73,29 @@ export interface ManifestOverrides {
   omit?: Set<string>
 }
 
-/** 与 INTEGRATION-PLAN-I6 固定边界一致：10 万条目 / 64MiB 清单 / 1TiB 展开。 */
+/**
+ * 未纳入备份的条目（供上层向用户「明确报告」，对应 INTEGRATION-PLAN-I6
+ * 「未包含依赖明确报告」）。
+ *
+ * 注意：**符号链接/联接不在本清单内**——它们是 fail-closed 的**安全**拒绝（直接失败），
+ * 不是「用户可选是否纳入」的可用性问题。只有超限单文件会出现在这里。
+ */
+export interface ExcludedEntry {
+  /** 相对空间根的正斜杠路径。 */
+  path: string
+  reason: 'oversize'
+  /** 磁盘上的真实字节数（可能大于 `maxFileBytes`）。 */
+  size: number
+  /** 建议处置；当前恒为排除，保留字段以便未来扩展。 */
+  defaultDisposition: 'exclude'
+}
+
+/** 与 INTEGRATION-PLAN-I6 固定边界一致：10 万条目 / 64MiB 清单 / 1TiB 展开 / 单文件 1GiB。 */
 export const DEFAULT_MANIFEST_LIMITS: ManifestLimits = {
   maxEntries: 100_000,
   maxManifestBytes: 64 * 1024 * 1024,
-  maxTotalBytes: 1024 ** 4
+  maxTotalBytes: 1024 ** 4,
+  maxFileBytes: DEFAULT_MAX_FILE_BYTES
 }
 
 /** 备份中的过程产物目录（相对空间根、正斜杠、**带尾斜杠**）——不纳入清单。 */
@@ -90,8 +128,9 @@ async function walk(
   root: string,
   limits: ManifestLimits,
   overrides?: ManifestOverrides
-): Promise<{ entries: ManifestEntry[]; totalBytes: number }> {
+): Promise<{ entries: ManifestEntry[]; totalBytes: number; excluded: ExcludedEntry[] }> {
   const entries: ManifestEntry[] = []
+  const excluded: ExcludedEntry[] = []
   let totalBytes = 0
 
   const visit = async (absolute: string, relPrefix: string): Promise<void> => {
@@ -100,6 +139,8 @@ async function walk(
       throw new ManifestError('READ_FAILED', `无法读取路径：${relPrefix}（${(error as Error).message}）`)
     }
     // 链接/联接：不跟随也不打包，明确拒绝，避免打包到空间之外的内容。
+    // 注意这是 **fail-closed 的安全拒绝**（不是「可选项」）：备份整体失败，绝不静默穿透。
+    // Node 在 Windows 上把 junction 也报为 isSymbolicLink()，故联接同样在此拦下。
     if (stat.isSymbolicLink()) throw new ManifestError('UNEXPECTED_LINK', `备份不跟随符号链接或联接：${relPrefix}`)
 
     const posixRel = relPrefix
@@ -127,6 +168,14 @@ async function walk(
     const contentPath = replacement ? replacement.replacementAbsPath : absolute
     const contentSize = replacement ? replacement.size : stat.size
 
+    // 单文件超限：**排除该文件**并继续备份，而不是让整个备份永久失败。
+    // 与 TOTAL_LIMIT 的区别：总量超限不可控（必须失败），单文件超限只需排除（可用性问题）。
+    // 被排除项不进 entries → 不进 zip → verify 的条目集合一一对应天然成立，不产生 EXTRA/MISSING。
+    if (contentSize > limits.maxFileBytes) {
+      excluded.push({ path: posixRel, reason: 'oversize', size: contentSize, defaultDisposition: 'exclude' })
+      return
+    }
+
     totalBytes += contentSize
     if (totalBytes > limits.maxTotalBytes) throw new ManifestError('TOTAL_LIMIT', `展开总字节超过上限 ${limits.maxTotalBytes}`)
     const sha256 = await hashFile(contentPath)
@@ -135,7 +184,7 @@ async function walk(
   }
 
   await visit(root, '')
-  return { entries, totalBytes }
+  return { entries, totalBytes, excluded }
 }
 
 /**
@@ -144,14 +193,15 @@ async function walk(
  * @param root 空间根目录（绝对路径，来自可信空间记录）
  * @param limits 上限覆盖（默认见 `DEFAULT_MANIFEST_LIMITS`）
  * @param overrides 条目覆盖（见 `ManifestOverrides`；SQLite 快照路径传此项）
- * @returns 排序后的条目数组与汇总（条目数、展开总字节、清单序列化字节）
+ * @returns 排序后的条目数组、汇总（条目数/展开总字节/清单序列化字节），以及
+ *          **未纳入项** `excluded`（超限单文件；供上层「明确报告」，不静默丢弃）
  */
 export async function buildManifest(
   root: string,
   limits: ManifestLimits = DEFAULT_MANIFEST_LIMITS,
   overrides?: ManifestOverrides
-): Promise<{ entries: ManifestEntry[]; totalBytes: number; manifestBytes: number }> {
-  const { entries, totalBytes } = await walk(root, limits, overrides)
+): Promise<{ entries: ManifestEntry[]; totalBytes: number; manifestBytes: number; excluded: ExcludedEntry[] }> {
+  const { entries, totalBytes, excluded } = await walk(root, limits, overrides)
   // 复用归档路径校验：Windows 保留名、大小写冲突、文件/目录冲突一律拒绝。
   validateArchivePaths(entries as ArchivePath[], limits.maxEntries)
   const manifestBytes = Buffer.byteLength(JSON.stringify(entries), 'utf8')
@@ -160,7 +210,9 @@ export async function buildManifest(
   }
   // 路径已按 `readdirSync().sort()` 与深度优先顺序生成；此处再按路径排序，保证确定性。
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  return { entries, totalBytes, manifestBytes }
+  // 未纳入项同样排序，保证「明确报告」的顺序稳定、可跨次比对。
+  excluded.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  return { entries, totalBytes, manifestBytes, excluded }
 }
 
 /** 便于调用方区分上限类错误（可提示用户）与 IO 类错误（需排查磁盘）。 */

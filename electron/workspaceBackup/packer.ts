@@ -21,7 +21,7 @@ import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
 import type Database from 'better-sqlite3'
-import { buildManifest, type ManifestEntry, type ManifestLimits, type ManifestOverrides } from './manifest'
+import { buildManifest, type ManifestEntry, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
 
 /** 归档内的清单文件名（固定，验包时按此名读取）。 */
 export const MANIFEST_IN_ARCHIVE = 'mimir-manifest.json'
@@ -49,6 +49,13 @@ export interface BackupResult {
   archiveBytes: number
   /** 归档自身内容的 SHA256（外置记录，可与验包结果比对）。 */
   archiveSha256: string
+  /**
+   * **未纳入备份**的条目（当前只有超限单文件）。
+   *
+   * 对应 INTEGRATION-PLAN-I6「未包含依赖**明确报告**」：这些内容不在归档里，
+   * 调用方必须把它展示/持久化给用户，不能静默丢弃。为空数组表示全部纳入。
+   */
+  excluded: ExcludedEntry[]
 }
 
 class BackupError extends Error {
@@ -134,7 +141,8 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
       entries: manifest.entries.length,
       totalBytes: manifest.totalBytes,
       archiveBytes: statSync(destination).size,
-      archiveSha256
+      archiveSha256,
+      excluded: manifest.excluded
     }
   } catch (error) {
     if (!published) {

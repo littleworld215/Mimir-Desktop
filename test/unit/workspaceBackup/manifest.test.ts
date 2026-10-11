@@ -66,11 +66,16 @@ it('符号链接/联接一律拒绝，不跟随到空间之外', async () => {
   await expect(buildManifest(space)).rejects.toThrow()
 })
 
+/** 测试用上限：单文件上限默认设为很大，避免干扰条目数/总量用例。 */
+const limits = (over: Partial<{ maxEntries: number; maxManifestBytes: number; maxTotalBytes: number; maxFileBytes: number }> = {}) => ({
+  maxEntries: 100_000, maxManifestBytes: 1 << 20, maxTotalBytes: 1 << 20, maxFileBytes: 1 << 30, ...over
+})
+
 it('条目数超过上限抛错而非截断', async () => {
   const { buildManifest } = await moduleUnderTest()
   const space = root()
   for (let i = 0; i < 5; i++) writeFileSync(join(space, `f${i}.txt`), String(i))
-  await expect(buildManifest(space, { maxEntries: 3, maxManifestBytes: 1 << 20, maxTotalBytes: 1 << 20 }))
+  await expect(buildManifest(space, limits({ maxEntries: 3 })))
     .rejects.toThrow(/条目数超过上限/)
 })
 
@@ -78,7 +83,7 @@ it('展开总字节超过上限抛错', async () => {
   const { buildManifest } = await moduleUnderTest()
   const space = root()
   writeFileSync(join(space, 'big.bin'), 'x'.repeat(100))
-  await expect(buildManifest(space, { maxEntries: 100, maxManifestBytes: 1 << 20, maxTotalBytes: 50 }))
+  await expect(buildManifest(space, limits({ maxTotalBytes: 50 })))
     .rejects.toThrow(/展开总字节超过上限/)
 })
 
@@ -87,10 +92,50 @@ it('上限类错误可被识别，IO 类不可', async () => {
   const space = root()
   writeFileSync(join(space, 'f.txt'), 'f')
   try {
-    await buildManifest(space, { maxEntries: 0, maxManifestBytes: 1 << 20, maxTotalBytes: 1 << 20 })
+    await buildManifest(space, limits({ maxEntries: 0 }))
     expect.unreachable()
   } catch (error) {
     expect(isManifestLimitError(error)).toBe(true)
   }
   expect(isManifestLimitError(new Error('plain'))).toBe(false)
+})
+
+it('超限单文件收集为未纳入项并排除，备份继续而非整体失败', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  mkdirSync(join(space, 'data'), { recursive: true })
+  writeFileSync(join(space, 'data/huge.bin'), 'x'.repeat(200))
+  writeFileSync(join(space, 'data/ok.bin'), 'small')
+  const { entries, excluded, totalBytes } = await buildManifest(space, limits({ maxFileBytes: 100 }))
+
+  // 超限文件：进 excluded、不进 entries、不计入 totalBytes
+  const paths = entries.map((e: any) => e.path)
+  expect(paths).not.toContain('data/huge.bin')
+  expect(paths).toContain('data/ok.bin')
+  expect(excluded).toHaveLength(1)
+  expect(excluded[0]).toMatchObject({ path: 'data/huge.bin', reason: 'oversize', size: 200, defaultDisposition: 'exclude' })
+  expect(totalBytes).toBe(5)
+
+  // 未纳入项排序稳定（可跨次比对）
+  expect(excluded.map((e: any) => e.path)).toEqual([...excluded.map((e: any) => e.path)].sort())
+})
+
+it('未超限文件正常纳入，excluded 为空', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  writeFileSync(join(space, 'a.bin'), 'x'.repeat(100))
+  const { entries, excluded } = await buildManifest(space, limits({ maxFileBytes: 100 }))
+  // 边界：恰好等于上限视为纳入（用 > 而非 >=）
+  expect(entries.map((e: any) => e.path)).toContain('a.bin')
+  expect(excluded).toEqual([])
+})
+
+it('总量上限与单文件上限各自独立：单文件超限不至于抛错', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  writeFileSync(join(space, 'huge.bin'), 'x'.repeat(500))
+  // maxTotalBytes 很小，但超限文件已被排除，故不会触发 TOTAL_LIMIT
+  const { entries, excluded } = await buildManifest(space, limits({ maxTotalBytes: 10, maxFileBytes: 100 }))
+  expect(excluded).toHaveLength(1)
+  expect(entries.filter((e: any) => e.kind === 'file')).toHaveLength(0)
 })

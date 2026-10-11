@@ -41,6 +41,23 @@ async function readManifestEntry(archive: string, entryPath: string) {
   return found as { path: string; kind: string; size: number; sha256: string }
 }
 
+/** 列出归档内全部条目名（规范化去尾斜杠，测试自用的独立读取）。 */
+async function listArchiveNames(archive: string): Promise<string[]> {
+  return await new Promise<string[]>((resolve, reject) => {
+    yauzl.open(archive, { lazyEntries: true, autoClose: true }, (err, zip) => {
+      if (err || !zip) { reject(err ?? new Error('open failed')); return }
+      const names: string[] = []
+      zip.on('entry', (entry: yauzl.Entry) => {
+        names.push(entry.fileName.split('\\').join('/').replace(/\/+$/, ''))
+        zip.readEntry()
+      })
+      zip.on('end', () => { zip.close(); resolve(names) })
+      zip.on('error', (e: Error) => reject(e))
+      zip.readEntry()
+    })
+  })
+}
+
 async function packer() {
   const mod = await import(/* @vite-ignore */ join(process.cwd(), 'electron/workspaceBackup/packer.ts')).catch(() => ({} as any))
   expect(mod.createBackup).toBeTypeOf('function')
@@ -174,4 +191,33 @@ it('归档自校验哈希与磁盘内容一致（清单含时间戳，不做跨�
   const work = root()
   const r1 = await createBackup({ root: space, destination: join(work, 'b.zip'), stagingDir: join(work, 's'), assetsDb: null })
   expect(createHash('sha256').update(readFileSync(r1.destination)).digest('hex')).toBe(r1.archiveSha256)
+})
+
+it('超限单文件被排除后：归档不含该文件、验包通过、未纳入项如实上报', async () => {
+  const { createBackup } = await packer()
+  const { verifyBackup } = await verifier()
+  const space = seedSpace()
+  // 追加一个超限文件，并把单文件上限压到 100 字节
+  writeFileSync(join(space, '.mimir/assets/files/1/huge.bin'), 'x'.repeat(500))
+  const work = root(), archive = join(work, 'backup.zip')
+  const result = await createBackup({
+    root: space, destination: archive, stagingDir: join(work, 'staging'), assetsDb: null,
+    limits: { maxEntries: 100_000, maxManifestBytes: 1 << 20, maxTotalBytes: 1 << 30, maxFileBytes: 100 }
+  })
+
+  // ① 未纳入项如实上报（对应「未包含依赖明确报告」），且给出路径/原因/字节/建议处置
+  expect(result.excluded).toHaveLength(1)
+  expect(result.excluded[0]).toMatchObject({
+    path: '.mimir/assets/files/1/huge.bin', reason: 'oversize', size: 500, defaultDisposition: 'exclude'
+  })
+
+  // ② 归档内确实没有该文件（既不进 entries 也不进 zip）
+  const names = await listArchiveNames(archive)
+  expect(names).not.toContain('.mimir/assets/files/1/huge.bin')
+  expect(names).toContain('.mimir/assets/files/1/a.txt')
+
+  // ③ 三方一致：被排除项不产生 EXTRA_ENTRY / MISSING_ENTRY，验包照常通过
+  const verified = await verifyBackup(archive)
+  expect(verified.entries).toBe(result.entries)
+  expect(verified.totalBytes).toBe(result.totalBytes)
 })
