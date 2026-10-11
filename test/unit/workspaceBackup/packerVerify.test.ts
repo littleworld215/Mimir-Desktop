@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import Database from 'better-sqlite3'
 import yauzl from 'yauzl'
 
@@ -220,4 +220,60 @@ it('超限单文件被排除后：归档不含该文件、验包通过、未纳�
   const verified = await verifyBackup(archive)
   expect(verified.entries).toBe(result.entries)
   expect(verified.totalBytes).toBe(result.totalBytes)
+})
+
+// ── I6 批次 5 · T03：归档命名规范在打包路径上落地 ──────────────────────────────
+
+async function archiveNaming() {
+  const mod = await import(/* @vite-ignore */ join(process.cwd(), 'electron/workspaceBackup/archiveNaming.ts')).catch(() => ({} as any))
+  expect(mod.deriveArchiveName).toBeTypeOf('function')
+  expect(mod.isManagedArchive).toBeTypeOf('function')
+  return mod as { deriveArchiveName: (n: string, at: Date) => string; isManagedArchive: (f: string) => boolean }
+}
+
+it('T03 传不合规范的 destination（且给了 spaceName）→ 抛 INVALID_DESTINATION', async () => {
+  const { createBackup } = await packer()
+  const space = seedSpace(), work = root()
+  const bad = join(work, 'foo.zip') // 既非 mimir-backup-<slug>-<ts>.zip
+  await expect(
+    createBackup({ root: space, destination: bad, spaceName: '我的空间', stagingDir: join(work, 'staging'), assetsDb: null })
+  ).rejects.toThrow(/受管命名规范/)
+  // 且未产出该文件（校验发生在任何写入之前）。
+  expect(existsSync(bad)).toBe(false)
+})
+
+it('T03 传合规范的 destination → 正常打包成功', async () => {
+  const { createBackup } = await packer()
+  const { verifyBackup } = await verifier()
+  const { deriveArchiveName } = await archiveNaming()
+  const space = seedSpace(), work = root()
+  const archive = join(work, deriveArchiveName('我的空间', new Date()))
+  const result = await createBackup({
+    root: space, destination: archive, spaceName: '我的空间', stagingDir: join(work, 'staging'), assetsDb: null
+  })
+  expect(existsSync(archive)).toBe(true)
+  const verified = await verifyBackup(archive)
+  expect(verified.entries).toBe(result.entries)
+})
+
+it('T03 省略 destination 时自动派生，且产出文件名通过 isManagedArchive', async () => {
+  const { createBackup } = await packer()
+  const { isManagedArchive } = await archiveNaming()
+  const space = seedSpace(), work = root()
+  const result = await createBackup({
+    root: space, spaceName: '我的空间', stagingDir: join(work, 'staging'), assetsDb: null
+  })
+  // 派生名必须是保留策略白名单认得出的形态（否则保留策略永远找不到归档）。
+  expect(isManagedArchive(basename(result.destination))).toBe(true)
+  expect(existsSync(result.destination)).toBe(true)
+  // 落点为暂存目录的兄弟位置。
+  expect(dirname(result.destination)).toBe(work)
+})
+
+it('T03 省略 destination 且省略 spaceName → 抛 MISSING_SPACE_NAME', async () => {
+  const { createBackup } = await packer()
+  const space = seedSpace(), work = root()
+  await expect(
+    createBackup({ root: space, stagingDir: join(work, 'staging'), assetsDb: null })
+  ).rejects.toThrow(/spaceName/)
 })

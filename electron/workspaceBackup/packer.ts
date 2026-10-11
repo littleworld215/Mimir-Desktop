@@ -16,12 +16,13 @@
 
 import { createReadStream, createWriteStream, existsSync, mkdirSync, openSync, closeSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
 import type Database from 'better-sqlite3'
 import { buildManifest, type ManifestEntry, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
+import { deriveArchiveName, isManagedArchive } from './archiveNaming'
 
 /** 归档内的清单文件名（固定，验包时按此名读取）。 */
 export const MANIFEST_IN_ARCHIVE = 'mimir-manifest.json'
@@ -31,8 +32,29 @@ export const BACKUP_FORMAT_VERSION = 1
 export interface BackupRequest {
   /** 空间根目录（可信空间记录推导）。 */
   root: string
-  /** 最终归档路径（必须不存在）。 */
-  destination: string
+  /**
+   * 最终归档路径（必须不存在）。
+   *
+   * **可选**：调用方可以显式给出目标（保持批次 2 以来的行为）；也可**省略**并用 `spaceName`
+   * 让 packer 按归档命名规范（`archiveNaming.ts`）**自动派生**一个目标名——见 `spaceName`。
+   *
+   * 校验纪律（I6 批次 5 · T03）：
+   * - 与 `spaceName` **同时给出**时，本字段被视为「采用受管命名」的意图 → 必须满足
+   *   `isManagedArchive(basename(destination))`，否则抛 `INVALID_DESTINATION`。理由：保留策略
+   *   （`retentionPolicy` / `archiveScan`）的白名单锚定 `mimir-backup-<slug>-<ts>.zip`；若允许
+   *   调用方产出一个白名单永远认不出的名字，该归档会**永久累积且永不被清理**（K1/K5 的反面）。
+   * - **仅**给出 `destination`（未给 `spaceName`）时保持**既有语义不变**：不校验命名，
+   *   直接按调用方给的路径发布——批次 2–4 的调用方（恢复/集成测试等）依赖此行为。
+   */
+  destination?: string
+  /**
+   * 空间名（用于按归档命名规范**派生**目标名；I6 批次 5 · T03 新增，可选）。
+   *
+   * - 省略 `destination` 时**必填**：packer 用 `deriveArchiveName(spaceName, now)` 生成文件名，
+   *   落点为 `join(dirname(stagingDir), <name>)`（暂存目录的**兄弟**，见 `createBackup` 内注释）。
+   * - 与 `destination` 同时给出时：触发上面对 `destination` 的**受管命名校验**。
+   */
+  spaceName?: string
   /** 同盘暂存目录（通常在空间之外的临时位置或 backups/）。 */
   stagingDir: string
   /** 用于快照的资产库；未打开时传 null（本次打包不含 assets.db）。 */
@@ -72,13 +94,59 @@ async function hashFile(path: string): Promise<string> {
 }
 
 /**
+ * 决策最终归档落点（I6 批次 5 · T03）。
+ *
+ * 三条分支，**优先级从显式到隐含**：
+ *
+ * 1. **给了 `destination` + 给了 `spaceName`** → 调用方明确「采用受管命名」：
+ *    校验 `isManagedArchive(basename(destination))`。不满足 → `INVALID_DESTINATION`。
+ *    （为什么校验而非放行：产出保留策略认不出的名字 = 归档永久累积不被清理。）
+ * 2. **给了 `destination`、未给 `spaceName`** → **既有语义不变**：原样使用，不校验。
+ *    这条分支保证批次 2–4 的既有调用方（`space.zip` / `b.zip` / 集成测试等）行为**逐字节不变**。
+ * 3. **未给 `destination`** → 要求 `spaceName` 必填，按规范派生：
+ *    `join(dirname(stagingDir), deriveArchiveName(spaceName, now))`。
+ *
+ * 分支 3 的落点说明（`dirname(stagingDir)`）：
+ *   把归档放在**暂存目录的兄弟**位置，是**临时**落点——packer 目前不知道生产 `backups/`
+ *   目录（那是 `maintenanceMain.ts:20` 的 `ARCHIVE_DIRECTORY_NAME`，且缺省逻辑刻意不 import
+ *   维护层以免引入打包层对 UI/维护层的依赖）。真正落 `backups/` 仍由调用方显式给
+ *   `destination` 决定（分支 1/2）。派生名保证「即使走缺省落点，文件名也**通过 `isManagedArchive`**」，
+ *   从而命名规则在**打包路径上被强制落实**，同时不臆造一个假的 `backups/` 接线。
+ *
+ * @param request 备份请求。
+ * @returns 最终归档的**绝对**路径。
+ * @throws {BackupError} `INVALID_DESTINATION`（分支 1 校验失败）/ `MISSING_SPACE_NAME`（分支 3 缺空间名）。
+ */
+function resolveDestination(request: BackupRequest): string {
+  const { destination, spaceName, stagingDir } = request
+  if (destination !== undefined) {
+    // 分支 1：与 spaceName 同给 → 受管命名校验（命名规则在打包路径被强制落实）。
+    if (spaceName !== undefined && !isManagedArchive(basename(destination))) {
+      throw new BackupError(
+        'INVALID_DESTINATION',
+        `目标归档名不符合受管命名规范（应为 mimir-backup-<空间名slug>-<YYYYMMDD-HHMMSS>.zip）：${basename(destination)}`
+      )
+    }
+    // 分支 1（校验通过）/ 分支 2（未给 spaceName，原样使用）——共用返回。
+    return destination
+  }
+  // 分支 3：未给 destination → 必须能派生。
+  if (spaceName === undefined || spaceName === '') {
+    throw new BackupError('MISSING_SPACE_NAME', '未提供 destination 时必须提供 spaceName 以按命名规范派生归档名')
+  }
+  const derivedAbs = join(dirname(stagingDir), deriveArchiveName(spaceName, new Date()))
+  return derivedAbs
+}
+
+/**
  * 执行一次完整备份。
  *
  * 流程：清单 → 源库快照（可选）→ 写暂存归档 → fsync → 原子发布。
  * 失败路径：清理暂存与快照；已发布的目标不由本函数删除（rename 前不会创建目标）。
  */
 export async function createBackup(request: BackupRequest): Promise<BackupResult> {
-  const { root, destination, stagingDir, assetsDb, assetsDbRelPath, limits } = request
+  const { root, stagingDir, assetsDb, assetsDbRelPath, limits, spaceName } = request
+  const destination = resolveDestination(request)
   if (existsSync(destination)) throw new BackupError('TARGET_EXISTS', `目标备份已存在，拒绝覆盖：${destination}`)
   mkdirSync(stagingDir, { recursive: true })
 
