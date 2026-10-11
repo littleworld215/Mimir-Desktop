@@ -282,7 +282,9 @@ export function applyRetention(token: string, deps: RetentionDeps): MaintenanceR
   // ── ⑥ 审计（复用批次 4 auditWriter；失败仅 warn，不拖垮清理） ───────────
   const kept = plan.keep.length
   const outcome: 'ok' | 'failed' = failed > 0 ? 'failed' : 'ok'
-  const entry = {
+  // `action:'retention'` 已在共享契约的 `MaintenanceAuditEntry.action` 联合类型中登记
+  // （批次 5 收口时补入），故此处**无需**任何类型断言——保持类型诚实。
+  const entry: MaintenanceAuditEntry = {
     at: resolved.now().toISOString(),
     action: 'retention',
     outcome,
@@ -290,12 +292,7 @@ export function applyRetention(token: string, deps: RetentionDeps): MaintenanceR
     counts: { removed, failed, kept },
     // labels 的值只允许**文件名 basename**（绝不含绝对路径）；这里放失败条目名，便于人工定位。
     labels: failedNames.length > 0 ? { failed: failedNames.join(',') } : undefined
-    // ⚠️ 类型注记：共享契约的 `MaintenanceAuditEntry.action` 当前联合类型为
-    //    `'restore' | 'doctor'`，**尚未包含 `'retention'`**。本任务明确要求「不擅自改契约、
-    //    向 team-lead 报告」。此处用一次**局部收窄断言**把字面量交给 writer（writer 落盘前
-    //    还会跑 `redactValue` 兜底，不校验 action 取值），从而在不改契约的前提下让 T02 自洽。
-    //    team-lead 补契约（追加 `'retention'`）后，本断言即可移除。
-  } as unknown as MaintenanceAuditEntry
+  }
   resolved.writeAudit(resolved.home, entry)
 
   return { ok: true, removed, failed, reclaimedBytes }

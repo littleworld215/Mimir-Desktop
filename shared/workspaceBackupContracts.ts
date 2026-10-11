@@ -364,8 +364,18 @@ export interface MaintenanceCancelResult {
 export interface MaintenanceAuditEntry {
   /** 记录时刻（ISO）。 */
   readonly at: string
-  /** 动作类别（本批两类）。 */
-  readonly action: 'restore' | 'doctor'
+  /**
+   * 动作类别。
+   *
+   * - `restore`   —— 恢复为新空间（批次 3）；
+   * - `doctor`    —— 只读自检（批次 4）；
+   * - `retention` —— 保留策略的**显式**清理（批次 5）。
+   *
+   * ⚠️ 新增动作必须**同时**更新本联合类型与 `auditWriter` 的调用方：
+   * 类型是「可落审计的动作」的**唯一白名单**，绝不能为图省事用 `as unknown as` 绕过
+   * （那会让「哪些动作会落审计」在类型上不可见，维护者无从审计）。
+   */
+  readonly action: 'restore' | 'doctor' | 'retention'
   /** 结果。 */
   readonly outcome: 'ok' | 'failed'
   /** 失败码（SCREAMING_SNAKE，非自由文本）。 */
