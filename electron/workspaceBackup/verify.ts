@@ -40,7 +40,15 @@ function openArchive(path: string, limits: { maxEntries: number }): Promise<yauz
   })
 }
 
-/** 读取单个 entry 的全部字节（仅条目本身，不含解压到磁盘）。 */
+/**
+ * 读取单个 entry 的全部字节（仅条目本身，不含解压到磁盘）。
+ *
+ * ⚠️ 用途限制：本函数把整条内容拼成一个 `Buffer`，**仅适用于归档内清单**
+ * （`mimir-manifest.json`，其字节数有上限：清单本身 ≤ `maxManifestBytes`，默认 64 MiB），
+ * 故这里的 `Buffer.concat` 是**有意为之**而非漏改。
+ * **逐文件校验**（对归档内每个文件条目算 SHA256，条目仅受 `maxEntries`/`maxTotalBytes`
+ * 约束、单文件可达 GiB 级）走 `hashEntry` 的**流式**路径，绝不整读入内存。
+ */
 function readEntry(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
   return new Promise((resolveRead, reject) => {
     zipfile.openReadStream(entry, (error, stream) => {
@@ -50,6 +58,32 @@ function readEntry(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> 
       stream.on('data', (chunk: Buffer) => { chunks.push(chunk); total += chunk.length })
       stream.on('error', (streamError: Error) => reject(new VerifyError('READ_FAILED', `读取条目失败：${entry.fileName}（${streamError.message}）`)))
       stream.on('end', () => resolveRead(Buffer.concat(chunks, total)))
+    })
+  })
+}
+
+/**
+ * **流式**读取单个 entry 并计算其字节数与 SHA256（只读，不解压到磁盘）。
+ *
+ * 与 `readEntry` 的关键差异：**不** `chunks.push`、**不** `Buffer.concat`，
+ * 在 `data` 事件里直接把每个 chunk 喂给 `createHash('sha256')` 并累加 `size`。
+ * 因此峰值内存 ≈ 单个 chunk（yauzl 默认 64 KiB），与文件体积无关——
+ * 这是「10 万条目 / 1 TiB 展开」上限下验大文件归档不 OOM 的根本保证。
+ *
+ * @param zipfile 已打开的归档。
+ * @param entry 待校验的文件条目。
+ * @returns 该条目的实际字节数 `size` 与其内容 SHA256（小写十六进制）`sha256`。
+ * @throws {VerifyError} `READ_FAILED`（打开或读取流失败）。
+ */
+function hashEntry(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<{ size: number; sha256: string }> {
+  return new Promise((resolveHash, reject) => {
+    zipfile.openReadStream(entry, (error, stream) => {
+      if (error || !stream) { reject(new VerifyError('READ_FAILED', `无法读取条目：${entry.fileName}`)); return }
+      const hash = createHash('sha256')
+      let size = 0
+      stream.on('data', (chunk: Buffer) => { hash.update(chunk); size += chunk.length })
+      stream.on('error', (streamError: Error) => reject(new VerifyError('READ_FAILED', `读取条目失败：${entry.fileName}（${streamError.message}）`)))
+      stream.on('end', () => resolveHash({ size, sha256: hash.digest('hex') }))
     })
   })
 }
@@ -135,12 +169,12 @@ export async function verifyBackup(
           const name = entry.fileName.split('\\').join('/').replace(/\/+$/, '')
           const declared = expected.get(name)
           if (declared && declared.kind === 'file' && name !== MANIFEST_IN_ARCHIVE) {
-            const buffer = await readEntry(zip2, entry)
-            if (buffer.length !== declared.size) {
-              throw new VerifyError('SIZE_MISMATCH', `条目字节数不符：${name}（归档 ${buffer.length} / 清单 ${declared.size}）`)
+            // 流式：逐 chunk 喂哈希并累加字节数，不把整文件拼进内存（大条目不再 OOM）。
+            const { size, sha256 } = await hashEntry(zip2, entry)
+            if (size !== declared.size) {
+              throw new VerifyError('SIZE_MISMATCH', `条目字节数不符：${name}（归档 ${size} / 清单 ${declared.size}）`)
             }
-            const digest = createHash('sha256').update(buffer).digest('hex')
-            if (digest !== declared.sha256) {
+            if (sha256 !== declared.sha256) {
               throw new VerifyError('DIGEST_MISMATCH', `条目摘要不符：${name}`)
             }
           }
