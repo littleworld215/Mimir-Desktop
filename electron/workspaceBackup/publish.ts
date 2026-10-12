@@ -70,11 +70,15 @@ export function assertPublishableStaging(stagingRoot: string): void {
 
   for (const name of PROTECTED_DIRECTORIES) {
     const path = join(stagingRoot, name)
-    if (!existsSync(path)) continue
+    // 存在性探测必须用 `lstatSync` 而非 `existsSync`：`existsSync` 会**跟随**链接，
+    // 悬垂符号链接（指向不存在目标）会被判为「不存在」而**整体跳过**本项检查，
+    // 使一条悬垂链接绕过 S8。`lstatSync` 不跟随链接，故能如实看到链接自身。
+    // ENOENT 才是「真的没有这个目录」（小型空间可能没有 assets）→ 跳过；其余错误一律拒绝。
     let stat
     try {
       stat = lstatSync(path)
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
       throw new RestoreError('UNSAFE_ENTRY', `暂存根内的 ${name} 无法 stat，拒绝发布：${path}（${(error as Error).message}）`)
     }
     if (stat.isSymbolicLink()) {
