@@ -356,6 +356,12 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
    逐文件摘要不再整读入内存；错误码/消息文案逐字保留。`readEntry` 的整读保留但加注释说明仅用于读有上限的 manifest。
    新增 4 条用例（含 `createHash` 打桩证明 `update` 多次、单块 < 文件体积的机制层断言）+ 变异验证。
 4. **外置资料登记特性待裁决**：外置 PDF/项目/聊天产物的显式选入登记尚未定稿。
+   → **已立项（2026-10-12）**：用户裁决立项，设计稿见 `docs/design/I6-TODO4-EXTERNAL-MATERIALS-REGISTRY.md`。
+   形态定为「**空间内登记表（`<space>/.mimir/external-registry.json`）+ 打包时并入**」，
+   **否决**「打包时临时弹窗选择」（违背离线维护前提、跨次不可复现、与「登记」语义冲突）。
+   归档内以虚拟根 `__external__/ext-<id>/` 表示外置条目 → `verify` 零改动。
+   登记复用 `pickedPaths` 授权门，只登记引用不复制内容，源失效走 `ExcludedEntry` 明确报告。
+   实施分 T01–T07（见设计稿 §6），**本批只出设计稿，未实施**。
 5. **目录包/安装版替换**：待具备 .NET SDK 10.0.401 与真实 Windows 打包环境的批次执行
    （并与源码交付**分开**）。
 6. **真实 Windows Electron ABI 下的端到端备份/恢复 + `17-packaged-assets.spec.ts`**：待目录包产出后补验。
