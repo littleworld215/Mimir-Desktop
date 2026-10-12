@@ -139,3 +139,63 @@ it('总量上限与单文件上限各自独立：单文件超限不至于抛错'
   expect(excluded).toHaveLength(1)
   expect(entries.filter((e: any) => e.kind === 'file')).toHaveLength(0)
 })
+
+/** 判断清单里是否存在以给定后缀结尾的条目（大小写不敏感）。 */
+const hasSuffixEntry = (paths: string[], suffix: string) =>
+  paths.some(p => p.toLowerCase().endsWith(suffix))
+
+it('SQLite 瞬态文件（-wal/-shm/-journal）不进清单，稳定内容仍进', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  // 造一个空间根：主库 + 三个瞬态姊妹文件 + 一份正常文件。
+  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  writeFileSync(join(space, '.mimir/assets/assets.db'), 'db-content')
+  writeFileSync(join(space, '.mimir/assets/assets.db-wal'), 'wal-content')
+  writeFileSync(join(space, '.mimir/assets/assets.db-shm'), 'shm-content')
+  writeFileSync(join(space, '.mimir/assets/assets.db-journal'), 'journal-content')
+  mkdirSync(join(space, 'notes'), { recursive: true })
+  writeFileSync(join(space, 'notes/a.txt'), 'note')
+
+  const { entries } = await buildManifest(space)
+  const paths = entries.map((e: any) => e.path)
+
+  // 稳定内容：进入清单。
+  expect(paths).toContain('.mimir/assets/assets.db')
+  expect(paths).toContain('notes/a.txt')
+  // 瞬态文件：一律不进清单。
+  expect(hasSuffixEntry(paths, '-wal')).toBe(false)
+  expect(hasSuffixEntry(paths, '-shm')).toBe(false)
+  expect(hasSuffixEntry(paths, '-journal')).toBe(false)
+})
+
+it('瞬态文件后缀匹配大小写不敏感（assets.db-WAL 也不进清单）', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  writeFileSync(join(space, '.mimir/assets/assets.db'), 'db-content')
+  writeFileSync(join(space, '.mimir/assets/assets.db-WAL'), 'wal-content')
+  writeFileSync(join(space, '.mimir/assets/assets.db-SHM'), 'shm-content')
+
+  const { entries } = await buildManifest(space)
+  const paths = entries.map((e: any) => e.path)
+
+  expect(paths).toContain('.mimir/assets/assets.db')
+  expect(hasSuffixEntry(paths, '-wal')).toBe(false)
+  expect(hasSuffixEntry(paths, '-shm')).toBe(false)
+})
+
+it('后缀排除不误伤合法文件：以 .bak 结尾或以其它名字命名的文件仍进清单', async () => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  mkdirSync(join(space, 'data'), { recursive: true })
+  // 以 `.bak` 结尾 → 不是 `-wal` 结尾，必须保留（endsWith 而非 includes）。
+  writeFileSync(join(space, 'data/archive-wal.bak'), 'backup')
+  // 普通命名，必须保留。
+  writeFileSync(join(space, 'data/my-database.db'), 'db')
+
+  const { entries } = await buildManifest(space)
+  const paths = entries.map((e: any) => e.path)
+
+  expect(paths).toContain('data/archive-wal.bak')
+  expect(paths).toContain('data/my-database.db')
+})

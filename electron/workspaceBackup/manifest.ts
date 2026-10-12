@@ -12,6 +12,8 @@
  *   与归档路径校验（`archivePaths.ts`）同一套 Windows 语义。
  * - **路径全部用正斜杠**：跨平台解释一致，验包时不因分隔符差异误判。
  * - **排除暂存目录**：`.mimir/assets/staging/` 是过程产物，不属于稳定内容。
+ * - **排除瞬态文件**：`-wal` / `-shm` / `-journal` 后缀一律不进清单（见 `EXCLUDED_SUFFIXES`
+ *   的长注释：SQLite 只读打开 WAL 库会在源目录留下它们，进归档会与快照版主库不一致）。
  */
 
 import { createHash } from 'node:crypto'
@@ -101,10 +103,44 @@ export const DEFAULT_MANIFEST_LIMITS: ManifestLimits = {
 /** 备份中的过程产物目录（相对空间根、正斜杠、**带尾斜杠**）——不纳入清单。 */
 const EXCLUDED_PREFIXES = ['.mimir/assets/staging/']
 
-/** 应当排除的绝对路径集合由空间根推导；此处只做相对路径判断。 */
+/**
+ * SQLite 瞬态文件后缀（**不进清单**）。
+ *
+ * 实测依据（设计稿 §0.2）：`manifest.ts` 的旧排除规则**只**排除了 `.mimir/assets/staging/`，
+ * 但批次 3.5 的备份会**只读打开源库做一致快照**（`db.backup()`），而 SQLite 只读打开
+ * **WAL 模式**库会在源目录创建 `-wal` / `-shm`（共享内存索引，即使只读）。若不排除：
+ * 归档里会出现「**快照版 `assets.db` + 实时版 `assets.db-wal`**」的不一致组合——
+ * 恢复时 SQLite 可能重放与本库无关的 WAL，**构成潜在损坏**。
+ *
+ * 这三个后缀在任何模式下都是**瞬态**文件（`-journal` 是 rollback journal、
+ * `-wal` 是 write-ahead log、`-shm` 是 WAL 索引共享内存），**永远不属于稳定内容**。
+ * 稳定内容 = `db.backup()` 产出的**已 checkpoint 快照**（其头部 write/read version 已复位为
+ * 非 WAL，见 `assetsIntegrity.ts` 文件头注释）。
+ */
+const EXCLUDED_SUFFIXES = ['-wal', '-shm', '-journal']
+
+/**
+ * 应当排除的绝对路径集合由空间根推导；此处只做相对路径判断。
+ *
+ * 两种判断（对应两类「非稳定内容」）：
+ * 1. **前缀**：`EXCLUDED_PREFIXES`（过程产物**目录**，需以 `/` 补齐后比前缀）。
+ * 2. **后缀**：`EXCLUDED_SUFFIXES`（SQLite 瞬态**文件**后缀，大小写不敏感）。
+ *
+ * ⚠️ **取舍（有意为之，非遗漏）**：后缀判断用的 `relPath` **不带**尾斜杠，因此名字以
+ * `-wal` / `-shm` / `-journal` 结尾的**目录**同样会被排除（本函数对文件与目录一视同仁，
+ * 调用点在 `visit()` 里、位于 `stat.isDirectory()` 分支**之前**）。这是**可接受**的：
+ * 这类目录几乎必然是 SQLite 瞬态产物，且「排除一个可疑目录」比「把可疑目录整体打包」
+ * 更安全——**风险偏向排除**。
+ *
+ * 后缀判断用 `endsWith` 而非 `includes`：`.mimir/assets/assets.db-wal.bak` 这类
+ * 以 `.bak` 结尾的合法文件**必须**保留，不能被误伤。
+ */
 function isExcluded(relPath: string): boolean {
   const withSlash = `${relPath}/`
-  return EXCLUDED_PREFIXES.some(prefix => withSlash.startsWith(prefix))
+  if (EXCLUDED_PREFIXES.some(prefix => withSlash.startsWith(prefix))) return true
+  // 大小写不敏感：Windows 上 `ASSETS.DB-WAL` 也可能出现（NTFS 默认不区分大小写）。
+  const lower = relPath.toLowerCase()
+  return EXCLUDED_SUFFIXES.some(suffix => lower.endsWith(suffix))
 }
 
 class ManifestError extends Error {
