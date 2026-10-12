@@ -17,7 +17,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>() }))
 
@@ -45,19 +45,26 @@ import { pickedPaths } from '../../../electron/ipc/rendererPathGuards'
 let root: string
 let external: string
 
-beforeEach(() => {
+/**
+ * `setupIpcHandlers` 会注册**全部** IPC handler（含 `node-pty` 等重依赖），
+ * 是全仓最重的模块加载路径。故**只注册一次**（`beforeAll`），且整个文件共用一个临时根——
+ * 避免每个用例重复加载/注册导致的内存峰值（本机 16GB、常态剩余 ~2GB，
+ * 逐用例注册会触发 tinypool worker 被 OS 强杀，表现为 `Worker exited unexpectedly`）。
+ */
+beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'mimir-fsstat-'))
   external = join(root, 'external')
   mkdirSync(external, { recursive: true })
-  pickedPaths.clear()
   hoisted.handlers.clear()
   setupIpcHandlers({ current: null })
 })
 
-afterEach(() => {
-  vi.restoreAllMocks()
+beforeEach(() => {
+  // 只清授权白名单；handler 注册保持（见上）。
   pickedPaths.clear()
-  hoisted.handlers.clear()
+})
+
+afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 

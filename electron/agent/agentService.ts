@@ -33,6 +33,7 @@ import {
   failAgentTurnSpan
 } from './otelTrace'
 import { withToolTrace } from './toolTrace'
+import { dispatchHooks, describeToolCall } from './hooks'
 import { assertNoDelegationTools, guardSubagentTools } from './delegationFirewall'
 import {
   SUBAGENT_RETURN_CONTRACT,
@@ -531,7 +532,17 @@ export class AgentService {
     return guarded.map((base) =>
       // 只保留 C3 的来源标记（主 Agent 直接调用）。**事件不再从这里发** ——
       // 统一由 run.toolCalls 出口产出，避免"两处各发一份"造成重复与口径漂移。
-      withToolTrace(base as ToolLike, { source: { origin: 'main' } })
+      // 新增：把工具生命周期分派给用户钩子（`plugins:hooks`）。钩子为「即发即忘」的增强，
+      // 失败隔离在 `dispatchHooks` 内保证，绝不影响工具结果（见 hooks.ts 文件头）。
+      withToolTrace(base as ToolLike, {
+        source: { origin: 'main' },
+        onCall: (name, args) =>
+          dispatchHooks('agent:beforeTool', { toolName: name, detail: describeToolCall(name) }),
+        onDone: (name) =>
+          dispatchHooks('agent:afterTool', { toolName: name, detail: describeToolCall(name) }),
+        onError: (name, error) =>
+          dispatchHooks('agent:afterTool', { toolName: name, detail: describeToolCall(name, error) })
+      })
     )
   }
 

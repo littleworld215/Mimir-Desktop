@@ -34,6 +34,7 @@
  */
 import { getStoreValue } from '../library/store'
 import { withToolTrace, type TraceTool } from './toolTrace'
+import { dispatchHooks, describeToolCall } from './hooks'
 import {
   SUBAGENT_DEPTH,
   assertNoDelegationTools,
@@ -712,7 +713,15 @@ export function buildDomainSubagents(domains: readonly DomainRuntime[]): DomainS
       description: buildSubagentDescription(d),
       systemPrompt: buildSubagentPrompt(d),
       tools: guarded.map(tool => withToolTrace(tool as TraceTool, {
-        source: { origin: 'subagent', subagentId: d.id, subagentLabel: d.label }
+        source: { origin: 'subagent', subagentId: d.id, subagentLabel: d.label },
+        // 子代理工具与主 Agent 工具**同款**钩子接线：钩子是「工具调用」的事件，
+        // 不区分直调还是委派（见 hooks.ts）。失败隔离由 dispatchHooks 保证。
+        onCall: (name) =>
+          dispatchHooks('agent:beforeTool', { toolName: name, detail: describeToolCall(name) }),
+        onDone: (name) =>
+          dispatchHooks('agent:afterTool', { toolName: name, detail: describeToolCall(name) }),
+        onError: (name, error) =>
+          dispatchHooks('agent:afterTool', { toolName: name, detail: describeToolCall(name, error) })
       })),
       mode: 'isolated' as const
     })

@@ -6,10 +6,15 @@
  * - 技能：内置 research-* 只读；自定义技能经 /trigger 在对话中实时生效（与原先一致）。
  * - 能力域：本页管理 Agent 可按能力域选择的工具分组——内置科研能力域只读展示（可克隆），
  *   自定义能力域经「重载 Agent」即时生效（主进程 electron/agent/subagentRegistry.ts 消费）。
- * - 插件 / Hooks：本页提供完整的管理（增删改查 + 启用开关）与本地持久化；
- *   作为可管理的配置入口，供后续运行时扩展消费。
- *   TODO: 插件运行时消费尚未接入——配置写入 electron/store 后需在 Agent 调度层读取
- *   hooks.{onBeforeTool|onAfterTool|onContextReady} 并在对应生命周期调用。
+ * - 插件 / Hooks：本页提供完整的管理（增删改查 + 启用开关）与本地持久化。
+ *   Hooks 运行时**已接线**：`electron/agent/hooks.ts` 在工具生命周期（`agent:beforeTool` /
+ *   `agent:afterTool`）读取本页写入的 `plugins:hooks` 并分派，主 Agent 与委派子代理同口径
+ *   （均在 `withToolTrace` 回调侧触发）。
+ *   ⚠️ 当前为**只接线不放权**：`script` / `command` / `http` 三种 action 均**只记录不执行**
+ *   （在主进程执行用户自由文本 = 开放 RCE / 数据外泄面，须经沙箱与批准链设计后另行裁决）。
+ *   事件名以本页下方下拉选项为准（`message:beforeSend` / `message:afterComplete` /
+ *   `agent:beforeTool` / `agent:afterTool`）；`message:*` 两个事件属对话消息生命周期，
+ *   触发点在别处，尚未接线。
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -1342,7 +1347,7 @@ const TABS: { id: PluginsTab; label: string; icon: React.ElementType; desc: stri
   { id: 'skills', label: '技能', icon: Command, desc: '内置只读 + 自定义技能增删改查' },
   { id: 'subagents', label: '能力域', icon: Bot, desc: 'Agent 可按能力域选择的工具分组（增删改查 + 启停）' },
   { id: 'plugins', label: '插件', icon: Puzzle, desc: '插件注册（增删改查 + 启停；配置留待运行时扩展消费）' },
-  { id: 'hooks', label: 'Hooks', icon: Cable, desc: '事件钩子注册（增删改查 + 启停；留待运行时扩展消费）' }
+  { id: 'hooks', label: 'Hooks', icon: Cable, desc: '事件钩子注册（增删改查 + 启停；agent:* 已接线，action 暂只记录不执行）' }
 ]
 
 export function Plugins() {
