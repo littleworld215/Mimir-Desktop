@@ -345,9 +345,16 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
 
 ## 7. 后续待办
 
-1. **`publish.ts:73` 悬垂符号链接**：发布后可能遗留悬垂 symlink，待处理。
+1. ~~**`publish.ts:73` 悬垂符号链接**：发布后可能遗留悬垂 symlink，待处理。~~
+   → **已修复** `f41c885`。复核时发现原描述有误（`:73` 只是 `if (!existsSync(path)) continue`，
+   那里不创建链接）；但读源码时发现**更真实的同源缺陷**：`assertPublishableStaging` 用 `existsSync`
+   判受保护目录是否存在，而 `existsSync` **跟随链接** → 悬垂符号链接被判为「不存在」而**整体跳过** S8 检查。
+   已改用 `lstatSync` 探测（仅 `ENOENT` 才跳过），并加 2 条回归用例 + 变异验证。
 2. **目标父目录为符号链接 → `INTERNAL`**：需给出更明确语义或拒绝口径。
-3. **`verify.ts` 整文件 `Buffer.concat` 内存问题**：大归档逐条校验时的内存占用需优化（流式）。
+3. ~~**`verify.ts` 整文件 `Buffer.concat` 内存问题**：大归档逐条校验时的内存占用需优化（流式）。~~
+   → **已修复** `0ad39d5`。新增流式 `hashEntry`（逐 chunk `hash.update` + 累加 size，不 `Buffer.concat`），
+   逐文件摘要不再整读入内存；错误码/消息文案逐字保留。`readEntry` 的整读保留但加注释说明仅用于读有上限的 manifest。
+   新增 4 条用例（含 `createHash` 打桩证明 `update` 多次、单块 < 文件体积的机制层断言）+ 变异验证。
 4. **外置资料登记特性待裁决**：外置 PDF/项目/聊天产物的显式选入登记尚未定稿。
 5. **目录包/安装版替换**：待具备 .NET SDK 10.0.401 与真实 Windows 打包环境的批次执行
    （并与源码交付**分开**）。
@@ -355,13 +362,19 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
 7. **恢复 `.native/assets-pipe-helper/win-x64/manifest.json`**：在具备 .NET SDK 10.0.401 的环境重跑
    `node scripts/prepareAssetsPipeHelper.mjs`；恢复前 `assets:pipe:check` 持续失败（详见 §5.2 / §6.7）。
 
+> **存量质量优化（2026-10-12）**：上列第 1、3 项与 `electron/assets/fileService.ts` 的搬入身份误判
+> 已一并修复，对应 `f41c885`（S8 悬垂链接）、`0ad39d5`（验包流式）、`903132f`（搬入身份以 dev+ino 为准，
+> 不再以 `nlink` 误拒合法导入，`fileService.test.ts` 由 14 failed → 37 passed）。
+> 详见本仓库 `git log` 与工作日志。
+
 ---
 
 ## 附：本批纪律遵守声明
 
 - 零新增依赖，`package.json` 未改。
 - `electron/`、`src/`、`shared/` 源码未改（本批只产文档 + 只读验证）。
-- `docs/design/` 下四份设计稿保持 untracked，未提交。
+- `docs/design/` 下设计稿：本批期间保持 untracked 未提交；后经 `17a8b9c` 统一入库
+  （批次 3 稿早已在 `81f8a5e` 入库，为保持惯例自洽而补齐其余三份）。
 - 未操作真实用户资料（`~/.mimir`），未启动真实已安装的 Mimir。
 - 未切分支、未 `git reset`/`stash`。
 - 只提交自有 fork（`origin` = `git@github.com:littleworld215/Mimir-Desktop.git`），未触碰 upstream（`hxhy00/Mimir-Desktop`）。
