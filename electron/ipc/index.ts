@@ -3,7 +3,7 @@ import { readFile, writeFile, readdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { app } from 'electron'
 import { join, basename, extname, dirname, relative, resolve } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, statSync } from 'fs'
 import { agentService } from '../agent/agentService'
 import { isControlPlanePath } from '../agent/controlPlane'
 import { isPathWithin } from './pathGuards'
@@ -355,6 +355,27 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
       return { ok: true, dataUrl: `data:${mime};base64,${data.toString('base64')}` }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : '读取图片失败' }
+    }
+  })
+
+  /**
+   * 读取单个文件的元信息（大小/是否目录/修改时间），**不读取内容**。
+   *
+   * 用途：附件导入时把 `size` 填成真实字节数（此前恒为 -1，见 ChatInput.tsx 的 TODO）。
+   * 与 `fs:readFile` **同一道授权门**：只放行用户在原生对话框中显式选中的路径
+   * （`assertRendererFilePath` → `pickedPaths`），绝不按扩展名或任意路径放行——
+   * 否则又是一个「任意路径读元信息」的旁路（同 `fs:readImageDataUrl` 早先的教训）。
+   *
+   * 返回形状 `{ ok, size?, isDirectory?, mtimeMs?, message? }`：失败不抛到渲染层
+   * （渲染层拿到 `ok:false` 自行降级），避免一个统计失败打断整批附件导入。
+   */
+  ipcMain.handle('fs:stat', async (_event, filePath: string) => {
+    try {
+      const target = assertRendererFilePath(filePath)
+      const stat = statSync(target)
+      return { ok: true, size: stat.size, isDirectory: stat.isDirectory(), mtimeMs: stat.mtimeMs }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : '读取文件信息失败' }
     }
   })
 

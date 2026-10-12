@@ -129,9 +129,9 @@ const AGENT_KIND_LABEL: Record<AgentContextPayload['kind'], string> = {
 }
 
 // ─── Attachments ────────────────────────────────────────────────────────
-// TODO: 图片附件（非文本文件）的 size 为 -1（未知），因为当前无 fs:stat IPC。
-// 后续需在 preload / ipc 中新增 fs:getFileSize 桥接，或在导入时读取文件头获取大小。
-// 图片附件的 base64 内容通道也尚未接入：非文本文件只存储 path，不读取内容——
+// 附件大小：已接入 fs:stat IPC（主进程 `fs:stat` → preload `statFile`），
+// 所有文件（含图片等非文本）的 size 均为真实磁盘字节数，不再有 -1。
+// 仍待办：图片附件的 base64 内容通道未接入——非文本文件当前只存储 path，不读取内容；
 // 消息发送时需通过 mimir-img:// 协议或 readImageDataUrl 将图片内联进消息。
 
 // Text-like file extensions we can read
@@ -365,15 +365,23 @@ export function ChatInput({ onSend, onModelChange, onStop, entries, disabled, is
         id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         path: filePath,
-        size: -1 // unknown until populated below
+        size: -1 // 先置未知；下方用 fs:stat 填真实字节数
       }
 
-      // Read text content for text-like files; use content length as approximate size
+      // 真实字节数一律取自 fs:stat（不读内容）：文本文件此前误用「字符数」当大小，
+      // 对多字节字符（中文/emoji）会偏小；非文本文件此前恒为 -1。两者现统一为磁盘字节数。
+      try {
+        const meta = await window.electronAPI.statFile(filePath)
+        if (meta.ok && typeof meta.size === 'number') attachment.size = meta.size
+      } catch {
+        // stat 失败：保留 -1（UI 显示「未知」），不影响附件本身挂载
+      }
+
+      // 读取文本内容供对话上下文使用（大小已在上面取真实磁盘字节数，不再用 content.length）
       if (isTextFile(name)) {
         try {
           const content = await window.electronAPI.readFile(filePath)
           attachment.content = content.slice(0, 30000) // cap at 30k chars
-          attachment.size = content.length
         } catch {
           // file read failed, attach without content
         }

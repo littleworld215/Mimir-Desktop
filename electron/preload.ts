@@ -234,6 +234,8 @@ export interface ElectronAPI {
   readFile: (path: string) => Promise<string>
   writeFile: (path: string, content: string) => Promise<void>
   readImageDataUrl: (path: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>
+  /** 读取文件元信息（大小/是否目录/修改时间），**不读内容**。失败返回 `ok:false`。 */
+  statFile: (path: string) => Promise<{ ok: boolean; size?: number; isDirectory?: boolean; mtimeMs?: number; message?: string }>
 
   // Store data
   getStoreValue: <T>(key: string) => Promise<T | undefined>
@@ -671,6 +673,8 @@ const electronAPI: ElectronAPI = {
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path, content) => ipcRenderer.invoke('fs:writeFile', path, content),
   readImageDataUrl: (path) => ipcRenderer.invoke('fs:readImageDataUrl', path),
+  /** 读取文件元信息（大小/是否目录/修改时间），不读内容。见主进程 `fs:stat`。 */
+  statFile: (path) => ipcRenderer.invoke('fs:stat', path),
 
   getStoreValue: <T>(key: string) => ipcRenderer.invoke('store:get', key),
   setStoreValue: <T>(key: string, value: T) => ipcRenderer.invoke('store:set', key, value),

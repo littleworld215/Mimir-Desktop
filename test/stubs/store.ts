@@ -54,6 +54,18 @@ export function spaceRoot(): string {
   return activeWorkspace.path
 }
 
+/**
+ * 加载 store（真实实现会把磁盘 store 读进内存）。
+ *
+ * 本桩的全部状态**已在模块初始化时**建好（见文件顶部 `spaceBuckets` 等），
+ * 故这里的「加载」是**幂等 no-op**。存在此导出的唯一理由：`electron/ipc/index.ts`
+ * 的 `setupIpcHandlers()` 第一行就调用 `loadStore()`，缺了它会直接 `TypeError`，
+ * 使任何需要驱动 IPC handler 的测试无法加载该模块（此前无测试驱动它，故未暴露）。
+ */
+export function loadStore(): void {
+  // 有意为空：桩状态在模块初始化时即已就绪，重入无副作用。
+}
+
 export function testRootPath(): string {
   return activeWorkspace.path
 }

@@ -99,6 +99,8 @@ interface ElectronAPI {
   readFile: (path: string) => Promise<string>
   writeFile: (path: string, content: string) => Promise<void>
   readImageDataUrl: (path: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>
+  /** 读取文件元信息（大小/是否目录/修改时间），**不读内容**。失败返回 `ok:false`。 */
+  statFile: (path: string) => Promise<{ ok: boolean; size?: number; isDirectory?: boolean; mtimeMs?: number; message?: string }>
   getStoreValue: <T>(key: string) => Promise<T | undefined>
   setStoreValue: <T>(key: string, value: T) => Promise<void>
   /** 科研记录：读取全部条目（含主进程自动沉淀的条目）。 */
