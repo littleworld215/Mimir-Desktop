@@ -9,6 +9,7 @@ import { listRestoreArchives } from './restoreMain'
 import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
 import { buildDoctorHandler, registerDoctorHandler } from './maintenanceDoctorHandler'
 import { buildRetentionHandler, registerRetentionHandler } from './maintenanceRetentionHandler'
+import { buildBackupHandler, registerBackupHandler } from './maintenanceBackupHandler'
 import { redactText } from './redact'
 // 归档目录名收口为共享常量（I6 批次 3.5 · T01）：与 retention / doctor 的默认值同一事实源。
 import { archiveDirectory } from './directories'
@@ -140,6 +141,42 @@ void app.whenReady().then(async () => {
    */
   const retentionHandler = buildRetentionHandler({ homeDir: home })
   registerRetentionHandler(ipcMain, trusted, retentionHandler)
+
+  /**
+   * 逐空间完整备份 handler（I6 批次 3.5 · T04）。
+   *
+   * ⚠️ **纪律「控制不可嵌套」**：本 handler **不**经 `installWorkspaceIpcGate`，也**不**调任何
+   * `workspaces:*` 通道；它直接调服务层（`runSpaceBackup`）。**不要**把本通道加进 `ipcGate.ts`
+   * 的 `control` / `workspaceChanges` 集合（K9）。
+   *
+   * ⚠️ **绝不调 `session.select()`（本批关键决策，重要留档）**：维护会话在备份前**只**做健康
+   * 检查（`assertUsable()`）——与既有 `restoreHandler` 的形态**完全一致**。理由：`WorkspaceWriterSession`
+   * 构造时**只**持 `registry.writer-lock`；每**空间**锁**只在** `select(root, maintenance)` 被调用时
+   * 才取（`writerSession.ts:68/77`）。而 `runSpaceBackup` 内的 `defaultAcquireSpaceLock` 取的路径是
+   * `<root>/.mimir/workspace.writer-lock`——与 `prepareSelection` 里 `acquireWorkspaceLock(canonical)`
+   * 取的**同址同名**。若在 backup 前调 `select()`，会话先持锁，`runSpaceBackup` 再取同一路径必然
+   * `EEXIST` → **每次备份都 `LOCK_UNAVAILABLE`（自锁）**。故此处构造 deps 时**只**暴露 `assertUsable`。
+   *
+   * 会话健康检查用 `session === undefined ? undefined : { assertUsable: () => session!.assertUsable() }`
+   * 读**调用时**的模块级变量：`session` 在窗口 `whenReady` 时构造，handler 也在此后注册，二者时序
+   * 已对齐；用 `undefined` 兜住「未就绪」→ `buildBackupHandler` 会以 `LOCK_UNAVAILABLE` 拒绝
+   * （绝不无锁写入）。**照抄** restoreHandler 的写法，别把 `session` 提前捕获成常量。
+   */
+  const backupHandler = buildBackupHandler({
+    homeDir: home,
+    session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
+    onProgress: (progress) => {
+      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响备份本身。
+      if (owner && !owner.isDestroyed()) {
+        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.backupProgress, {
+          stage: progress.stage,
+          // 出口处再包一层脱敏（纵深防御，与 restore/doctor 同款）。
+          detail: redactText(progress.detail)
+        })
+      }
+    }
+  })
+  registerBackupHandler(ipcMain, trusted, backupHandler)
 
   /**
    * 取消通道（批次 4 · T04）。

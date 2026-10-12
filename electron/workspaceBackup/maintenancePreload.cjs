@@ -35,5 +35,15 @@ contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
   retentionPreview: () => ipcRenderer.invoke('workspaceBackup:retentionPreview'),
   // 保留策略确认清理（写路径）：入参**只有一个** { confirmToken }（来自上一次预览）——
   // **绝不回传文件列表**：主进程据 token 自己重算候选，渲染层不得指定删除目标（设计 §2.2 / K2）。
-  applyRetention: (token) => ipcRenderer.invoke('workspaceBackup:retentionApply', { confirmToken: token })
+  applyRetention: (token) => ipcRenderer.invoke('workspaceBackup:retentionApply', { confirmToken: token }),
+  // 逐空间完整备份（I6 批次 3.5 · T04；写路径）：入参**只有一个** { spaceId }（来自只读清单）——
+  // **绝不由渲染层回传路径**：主进程据 spaceId 自己从只读注册表重解析空间根（设计 §1.1 / K4）。
+  backupSpace: (request) => ipcRenderer.invoke('workspaceBackup:backupSpace', request),
+  // 备份进度订阅（可选增强）：形态同 onRestoreProgress / onDoctorProgress（只透传 progress，
+  // 不暴露 IpcRendererEvent）。返回取消订阅函数，避免组件卸载后监听器泄漏。
+  onBackupProgress: listener => {
+    const wrapped = (_event, progress) => listener(progress)
+    ipcRenderer.on('workspaceBackup:backupProgress', wrapped)
+    return () => { ipcRenderer.removeListener('workspaceBackup:backupProgress', wrapped) }
+  }
 }))
