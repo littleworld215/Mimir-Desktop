@@ -306,6 +306,26 @@ it('排他落盘故障精确清理 staging', async () => {
   assertEmpty(f.id)
 })
 
+// 回归守门人：搬入成功后身份仍为同一 dev+ino，但底层 FS 报告的 nlink 不为 1
+// （容器 overlayfs / 虚拟化 FS / 网络卷上 unlink(staging) 后 nlink 可能不递减）。
+// 修复前 :286 以 `moved.nlink !== 1` 抛错，会误拒每一次合法导入；此处断言导入成功。
+it('搬入后 nlink 不为 1 但 dev+ino 一致时仍接受导入（回归守门人）', async () => {
+  const f = fileAsset()
+  const original = fs.lstatSync
+  vi.spyOn(fs, 'lstatSync').mockImplementation(((path: fs.PathLike) => {
+    const stat = original(path)
+    // 仅对落盘后的最终 blob 路径注入 nlink=2 的「未递减」视图，dev/ino 全部保持真实值。
+    if (String(path).includes('files') && String(path).endsWith('.bin')) {
+      return new Proxy(stat, { get: (target, key) => key === 'nlink' ? 2 : Reflect.get(target, key) })
+    }
+    return stat
+  }) as typeof fs.lstatSync)
+  const asset = await importFile(ctx, f.id, { expectedRevision: 1 }, srcFile('gate.bin', 'gateway'))
+  expect(asset).toMatchObject({ versionCount: 1, currentVersion: 1, fileAvailable: true })
+  expect(collectFiles(ctx.layout.filesDir)).toHaveLength(1)
+  expect(collectFiles(ctx.layout.stagingDir)).toEqual([])
+})
+
 it('最终路径在落盘前被外部创建时不覆盖或删除外部文件', async () => {
   const f = fileAsset()
   const rename = fs.renameSync

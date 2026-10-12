@@ -283,7 +283,11 @@ export async function importFile(
       finalAbs = abs
       stagingIdentity = null
       const moved = lstatSync(abs)
-      if (finalIdentity === null || !sameFile(finalIdentity, moved) || moved.nlink !== 1) {
+      // 搬入后身份校验以 dev+ino 为准：sameFile 已充分证明 final 与暂存实体是同一文件。
+      // 不再以 nlink === 1 作为失败判据：nlink 只额外说明「没有其它硬链接」，与本操作是否
+      // 成功搬入无关；且在容器 overlayfs / 虚拟化 FS / 网络卷上 unlink(staging) 后 nlink
+      // 可能不递减（本仓库 POSIX 垫片即复现此行为），据此判失败会误拒每一次合法导入。
+      if (finalIdentity === null || !sameFile(finalIdentity, moved)) {
         throw new AssetsStoreError('FILE_UNAVAILABLE', '搬入的版本文件身份发生变化。')
       }
 
@@ -306,16 +310,36 @@ export async function importFile(
     }
     sourceFd = null
     stagingFd = null
-    for (const [path, identity] of [[!committed ? finalAbs : null, finalIdentity], [stagingAbs, stagingIdentity]] as const) {
+    // 清理本操作持有的文件。两个条目的语义不同，判据必须分开：
+    // ① [finalAbs, finalIdentity]：一旦 finalIdentity 非空，必是在本操作用 linkSync **成功**
+    //    建链之后赋值的，故 finalAbs 处的实体就是本次搬入的 blob，`sameFile`（dev+ino）已充分
+    //    证明「是同一实体」。此处**不再以 nlink 为失败判据**：容器 overlayfs / 虚拟化 FS / 网络卷
+    //    上 unlink(staging) 后 nlink 可能不递减（本仓库 POSIX 垫片即复现），据 nlink 判失败会
+    //    误保留本应清理的 blob，使 COMMIT 失败后的回滚清理瘫痪。
+    // ② [stagingAbs, stagingIdentity]：staging 是本操作的暂存文件，此处保留原有 nlink / ownPair
+    //    判据——用于识别「link 成功而 staging unlink 失败（两链接并存，ownPair）」与「staging 被
+    //    外部硬链接替换」两类场景，**不得删除 nlink 判断**，否则会误删外部文件。
+    const owned: Array<[string | null, Stats | null, 'moved' | 'staging']> = [
+      [!committed ? finalAbs : null, finalIdentity, 'moved'],
+      [stagingAbs, stagingIdentity, 'staging']
+    ]
+    for (const [path, identity, kind] of owned) {
       if (path === null || identity === null) continue
       try {
         const current = lstatSync(path)
-        // link 成功而 staging unlink 失败时，这两个链接均由本操作持有，允许按身份清掉。
-        const ownPair = finalAbs !== null && finalIdentity !== null && stagingIdentity !== null
-          && current.nlink === 2 && sameFile(identity, lstatSync(finalAbs))
-          && sameFile(identity, lstatSync(stagingAbs))
-        if (!sameFile(identity, current) || (current.nlink !== 1 && !ownPair)) {
-          throw new Error('清理目标身份已改变，保留外部替换文件。')
+        if (kind === 'moved') {
+          // 仅按 dev+ino 判定：是我们搬入的 blob 才清理。
+          if (!sameFile(identity, current)) {
+            throw new Error('清理目标身份已改变，保留外部替换文件。')
+          }
+        } else {
+          // link 成功而 staging unlink 失败时，这两个链接均由本操作持有，允许按身份清掉。
+          const ownPair = finalAbs !== null && finalIdentity !== null && stagingIdentity !== null
+            && current.nlink === 2 && sameFile(identity, lstatSync(finalAbs))
+            && sameFile(identity, lstatSync(stagingAbs))
+          if (!sameFile(identity, current) || (current.nlink !== 1 && !ownPair)) {
+            throw new Error('清理目标身份已改变，保留外部替换文件。')
+          }
         }
         unlinkSync(path)
       } catch (cleanupError) {
