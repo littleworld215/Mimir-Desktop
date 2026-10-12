@@ -84,10 +84,19 @@ const STAGING_DIR_NAME = '.staging'
  *
  * 刻意**不**直接用 `Database.Database` 全类型：本层只用到 `backup()` 与 `close()`，
  * 收窄为结构化接口后单测可传最简假对象，无需任何原生绑定（对齐 `retentionService` 的注入范式）。
+ *
+ * ⚠️ **`backup()` 的返回类型必须与 `better-sqlite3` 的真实签名兼容**（这里是批次 6 收口
+ * 修掉的真实缺陷）：`@types/better-sqlite3@7.6.13` 声明为
+ * `backup(dest, options?): Promise<Database.BackupMetadata>`（**有解析值**）。
+ * 早先误写成 `Promise<void>`，导致缺省实现 `openAssetsDbReadonly` 返回的 `Database`
+ * **不能赋给本接口**（`Promise<BackupMetadata>` 不可赋给 `Promise<void>`）→ 整个主进程
+ * `typecheck` 失败。这属于「单测全绿但生产类型不通」的假绿，故此处按**真实签名**放宽：
+ * 本层只 `await` 它、**不使用**解析值，故声明为 `Promise<unknown>` 既兼容真实库，
+ * 也允许单测传返回 `Promise<void>`/任意值的假对象（`Promise<T>` 可赋给 `Promise<unknown>`）。
  */
 export interface AssetsDbHandle {
   /** 把库的一致快照写到 `dest`（SQLite `VACUUM INTO` 语义，原子且已 checkpoint）。 */
-  backup(dest: string): Promise<void>
+  backup(dest: string): Promise<unknown>
   /** 关闭句柄（无论成败都必须调用，绝不泄漏）。 */
   close(): void
 }
