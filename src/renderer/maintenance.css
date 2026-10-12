@@ -10,6 +10,8 @@ button { font: inherit; border: 1px solid #587493; border-radius: 7px; padding: 
 button:disabled { opacity: .55; cursor: wait; }
 button:focus-visible { outline: 3px solid #387fbf; outline-offset: 3px; }
 [role=alert] { color: #a52621; }
+/* 中性小字提示（如恢复/备份结果里的「未纳入」「无资产库」）。沿用既有中性灰蓝，不引入新色板。 */
+[role=note] { color: #4a5b73; font-size: 13px; }
 /* 自检结果表格：纯展示，无评分控件。 */
 table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 caption { text-align: left; color: #4a5b73; padding: 4px 0; }
@@ -30,6 +32,7 @@ th { font-weight: 600; }
   section { background: #1d2838; border-color: #495b73; }
   button { background: #2e4057; }
   [role=alert] { color: #ffb0a8; }
+  [role=note] { color: #9fb0c6; }
   caption { color: #9fb0c6; }
   th, td { border-bottom-color: #495b73; }
   /* 深色下用深色半透明底 + 高亮文字，保证对比度可读。 */

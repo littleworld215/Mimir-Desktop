@@ -101,3 +101,60 @@ it('保留区块不回传路径：apply 只接收 token（K2 红线，对齐 §2
   expect(src).not.toMatch(/applyRetention\(\s*item\./)
   expect(src).not.toMatch(/applyRetention\(\s*\{\s*name:/)
 })
+
+it('备份区块存在：每个空间有「备份该空间」按钮（含进行中文案）', () => {
+  const src = source()
+  // 区块标题与逐空间按钮文案必须存在（UI 契约）。
+  expect(src).toContain('备份科研空间')
+  expect(src).toContain('备份该空间')
+  expect(src).toContain('备份中…')
+})
+
+it('备份只传 spaceId（K2/K4 红线，对齐 §2.2 / §4.2 S7）', () => {
+  const src = source()
+  // 备份的实参必须是 `{ spaceId }`——渲染层**不得**传任何路径字段。
+  expect(src).toContain('api.backupSpace(')
+  expect(src).toContain('backupSpace({ spaceId })')
+  // 渲染层不得指定备份源目录 / 目标（这些字段压根不在契约里）。
+  expect(src).not.toContain('backupSpace({ path')
+  expect(src).not.toContain('backupSpace({ root')
+  expect(src).not.toContain('backupSpace({ targetRoot')
+  expect(src).not.toContain('backupSpace({ destination')
+  // 精确红线：`backupSpace(` 之后的首个字段必须是 `spaceId`。
+  // 用捕获组取出第一个字段名再比对，避开负前瞻在 `\s*` 上的回溯（会把空格位置也算「非 spaceId」）。
+  const backupCallArgs = [...src.matchAll(/backupSpace\s*\(\s*\{[ \t]*([A-Za-z_$][\w$]*)?/g)]
+  expect(backupCallArgs.length).toBeGreaterThan(0)
+  for (const match of backupCallArgs) expect(match[1]).toBe('spaceId')
+})
+
+it('backupSpace / onBackupProgress 有判存在的降级（保持向后兼容）', () => {
+  const src = source()
+  // 旧主进程不提供新方法时，渲染层必须判存在再调用，不能直接抛错。
+  expect(src).toContain("typeof api.backupSpace !== 'function'")
+  expect(src).toContain("typeof api.onBackupProgress !== 'function'")
+})
+
+it('备份进度接线：订阅并返回 unsubscribe（照 onDoctorProgress 写法）', () => {
+  const src = source()
+  expect(src).toContain('api.onBackupProgress(')
+  // 订阅必须返回取消订阅函数（订阅返回 `unsubscribe`）。
+  expect(src).toContain('const unsubscribe = api.onBackupProgress(')
+  expect(src).toContain('return unsubscribe')
+})
+
+it('备份结果只展示 archiveName（basename），不显示任何路径字段', () => {
+  const src = source()
+  // 只显示契约保证无路径的 `archiveName`。
+  expect(src).toContain('backupResult.archiveName')
+  // 契约里本来就没有 destination/root；这条防未来误加。
+  expect(src).not.toContain('backupResult.destination')
+  expect(src).not.toContain('backupResult.root')
+})
+
+it('备份成功后刷新归档清单（新归档落 backups/）', () => {
+  const src = source()
+  // `runBackup` 函数体内必须调 `await refresh()`（照恢复 / 清理后的刷新纪律）。
+  const runBackup = src.slice(src.indexOf('async function runBackup'))
+  const body = runBackup.slice(0, runBackup.indexOf('\n  }'))
+  expect(body).toContain('await refresh()')
+})

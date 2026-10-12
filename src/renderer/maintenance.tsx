@@ -6,6 +6,8 @@ import type {
   MaintenanceArchiveCandidate,
   MaintenanceAuditEntry,
   MaintenanceAuditView,
+  MaintenanceBackupProgress,
+  MaintenanceBackupResult,
   MaintenanceDoctorProgress,
   MaintenanceDoctorResult,
   MaintenanceOverview,
@@ -181,6 +183,15 @@ function MaintenanceApp() {
   const [retentionToken, setRetentionToken] = useState<string>()
   const [retentionNotice, setRetentionNotice] = useState<string>()
 
+  // 备份区块状态：逐空间备份的进行中标志（记录**哪个 spaceId** 在备份，便于按钮禁用与展示）、
+  // 最近一次结果、进度、以及按 spaceId 的最佳努力提示。
+  // ⚠️ `backupProgress` 是**全局单条**：后端进度事件按契约**不带 spaceId**（`MaintenanceBackupProgress`
+  // 只有 stage/detail），所以进度本身无法自证「属于谁」。这正是必须用 `backupRunningId` 记住
+  // 「当前在备份哪个 spaceId」的原因——它才是把进度归属到具体空间的唯一依据。
+  const [backupRunningId, setBackupRunningId] = useState<string>()
+  const [backupResult, setBackupResult] = useState<MaintenanceBackupResult>()
+  const [backupProgress, setBackupProgress] = useState<MaintenanceBackupProgress>()
+
   const api = window.workspaceBackupMaintenance
 
   async function refresh() {
@@ -202,6 +213,13 @@ function MaintenanceApp() {
   useEffect(() => {
     if (typeof api.onDoctorProgress !== 'function') return
     const unsubscribe = api.onDoctorProgress((next) => setDoctorProgress(next))
+    return unsubscribe
+  }, [api])
+
+  // 订阅备份进度（可选增强）：照 `onDoctorProgress` 的降级写法（判存在再订阅，返回 unsubscribe）。
+  useEffect(() => {
+    if (typeof api.onBackupProgress !== 'function') return
+    const unsubscribe = api.onBackupProgress((next) => setBackupProgress(next))
     return unsubscribe
   }, [api])
 
@@ -391,13 +409,51 @@ function MaintenanceApp() {
     }
   }
 
+  /**
+   * 对**指定空间**执行一次完整备份（判存在再调 `api.backupSpace`，照 `previewRetention` 的降级写法）。
+   *
+   * ⚠️ **只传 `spaceId`**：空间根由主进程**自己**从注册表解析（设计 §4.2 S7 / K4）——
+   * 渲染层不得拼任何路径。已有备份在跑时**早退**（串行），避免多条进度互相串台。
+   * 成功后归档清单会变（新归档落进备份目录）→ 刷新只读清单。
+   */
+  async function runBackup(spaceId: string) {
+    if (backupRunningId !== undefined) return // 已有备份在跑 → 早退（串行）
+    // 判存在再调用（旧主进程不提供 backupSpace）；不假装成功。
+    if (typeof api.backupSpace !== 'function') {
+      setBackupResult({ ok: false, code: 'NOT_SUPPORTED', detail: '当前版本不支持逐空间备份，请更新应用后重试。' })
+      return
+    }
+    setBackupRunningId(spaceId)
+    setBackupResult(undefined)
+    setBackupProgress(undefined)
+    try {
+      // ⚠️ **只传 spaceId**：空间根由主进程从注册表解析（设计 §4.2 S7，渲染层不得拼路径）。
+      const outcome = await api.backupSpace({ spaceId })
+      setBackupResult(outcome)
+    } catch {
+      setBackupResult({ ok: false, code: 'INTERNAL', detail: '备份请求未能送达主进程，请重试。' })
+    } finally {
+      setBackupRunningId(undefined)
+      setBackupProgress(undefined)
+      // 备份成功后归档清单会变（新归档落 backups/）→ 刷新只读清单。
+      await refresh()
+    }
+  }
+
   return <main>
     <h1>备份与恢复维护窗口</h1>
     <p>选择一份备份归档，即可把它恢复成一个新的科研空间。恢复过程不会改动你现有的任何空间。</p>
     <section aria-label="科研空间清单" aria-busy={loading}>
       <h2>已登记的科研空间</h2>
       {loading && <p role="status">正在读取清单…</p>}
-      {result?.ok && (result.spaces.length ? <ul>{result.spaces.map(space => <li key={space.id}>{space.name}</li>)}</ul> : <p>尚未登记科研空间。</p>)}
+      {result?.ok && (result.spaces.length
+        ? <ul>{result.spaces.map(space => <li key={space.id}>
+            {space.name}
+            <button type="button" disabled={backupRunningId !== undefined} onClick={() => void runBackup(space.id)}>
+              {backupRunningId === space.id ? '备份中…' : '备份该空间'}
+            </button>
+          </li>)}</ul>
+        : <p>尚未登记科研空间。</p>)}
       {result && !result.ok && <p role="alert">空间登记文件无法读取。原文件已保留，请关闭窗口后检查文件或备份。</p>}
       {result?.ok && <>
         <h2>可恢复的备份归档</h2>
@@ -410,6 +466,19 @@ function MaintenanceApp() {
           : <p>未发现备份归档。</p>}
       </>}
       <button type="button" disabled={loading || busy} onClick={() => void refresh()}>重新读取</button>
+    </section>
+
+    {/* 备份区块（放在「归档候选」之下、自检之上）：逐空间备份，仅由用户点按钮显式触发。 */}
+    <section aria-label="备份科研空间" aria-busy={backupRunningId !== undefined}>
+      <h2>备份科研空间</h2>
+      <p>备份会把该空间的资料打包成一份归档，存放在备份目录。备份期间不会改动空间内容。</p>
+      {backupRunningId !== undefined && backupProgress && <p role="status">{backupProgress.detail}</p>}
+      {backupResult?.ok && <p role="status">
+        已生成备份：{backupResult.archiveName}（{formatMegabytes(backupResult.archiveBytes)}，{backupResult.entries} 个条目）
+        {backupResult.excluded > 0 && <span role="note">（有 {backupResult.excluded} 个超限文件未纳入，详见归档）</span>}
+        {!backupResult.hasAssetsDb && <span role="note">（该空间无资产库，归档不含数据库）</span>}
+      </p>}
+      {backupResult && !backupResult.ok && <p role="alert">{backupResult.detail}</p>}
     </section>
 
     {/* 自检面板（放在「归档候选」之下）：只读报告，只陈述技术事实，不做任何汇总结论。 */}
