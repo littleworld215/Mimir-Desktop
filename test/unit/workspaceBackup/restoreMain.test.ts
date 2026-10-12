@@ -157,6 +157,53 @@ it('成功：父级已存在时深层新路径可恢复（暂存根与目标同�
   expect(existsSync(join(targetRoot, 'papers', 'a.pdf'))).toBe(true)
 })
 
+/**
+ * 回归守门用例（存量优化）。
+ *
+ * 目标父目录为**符号链接/junction**时必须拒绝，且给出**明确错误码 `INVALID_TARGET`**。
+ *
+ * 背景：默认 `isExistingDirectory` 用 `statSync`（**跟随链接**），符号链接父目录会被判为
+ * 「存在的目录」而放行；不拦截就会一路走到 publish/rename 才以无信息量的 `INTERNAL` 失败。
+ * 修法：追加 `lstatSync`（不跟随）判链接的检查，命中即 `INVALID_TARGET`。
+ *
+ * 用注入的 `isSymbolicLinkPath` 构造，避免依赖沙箱能否真正创建 junction
+ * （真实 junction 的创建需权限、判定语义亦与真机有差异）。
+ */
+it('目标父目录为符号链接 → INVALID_TARGET（不降级为 INTERNAL），且零副作用', async () => {
+  const root = sandbox()
+  const { archive } = await seedArchive(root)
+  const parent = join(root, 'linked-parent')
+  mkdirSync(parent, { recursive: true })
+  const targetRoot = join(parent, 'restored')
+
+  const outcome = await runMaintenanceRestore(
+    { archivePath: archive, targetRoot, spaceName: 's' },
+    { ...deps([], seedHome(root)), isSymbolicLinkPath: (p: string) => p === parent }
+  )
+  expect(outcome.stage).toBe('failed')
+  expect(outcome.failure?.code).toBe('INVALID_TARGET')
+  expect(outcome.failure?.code).not.toBe('INTERNAL')
+  expect(outcome.failure?.detail).toContain('符号链接')
+  // 零副作用：不该建出目标，也不该留下暂存根。
+  expect(existsSync(targetRoot)).toBe(false)
+  expect(readdirSync(parent).filter(n => n.includes('restore-staging'))).toEqual([])
+})
+
+it('目标父目录不是符号链接 → 照常恢复（不误伤）', async () => {
+  const root = sandbox()
+  const { archive } = await seedArchive(root)
+  const parent = join(root, 'plain-parent')
+  mkdirSync(parent, { recursive: true })
+  const targetRoot = join(parent, 'restored')
+
+  const outcome = await runMaintenanceRestore(
+    { archivePath: archive, targetRoot, spaceName: 's' },
+    { ...deps([], seedHome(root)), isSymbolicLinkPath: () => false }
+  )
+  expect(outcome.stage).toBe('done')
+  expect(existsSync(join(targetRoot, 'papers', 'a.pdf'))).toBe(true)
+})
+
 it('成功：旧根（sourceRoot）被用于 T03，报告如实反映改写条数', async () => {
   const root = sandbox()
   const { archive, src } = await seedArchive(root)

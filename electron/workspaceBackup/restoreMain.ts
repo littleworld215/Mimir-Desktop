@@ -35,7 +35,7 @@
  * 就是此约定），**绝不**写真实 `~/.mimir`。
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, normalize } from 'node:path'
 
 import { runRestore, type RestoreInput, type RestoreOutcome } from './restoreRunner'
@@ -116,6 +116,13 @@ export interface MaintenanceRestoreDeps {
   readonly archiveExists?: (path: string) => boolean
   /** 某路径是否是**已存在**的目录（缺省用 `existsSync` + `statSync().isDirectory()`）。 */
   readonly isExistingDirectory?: (path: string) => boolean
+  /**
+   * 某路径自身是否是符号链接/junction（缺省用 `lstatSync().isSymbolicLink()`，**不跟随链接**）。
+   *
+   * 注入点存在理由：验证「目标父目录为符号链接 → 拒绝」这条路径，且避免测试依赖
+   * 沙箱能否真正创建 junction（真实 junction 创建需权限，判定语义亦与真机有差异）。
+   */
+  readonly isSymbolicLinkPath?: (path: string) => boolean
   /**
    * 读取归档清单（缺省 `readArchiveManifest`）。
    *
@@ -280,6 +287,26 @@ export async function runMaintenanceRestore(
     return failedEarly(
       'INVALID_TARGET',
       `目标空间的父目录不存在或不是目录：${targetParent}`,
+      now()
+    )
+  }
+  // 父目录**不得为符号链接/junction**（与 S8 同口径）。
+  // ⚠️ 上一步的 `isExistingDirectory` 默认实现用 `statSync`（**跟随链接**），
+  // 符号链接父目录会被判为「存在的目录」而放行；若不在此处拦截，会一路走到
+  // publish/rename 才以无信息量的 `INTERNAL` 失败（用户拿不到「父目录是链接」的原因）。
+  // 用 `lstatSync` 看链接自身，命中即拒绝。检测函数可注入以便测试替身。
+  const isSymlink = deps.isSymbolicLinkPath ?? ((path: string) => {
+    try {
+      return lstatSync(path).isSymbolicLink()
+    } catch {
+      // 上一步已确认存在；此处若仍不可 stat，交由后续步骤以既有语义报错，不在此改变错误码。
+      return false
+    }
+  })
+  if (isSymlink(targetParent)) {
+    return failedEarly(
+      'INVALID_TARGET',
+      `目标空间的父目录是符号链接/junction，拒绝在其下恢复：${targetParent}`,
       now()
     )
   }
