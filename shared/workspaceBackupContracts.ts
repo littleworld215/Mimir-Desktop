@@ -80,7 +80,25 @@ export const WORKSPACE_BACKUP_CHANNELS = {
    * 候选集（渲染层不得指定删除目标，对齐批次 3 §4.2 S7）。执行是**显式、单次、可审计**的，
    * **无后台自动清理**（D-032 铁律）。
    */
-  retentionApply: 'workspaceBackup:retentionApply'
+  retentionApply: 'workspaceBackup:retentionApply',
+  /**
+   * 逐空间完整备份（I6 批次 3.5 · T01；**写路径**，invoke）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**：本通道由
+   * `maintenanceMain` 在维护模式下用**独立** `ipcMain` 注册，从不经过 `installWorkspaceIpcGate`
+   * （控制不可嵌套）。语义：对指定空间做一次完整备份——**只读开库做一致快照** → 流式打包 →
+   * 原子发布到 `backups/`。入参**只有一个 `spaceId`**：空间根由主进程**自己**从注册表解析，
+   * 渲染层**不得**传路径（对齐批次 3 §4.2 S7）。
+   */
+  backupSpace: 'workspaceBackup:backupSpace',
+  /**
+   * 备份进度（I6 批次 3.5 · T01；主进程 `webContents.send` → 渲染层 `ipcRenderer.on`）。
+   *
+   * ⚠️ 与 `ipcGate.ts` 的 `control` / `workspaceChanges` 集合**互斥**（同上，独立 `ipcMain` 注册，
+   * 从不经过 `installWorkspaceIpcGate`）。语义：**纯可观测性**——最佳努力，丢一两条不影响备份
+   * 结果；`detail` 不含本机绝对路径。
+   */
+  backupProgress: 'workspaceBackup:backupProgress'
 } as const
 
 /**
@@ -174,6 +192,21 @@ export interface WorkspaceBackupMaintenanceApi {
    * 旧主进程不提供时渲染层须先判存在再调用。
    */
   applyRetention?(token: string): Promise<MaintenanceRetentionResult>
+  /**
+   * 对指定空间执行一次完整备份（可选，**写路径**，I6 批次 3.5 · T01）。
+   *
+   * ⚠️ 入参**只有一个 `spaceId`**——**绝不收路径**：空间根由主进程**自己**从注册表解析，
+   * 渲染层不得指定备份源目录（对齐批次 3 §4.2 S7）。可选（`?`）以保持向后兼容：旧渲染层不
+   * 认识它，新渲染层须先判存在再调用。
+   */
+  backupSpace?(request: MaintenanceBackupRequest): Promise<MaintenanceBackupResult>
+  /**
+   * 订阅备份进度（可选增强；返回取消订阅函数，I6 批次 3.5 · T01）。
+   *
+   * `progress.detail` **不含本机绝对路径**。可选（`?`）以保持向后兼容：旧渲染层不认识它，
+   * 新渲染层须先判存在再调用；旧版本不提供时应优雅降级（不显示进度）。
+   */
+  onBackupProgress?(listener: (progress: MaintenanceBackupProgress) => void): () => void
 }
 
 /** 恢复进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
@@ -369,13 +402,14 @@ export interface MaintenanceAuditEntry {
    *
    * - `restore`   —— 恢复为新空间（批次 3）；
    * - `doctor`    —— 只读自检（批次 4）；
-   * - `retention` —— 保留策略的**显式**清理（批次 5）。
+   * - `retention` —— 保留策略的**显式**清理（批次 5）；
+   * - `backup` —— 逐空间完整备份（批次 3.5）。
    *
    * ⚠️ 新增动作必须**同时**更新本联合类型与 `auditWriter` 的调用方：
    * 类型是「可落审计的动作」的**唯一白名单**，绝不能为图省事用 `as unknown as` 绕过
    * （那会让「哪些动作会落审计」在类型上不可见，维护者无从审计）。
    */
-  readonly action: 'restore' | 'doctor' | 'retention'
+  readonly action: 'restore' | 'doctor' | 'retention' | 'backup'
   /** 结果。 */
   readonly outcome: 'ok' | 'failed'
   /** 失败码（SCREAMING_SNAKE，非自由文本）。 */
@@ -473,3 +507,54 @@ export type MaintenanceRetentionResult =
       /** 面向用户的说明（**不含**本机绝对路径 / 凭据）。 */
       readonly detail: string
     }
+
+/* ------------------------------------------------------------------------- *
+ * I6 批次 3.5 · T01：逐空间完整备份的共享契约（**全部新增、全部可选**）。
+ *
+ * 兼容纪律（沿用批次 3/4/5）：本段所有类型都是**新增**的；`WorkspaceBackupMaintenanceApi`
+ * 上的新增方法（`backupSpace` / `onBackupProgress`）全部为**可选**（`?`），旧渲染层忽略
+ * 即可、旧主进程不提供时新渲染层需判存在再调用。
+ * ------------------------------------------------------------------------- */
+
+/** 备份请求（渲染层 → 主进程）。**只传 spaceId，绝不由渲染层传路径**（对齐批次 3 §4.2 S7）。 */
+export interface MaintenanceBackupRequest {
+  readonly spaceId: string
+}
+
+/**
+ * 备份结果（主进程 → 渲染层）。
+ *
+ * ⚠️ `archiveName` 是**文件名 basename**，**非绝对路径**：路径只由主进程内部持有。
+ */
+export type MaintenanceBackupResult =
+  | {
+      readonly ok: true
+      readonly spaceId: string
+      /** 空间**名**（非路径）。 */
+      readonly name: string
+      /** 归档文件名（basename，非绝对路径）。 */
+      readonly archiveName: string
+      /** 纳入清单的条目数。 */
+      readonly entries: number
+      /** 清单展开总字节。 */
+      readonly totalBytes: number
+      /** 归档文件字节。 */
+      readonly archiveBytes: number
+      /** 未纳入项数（超限单文件；**不静默丢弃**，如实上报）。 */
+      readonly excluded: number
+      /** 是否含资产库快照（空间无 `assets.db` 时为 false）。 */
+      readonly hasAssetsDb: boolean
+    }
+  | {
+      readonly ok: false
+      /** 失败码（SCREAMING_SNAKE）。 */
+      readonly code: string
+      /** 面向用户的说明（**不含**本机绝对路径 / 凭据）。 */
+      readonly detail: string
+    }
+
+/** 备份进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
+export interface MaintenanceBackupProgress {
+  readonly stage: string
+  readonly detail: string
+}

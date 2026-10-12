@@ -37,6 +37,8 @@ import type {
 } from '../../shared/workspaceBackupContracts'
 import { listManagedArchives } from './archiveScan'
 import { isManagedArchive } from './archiveNaming'
+// 归档目录名收口为共享常量（I6 批次 3.5 · T01）：与 maintenanceMain / doctor 同一事实源。
+import { ARCHIVE_DIRECTORY_NAME } from './directories'
 import { planRetention, type RetentionCandidate, type RetentionPolicy } from './retentionPolicy'
 import { createRetentionToken, verifyRetentionToken } from './retentionToken'
 import { appendMaintenanceAudit } from './auditWriter'
@@ -45,8 +47,6 @@ import { appendMaintenanceAudit } from './auditWriter'
 export const DEFAULT_RETENTION_KEEP = 20
 /** 默认保护窗口天数（**0 = 不启用**，设计 §8 U2）。 */
 export const DEFAULT_RETENTION_KEEP_DAYS = 0
-/** 归档子目录名（缺省 `join(home, 'backups')`，对齐 `maintenanceMain.ts:20`）。 */
-const BACKUPS_DIR_NAME = 'backups'
 
 /**
  * 服务层依赖（全部可注入以便隔离 IO / 单测）。
@@ -56,7 +56,7 @@ const BACKUPS_DIR_NAME = 'backups'
 export interface RetentionDeps {
   /** 用户 home 目录（本机数据根；清理目标 = `<home>/backups`，审计落 `<home>/.mimir/logs`）。 */
   readonly home: string
-  /** 归档目录；缺省 `join(home, 'backups')`。 */
+  /** 归档目录；缺省 `join(home, ARCHIVE_DIRECTORY_NAME)`。 */
   readonly backupsDir?: string
   /** 保留最新份数；缺省 20。 */
   readonly keep?: number
@@ -87,7 +87,7 @@ interface ResolvedDeps {
 function resolveDeps(deps: RetentionDeps): ResolvedDeps {
   return {
     home: deps.home,
-    backupsDir: deps.backupsDir ?? join(deps.home, BACKUPS_DIR_NAME),
+    backupsDir: deps.backupsDir ?? join(deps.home, ARCHIVE_DIRECTORY_NAME),
     policy: {
       keep: deps.keep ?? DEFAULT_RETENTION_KEEP,
       keepDays: deps.keepDays ?? DEFAULT_RETENTION_KEEP_DAYS

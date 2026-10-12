@@ -20,7 +20,6 @@ export type {
   DoctorReport
 } from '../../shared/workspaceBackupContracts'
 
-import { join } from 'node:path'
 import type { DoctorCheck, DoctorReport } from '../../shared/workspaceBackupContracts'
 import { readRegistryOverview } from './registryView'
 import { verifyBackup } from './verify'
@@ -30,6 +29,8 @@ import { redactText } from './redact'
 import { scanArchives, DOCTOR_ARCHIVE_CHECK_ID } from './doctorArchiveScan'
 import { scanSpaces, readRegistrySpacePaths, DOCTOR_SPACE_CHECK_ID, type SpacePathView } from './doctorSpaceScan'
 import { listResidualStagingRoots, scanResiduals } from './doctorResidual'
+// 归档目录收口为共享常量（I6 批次 3.5 · T01）：与 maintenanceMain / retention 同一事实源。
+import { archiveDirectory } from './directories'
 
 /** 汇总计数形状（`DoctorReport.summary` 的具名别名，供 `summarize` 返回值标注）。 */
 export type DoctorSummary = DoctorReport['summary']
@@ -90,7 +91,7 @@ export interface DoctorProgress {
 export interface DoctorDeps {
   /** 本机数据根（`~`）。 */
   readonly home: string
-  /** 归档目录；缺省 `join(home, 'backups')`。 */
+  /** 归档目录；缺省 `archiveDirectory(home)`（共享常量 `ARCHIVE_DIRECTORY_NAME`）。 */
   readonly archiveDir?: string
   /** 进度回调（每维开始前调用一次；detail **不含路径**）。 */
   readonly onProgress?: (p: DoctorProgress) => void
@@ -130,7 +131,7 @@ export interface DoctorDeps {
  */
 export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport> {
   const home = deps.home
-  const archiveDir = deps.archiveDir ?? join(home, 'backups')
+  const archiveDir = deps.archiveDir ?? archiveDirectory(home)
   const readRegistry = deps.readRegistry ?? readRegistryOverview
   const listArchives = deps.listArchives ?? listRestoreArchives
   const verifyArchive = deps.verifyArchive ?? verifyBackup

@@ -10,15 +10,14 @@ import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestor
 import { buildDoctorHandler, registerDoctorHandler } from './maintenanceDoctorHandler'
 import { buildRetentionHandler, registerRetentionHandler } from './maintenanceRetentionHandler'
 import { redactText } from './redact'
+// 归档目录名收口为共享常量（I6 批次 3.5 · T01）：与 retention / doctor 的默认值同一事实源。
+import { archiveDirectory } from './directories'
 import type { MaintenanceCancelResult } from '../../shared/workspaceBackupContracts'
 import {
   WORKSPACE_BACKUP_CHANNELS,
   type MaintenanceArchiveCandidate,
   type MaintenanceOverview
 } from '../../shared/workspaceBackupContracts'
-
-/** 归档候选所在目录（与批次 2 备份默认落点一致；**只读浏览**，不建目录）。 */
-const ARCHIVE_DIRECTORY_NAME = 'backups'
 
 const directory = dirname(fileURLToPath(import.meta.url))
 const admitted = app.requestSingleInstanceLock()
@@ -62,7 +61,7 @@ void app.whenReady().then(async () => {
     // 绝不让「备份目录还没建」把整个维护窗口的只读清单拖成失败。
     let archives: MaintenanceArchiveCandidate[] = []
     try {
-      archives = await listRestoreArchives(join(home, ARCHIVE_DIRECTORY_NAME))
+      archives = await listRestoreArchives(archiveDirectory(home))
     } catch {
       archives = []
     }
