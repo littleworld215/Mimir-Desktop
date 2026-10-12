@@ -248,13 +248,28 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
 
 ### 5.2 本批实测（命令 + 真实 exit code + 计数）
 
+> ⚠️ **更正声明（2026-10-12）**：本表 `checkAssetsPipeHelper.mjs` 一行**先前测得为 exit 0**
+> （`{"kind":"pipe-helper-verified","files":193,"sourceHash":"8795226d…"}`），该结果是**探测 `build:win`
+> 之前**的陈旧状态。本批为勘察 `build:win` 可行性而实际运行了 `prepareAssetsPipeHelper.mjs`，
+> 该脚本**按设计先删旧 manifest**（`scripts/prepareAssetsPipeHelper.mjs:47`：
+> 「A failed new build must never leave a previous manifest looking current」），随后因缺 .NET SDK
+> 失败，导致 manifest **未被重建** → `checkAssetsPipeHelper.mjs` 现在**必然 exit 1**。
+> 下表已更正为**探测后**的真实状态。**原 exit 0 已失效**，不得再被引用。
+
 | 命令 | 真实 exit code | 说明 |
 |---|---|---|
 | `corepack pnpm build` | **0** | 见下方 `out/` 三层计数 |
-| `node scripts/checkAssetsPipeHelper.mjs` | **0** | `{"kind":"pipe-helper-verified","files":193,"sourceHash":"8795226d…"}` |
+| `node scripts/checkAssetsPipeHelper.mjs` | **1** | `ENOENT: manifest.json 缺失`（见上方更正声明；探测副作用，非项目缺陷） |
 | `node scripts/checkAssetsNative.mjs` | **0** | 7/7 通过，0 失败（sqlite_version=3.49.2、外键、事务回滚、重开、integrity_check=ok、FTS5、trigram） |
-| `node scripts/prepareAssetsPipeHelper.mjs` | **1** | ENOENT：缺 `%LOCALAPPDATA%\MimirBuildTools\dotnet\10.0.401\dotnet.exe` |
+| `node scripts/prepareAssetsPipeHelper.mjs` | **1** | ENOENT：缺 `%LOCALAPPDATA%\MimirBuildTools\dotnet\10.0.401\dotnet.exe`；且该次失败**已删旧 manifest** |
 | `electron-builder --win --dir --publish never` | **1** | electron 33.4.11 下载 100% 后，因沙箱 safe-delete 守卫拒绝删除既有 `dist/win-unpacked`（378 文件）而中止 |
+
+**`checkAssetsPipeHelper.mjs` exit 1 的完整说明**：`.native/assets-pipe-helper/win-x64/` 下
+**193 个载荷文件完好无损**，仅 `manifest.json` 缺失——`verifyPipeArtifact`
+（`scripts/lib/assetsPipeArtifact.mjs:71-72`）**硬依赖 `manifest.json`**，故校验必然失败。
+`.native/` 属 gitignored（`.gitignore:11`），manifest **从未被 git 跟踪，无从恢复**。
+恢复方式：在具备 **.NET SDK 10.0.401** 的环境重跑 `node scripts/prepareAssetsPipeHelper.mjs`
+即可重建 manifest（本批缺 SDK，未尝试硬恢复——硬试只会再次失败）。
 
 `out/` 三层产物计数（`corepack pnpm build` 后）：
 
@@ -319,7 +334,12 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
 5. **真实用户资料与已运行安装版全程未操作**：本批所有验证均在**沙箱 / 合成空间**内完成，
    `~/.mimir` 真实资料与真实运行的 Mimir 全程未被读写。
 6. **目录包构建闭环未完成**：见 §5.3，缺 .NET SDK 10.0.401 + 沙箱守卫限制，待真实 Windows 环境。
-7. **依赖 I6 的既有失败**：27 个既有失败（§5.1）未在 I6 范围内修复，属既有问题。
+7. **`.native/assets-pipe-helper/win-x64/manifest.json` 当前缺失**：本批为勘察 `build:win` 运行了
+   `prepareAssetsPipeHelper.mjs`，该脚本按设计先删旧 manifest 后因缺 SDK 失败，manifest 未重建
+   （`.gitignore:11` 使 `.native/` 从未被跟踪，无从恢复）→ **恢复前 `assets:pipe:check`
+   （`checkAssetsPipeHelper.mjs`）将持续 exit 1**。需在具备 .NET SDK 10.0.401 的环境重跑
+   `node scripts/prepareAssetsPipeHelper.mjs` 恢复（193 个载荷文件完好，仅 manifest 缺失）。
+8. **依赖 I6 的既有失败**：27 个既有失败（§5.1）未在 I6 范围内修复，属既有问题。
 
 ---
 
@@ -332,6 +352,8 @@ I6 为 Mimir-Desktop 提供**整科研空间的离线备份与新空间恢复**�
 5. **目录包/安装版替换**：待具备 .NET SDK 10.0.401 与真实 Windows 打包环境的批次执行
    （并与源码交付**分开**）。
 6. **真实 Windows Electron ABI 下的端到端备份/恢复 + `17-packaged-assets.spec.ts`**：待目录包产出后补验。
+7. **恢复 `.native/assets-pipe-helper/win-x64/manifest.json`**：在具备 .NET SDK 10.0.401 的环境重跑
+   `node scripts/prepareAssetsPipeHelper.mjs`；恢复前 `assets:pipe:check` 持续失败（详见 §5.2 / §6.7）。
 
 ---
 
