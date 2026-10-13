@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:lowmem": "vitest run --poolOptions.forks.maxForks=1 --no-file-parallelism",
     "test:e2e": "electron-vite build && playwright test",
     "test:e2e:headed": "electron-vite build && playwright test --headed",
     "test:e2e:ui": "playwright test --ui",

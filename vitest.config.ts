@@ -42,6 +42,24 @@ export default defineConfig({
     testTimeout: 60_000,
     hookTimeout: 30_000,
     reporters: ['verbose'],
+    // 并发上限（**为什么必须有**）：
+    // vitest 默认 forks pool 的 worker 数 = CPU 核数（本机 16），每个 worker 都要加载
+    // 整份 electron/ 模块图（尤其 electron/ipc/index.ts 这类重模块，单文件 collect 可达 40s+）。
+    // 在内存受限的机器上（实测：16GB 机器常态仅剩 <1GB 空闲、近百个 node 进程），
+    // 16 个重 fork 会被 OS 直接强杀，表现为 tinypool 的 `Worker exited unexpectedly`
+    // ——整份回归「跑不完」，而非某条用例失败。限并发是让回归**可跑完**的必要条件，
+    // 不是绕过验证：实测 maxForks=1 时 fsStat 8/8（45.8s）、maxForks=3 时一批 25/25（31s）均稳定通过。
+    // 默认值取 4（对常见 8~16 核机器温和）；内存宽裕或 CI 可用环境变量覆盖回去，例如：
+    //   MIMIR_TEST_MAX_FORKS=0 pnpm test   → 0 表示不限制（交回 vitest 默认）
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        maxForks: process.env.MIMIR_TEST_MAX_FORKS !== undefined
+          ? Number(process.env.MIMIR_TEST_MAX_FORKS) || undefined
+          : 4,
+        minForks: 1
+      }
+    },
     // 网关矩阵需要真实 API Key；默认跳过，用 test:gateway 脚本显式跑
     env: {
       MIMIR_TEST: '1'

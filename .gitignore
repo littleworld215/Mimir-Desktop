@@ -72,3 +72,6 @@ mimirvitesttmp/
 # Self-contained helper build intermediates
 native/**/obj/
 native/**/bin/
+
+# vitest 配置时间戳缓存（每次运行自动重建，非源码）
+vitest.config.ts.timestamp-*.mjs
