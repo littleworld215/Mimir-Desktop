@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-17 备份完整性：普通 `-wal/-shm/-journal` 文件及目录正常保留，只排除受管资产库旁文件；Windows 清单与 ZIP 共用快照路径比较，实际 `ASSETS.DB` 也包含已提交 WAL。此前归档若已遗漏资料须重新备份，恢复无法重建缺失字节。回归、目录包与未验边界见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-backup-exclusions-20261017.md)，安装版未替换，I5待验不变。
+
 2026-10-16 接管修复：I6/I7 的源码交付已推进，以下 10 月 10 日进展是历史状态。维护备份现排除精确的运行写锁路径，避免恢复时与新锁冲突；同名用户资料及锁备份仍保留。维护服务显式使用真实打包环境解析原生绑定，恢复校验实际资产库路径并拒绝缺表副本。新增真实 SQLite/WAL、历史正文、草稿、隐藏文件与 Unicode 路径的维护 IPC 闭环。验证结果和未验边界见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)；不代表安装版已更新或 I5 已终验。
 
 2026-10-10 I6资产AI续项：润色、重构与标签建议保留及时取消/超时反馈；底层模型与同步草稿保存/标签解析持续受监督至实际完成，晚到结果拒绝。窗口四名额和销毁监听跟随真实完成，取消不提前释放名额。主进程维护停止接口尚未装配；慢开库及普通采纳/同步IPC仍待统一生命周期接线，第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-assets-ai-20261010.md)。

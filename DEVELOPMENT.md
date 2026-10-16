@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+## 备份资料与快照匹配（2026-10-17）
+
+`manifest.ts` 仅排除受管 `.mimir/assets/assets.db-wal/-shm/-journal`，普通文件及目录即使命名含这些后缀也保留。Windows 的快照替换 Map 和 `packer.ts` 的 ZIP 内容选择共用 `manifestPathKey`，不因实际主文件名 `ASSETS.DB` 而遗漏已提交 WAL；归档名称保持原样，其它平台快照比较仍精确。暂存前缀大小写、单文件超限策略和第三方并发一致性不在本次修复保证内。
+
+`packerVerify.test.ts` 以真实 SQLite、未检查点 WAL 及独立 ZIP 读取验证快照；35号 Electron 另测普通后缀资料和 `case-db` 维护 IPC 恢复。新增大小写用例只适用于 Windows；夹具的大小写敏感适配经静态核对，没有冒充 Linux 实测。旧遗漏归档须重新生成；证据见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-backup-exclusions-20261017.md)。
+
 ## 维护备份恢复闭环（2026-10-16）
 
 以下 2026-10-10 段落保留当时状态；普通 main 接线及 I6 六批已在后续提交落盘，现状以 `docs/I6-DELIVERY.md` 和来源最新验证记录为准。`manifest.ts` 精确排除 `.mimir/workspace.writer-lock` 与 `.mimir/assets/assets.db.writer-lock`（大小写不敏感），避免把备份持有的锁装进 ZIP 并与恢复暂存锁冲突。其它目录同名资料和 `.bak` 文件保留。

@@ -15,7 +15,7 @@ function sourceHashes(root: string): Record<string, string> {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) walk(path)
-      else if (!/(?:assets\.db-(?:wal|shm)|writer-lock)$/.test(entry.name)) {
+      else if (!/(?:assets\.db-(?:wal|shm)|writer-lock)$/i.test(entry.name)) {
         files[relative(root, path)] = createHash('sha256').update(readFileSync(path)).digest('hex')
       }
     }
@@ -24,12 +24,14 @@ function sourceHashes(root: string): Record<string, string> {
   return files
 }
 
-for (const scenario of ['backup-restore', 'restore-only', 'invalid-db'] as const) {
+for (const scenario of ['backup-restore', 'restore-only', 'invalid-db', 'case-db'] as const) {
 test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 'packaged' : 'development'})`, async () => {
+  test.skip(process.platform !== 'win32' || process.arch !== 'x64', 'I6维护首版限Windows x64')
   let sourceDb: Database.Database | undefined
   let sourceRoot = ''
   const pdfName = '论文😀.pdf'
   const contents = ['  第一版\n\n', '第二版😀\n']
+  const ordinaryFiles = ['notes/实验-journal', '.hidden/项目-wal/记录.txt', 'other/cache.db-shm']
   const ctx = await launchApp({
     executablePath: process.env.MIMIR_E2E_PACKAGED,
     extraArgs: ['--workspace-maintenance'],
@@ -47,7 +49,7 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
       await ctx.app.evaluate((_electron, cwd) => process.chdir(cwd), ctx.tempHome.root)
     }
     // 先启动并校验隔离，再持有WAL句柄；启动失败不会留下未关闭的测试数据库。
-    const dbPath = join(sourceRoot, '.mimir/assets/assets.db')
+    const dbPath = join(sourceRoot, '.mimir/assets', scenario === 'case-db' ? 'ASSETS.DB' : 'assets.db')
     mkdirSync(dirname(dbPath), { recursive: true })
     const db = new Database(dbPath)
     sourceDb = db
@@ -73,13 +75,17 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
     writeFileSync(join(sourceRoot, '.hidden/资料.bin'), Buffer.from([0, 255, 10, 42]))
     mkdirSync(join(sourceRoot, 'papers'), { recursive: true })
     writeFileSync(join(sourceRoot, 'papers', pdfName), '%PDF-1.7\nsynthetic only\n')
-    const walPath = join(sourceRoot, '.mimir/assets/assets.db-wal')
+    for (const file of ordinaryFiles) {
+      mkdirSync(dirname(join(sourceRoot, file)), { recursive: true })
+      writeFileSync(join(sourceRoot, file), `普通资料 ${file}`)
+    }
+    const walPath = `${dbPath}-wal`
     expect(statSync(walPath).size).toBeGreaterThan(0)
     const before = sourceHashes(sourceRoot)
     const walBefore = readFileSync(walPath)
     const registryPath = join(ctx.tempHome.home, '.mimir/store.json')
     const registryBefore = JSON.parse(readFileSync(registryPath, 'utf8'))
-    if (scenario === 'backup-restore') {
+    if (scenario === 'backup-restore' || scenario === 'case-db') {
       const backup = await ctx.page.evaluate(async () => {
         const api = (window as unknown as { workspaceBackupMaintenance: WorkspaceBackupMaintenanceApi }).workspaceBackupMaintenance
         const overview = await api.overview()
@@ -124,6 +130,7 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
       expect(restoredDb.prepare('SELECT content FROM ai_draft').get()).toEqual({ content: '待采纳草稿' })
     } finally { restoredDb.close() }
     expect(readFileSync(join(targetRoot, '.hidden/资料.bin'))).toEqual(Buffer.from([0, 255, 10, 42]))
+    for (const file of ordinaryFiles) expect(readFileSync(join(targetRoot, file), 'utf8')).toBe(`普通资料 ${file}`)
     expect(readFileSync(join(targetRoot, 'papers', pdfName))).toEqual(readFileSync(join(sourceRoot, 'papers', pdfName)))
     const sourceStore = JSON.parse(readFileSync(join(sourceRoot, '.mimir/store.json'), 'utf8'))
     const restoredStore = JSON.parse(readFileSync(join(targetRoot, '.mimir/store.json'), 'utf8'))

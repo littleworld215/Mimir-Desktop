@@ -21,7 +21,7 @@ import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
 import type Database from 'better-sqlite3'
-import { buildManifest, type ManifestEntry, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
+import { buildManifest, manifestPathKey, type ManifestEntry, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
 import { deriveArchiveName, isManagedArchive } from './archiveNaming'
 
 /** 归档内的清单文件名（固定，验包时按此名读取）。 */
@@ -180,7 +180,7 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
         zip.addEmptyDirectory(entry.path)
         continue
       }
-      if (snapshotPath && normalizedDbRel !== null && entry.path === normalizedDbRel) {
+      if (snapshotPath && normalizedDbRel !== null && manifestPathKey(entry.path) === manifestPathKey(normalizedDbRel)) {
         zip.addFile(snapshotPath, entry.path, { mtime: new Date(0) })
       } else {
         // 固定 mtime：同一空间两次备份的归档字节可比对（内容一致则在清单层面即可判等）。

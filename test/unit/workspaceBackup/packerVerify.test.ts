@@ -250,6 +250,37 @@ it('清单摘要按归档内快照计算，而非磁盘上的实时库', async (
   expect(liveSha.length).toBe(64)
 })
 
+it.runIf(process.platform === 'win32').each(['ASSETS.DB', 'assets.DB'])('Windows资产库大小写%s仍注入含提交WAL的快照', async name => {
+  const { createBackup } = await packer()
+  const { verifyBackup } = await verifier()
+  const space = root(), work = root()
+  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  const dbPath = join(space, '.mimir/assets', name)
+  const db = new Database(dbPath)
+  try {
+    db.pragma('journal_mode = WAL')
+    db.pragma('wal_autocheckpoint = 0')
+    db.exec('CREATE TABLE t(v TEXT)')
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    db.prepare('INSERT INTO t(v) VALUES (?)').run('只在已提交WAL中')
+    const before = readFileSync(dbPath)
+    const walBefore = readFileSync(`${dbPath}-wal`)
+    const archive = join(work, 'backup.zip')
+    await createBackup({ root: space, destination: archive, stagingDir: join(work, 'staging'),
+      assetsDb: db, assetsDbRelPath: '.mimir/assets/assets.db' })
+    await verifyBackup(archive)
+    const bytes = await readArchiveEntry(archive, `.mimir/assets/${name}`)
+    const restoredPath = join(work, 'restored.db')
+    writeFileSync(restoredPath, bytes)
+    const restored = new Database(restoredPath, { readonly: true })
+    try { expect(restored.prepare('SELECT v FROM t').pluck().all()).toEqual(['只在已提交WAL中']) }
+    finally { restored.close() }
+    expect(await listArchiveNames(archive)).not.toContain(`.mimir/assets/${name}-wal`)
+    expect(readFileSync(dbPath)).toEqual(before)
+    expect(readFileSync(`${dbPath}-wal`)).toEqual(walBefore)
+  } finally { db.close() }
+})
+
 it('归档条目逃逸根目录被拒绝（路径校验）', async () => {
   const { assertArchivePathWithinRoot } = await verifier()
   expect(() => assertArchivePathWithinRoot('../escape.txt', '/tmp/root')).toThrow()

@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const roots: string[] = []
 const root = () => { const value = mkdtempSync(join(tmpdir(), 'mimir-manifest-')); roots.push(value); return value }
@@ -17,10 +17,11 @@ const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 it.each(['.mimir/workspace.writer-lock', '.mimir/assets/assets.db.writer-lock', '.MIMIR/WORKSPACE.WRITER-LOCK'])('运行锁 %s 不进归档，不误排普通资料', async lock => {
   const { buildManifest } = await moduleUnderTest()
   const space = root()
-  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  const controlDirectory = lock.startsWith('.MIMIR/') ? '.MIMIR' : '.mimir'
+  mkdirSync(join(space, controlDirectory, 'assets'), { recursive: true })
   mkdirSync(join(space, 'notes'), { recursive: true })
   writeFileSync(join(space, lock), 'runtime lock')
-  writeFileSync(join(space, '.mimir/workspace.writer-lock.bak'), 'protected backup')
+  writeFileSync(join(space, controlDirectory, 'workspace.writer-lock.bak'), 'protected backup')
   writeFileSync(join(space, 'notes/workspace.writer-lock'), 'user data')
   const { entries } = await buildManifest(space)
   const paths = entries.map((entry: { path: string }) => entry.path.toLowerCase())
@@ -158,6 +159,22 @@ it('总量上限与单文件上限各自独立：单文件超限不至于抛错'
 /** 判断清单里是否存在以给定后缀结尾的条目（大小写不敏感）。 */
 const hasSuffixEntry = (paths: string[], suffix: string) =>
   paths.some(p => p.toLowerCase().endsWith(suffix))
+
+it.each(['-wal', '-shm', '-journal'])('普通文件及目录仅以后缀%s命名，仍完整保留', async suffix => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  const files = [`notes/实验${suffix}`, `.hidden/项目${suffix}/记录.txt`, `other/cache.db${suffix}`, `.mimir/assets/custom${suffix}`]
+  for (const file of files) {
+    mkdirSync(dirname(join(space, file)), { recursive: true })
+    writeFileSync(join(space, file), `user data ${file}`)
+  }
+  const { entries } = await buildManifest(space)
+  const fileEntries = entries.filter((entry: { kind: string }) => entry.kind === 'file')
+  expect(fileEntries.map((entry: { path: string }) => entry.path).sort()).toEqual([...files].sort())
+  for (const file of files) {
+    expect(fileEntries.find((entry: { path: string }) => entry.path === file).sha256).toBe(sha(`user data ${file}`))
+  }
+})
 
 it('SQLite 瞬态文件（-wal/-shm/-journal）不进清单，稳定内容仍进', async () => {
   const { buildManifest } = await moduleUnderTest()
