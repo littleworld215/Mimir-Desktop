@@ -36,6 +36,7 @@ void app.whenReady().then(async () => {
   if (!admitted) return
   if (process.platform !== 'win32' || process.arch !== 'x64') throw Error('PLATFORM_UNSUPPORTED')
   const home = homedir()
+  const nativeOptions = { isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appRoot: join(directory, '../..') }
   session = new WorkspaceWriterSession(home, assertWindowsLocalDisk)
   window = new BrowserWindow({ width: 860, height: 620, minWidth: 520, minHeight: 420, show: false,
     webPreferences: { preload: join(directory, '../preload/maintenance.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
@@ -87,6 +88,7 @@ void app.whenReady().then(async () => {
    * 此时 `buildRestoreHandler` 会以 `LOCK_UNAVAILABLE` 拒绝（绝不无锁写入）。
    */
   const restoreHandler = buildRestoreHandler({
+    assetsIntegrityOptions: nativeOptions,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     homeDir: home,
     onProgress: (progress) => {
@@ -163,6 +165,7 @@ void app.whenReady().then(async () => {
    * （绝不无锁写入）。**照抄** restoreHandler 的写法，别把 `session` 提前捕获成常量。
    */
   const backupHandler = buildBackupHandler({
+    ...nativeOptions,
     homeDir: home,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     onProgress: (progress) => {

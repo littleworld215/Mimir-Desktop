@@ -1,5 +1,13 @@
 # 开发文档（DEVELOPMENT）
 
+## 维护备份恢复闭环（2026-10-16）
+
+以下 2026-10-10 段落保留当时状态；普通 main 接线及 I6 六批已在后续提交落盘，现状以 `docs/I6-DELIVERY.md` 和来源最新验证记录为准。`manifest.ts` 精确排除 `.mimir/workspace.writer-lock` 与 `.mimir/assets/assets.db.writer-lock`（大小写不敏感），避免把备份持有的锁装进 ZIP 并与恢复暂存锁冲突。其它目录同名资料和 `.bak` 文件保留。
+
+`e2e/specs/35-workspace-backup-restore.spec.ts` 使用隔离 HOME/profile、静止真实 WAL 句柄和实际维护 IPC；缺省测试开发构建，显式 `MIMIR_E2E_PACKAGED` 测试目录包。覆盖已提交 WAL、两版正文、待采纳草稿、隐藏二进制、Unicode PDF 路径重映射、自由文本不替换和原空间业务字节不变；不调用模型或操作用户资料。构建与打包必须串行，不能在打包收集 `out/` 时重新构建。完整结果见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)。
+
+维护主进程从 `app.isPackaged` / `process.resourcesPath` / 编译入口目录派生原生绑定选项，显式传给备份开库和恢复校验；不从渲染层请求读取。恢复检查实际 `.mimir/assets/assets.db`，缺表即在发布前拒绝。35还覆盖独立预制合法归档和缺表归档；包内进程切到隔离cwd，避免借用仓库`.native`而假绿。
+
 ## I6资产AI任务寿命（2026-10-10）
 
 2026-10-10 I6资产AI续项：润色、重构与标签建议保留及时取消/超时反馈；底层模型与同步草稿保存/标签解析持续受监督至实际完成，晚到结果拒绝。窗口四名额和销毁监听跟随真实完成，取消不提前释放名额。主进程维护停止接口尚未装配；慢开库及普通采纳/同步IPC仍待统一生命周期接线，第一批/I6未完成，第二至六批未实现，I5待验不变。见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i6-assets-ai-20261010.md)。

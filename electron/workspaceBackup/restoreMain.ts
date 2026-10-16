@@ -41,7 +41,7 @@ import { dirname, join, normalize } from 'node:path'
 import { runRestore, type RestoreInput, type RestoreOutcome } from './restoreRunner'
 import { createRestoreSteps, type RestoreAdapterOptions } from './restoreAdapter'
 import { oldRootFromArchive, readArchiveManifest } from './restoreArchive'
-import { checkRestoredAssetsIntegrity } from './assetsIntegrity'
+import { checkRestoredAssetsIntegrity, type AssetsIntegrityOptions } from './assetsIntegrity'
 import { stagingPathFor } from './stagingRoot'
 import type { ManifestEntry } from './manifest'
 import { RestoreError } from './restoreContracts'
@@ -134,6 +134,8 @@ export interface MaintenanceRestoreDeps {
   readonly onProgress?: RestoreProgressReporter
   /** 适配器附加选项（单测注入假完整性钩子）。 */
   readonly adapter?: RestoreAdapterOptions
+  /** 仅由维护主进程传入实际打包环境，不接受渲染层指定绑定路径。 */
+  readonly assetsIntegrityOptions?: AssetsIntegrityOptions
 }
 
 /** 列出某目录下的归档候选（**只读**，不递归、不建目录）。 */
@@ -188,10 +190,11 @@ export async function listRestoreArchives(directory: string): Promise<RestoreArc
 export function createMaintenanceRestoreSteps(
   targetExistedBefore: boolean,
   lockStagingRoot: (stagingRoot: string) => { release(): void; migrate?(next: string): void },
-  adapter: RestoreAdapterOptions = {}
+  adapter: RestoreAdapterOptions = {},
+  assetsIntegrityOptions: AssetsIntegrityOptions = {}
 ) {
   return createRestoreSteps({
-    checkAssetsIntegrity: (dbPath: string) => checkRestoredAssetsIntegrity(dbPath),
+    checkAssetsIntegrity: (dbPath: string) => checkRestoredAssetsIntegrity(dbPath, assetsIntegrityOptions),
     targetExistedBefore,
     // 调用方的 lockStagingRoot 优先于 adapter 里可能带的同名字段（后者供单测覆盖）。
     lockStagingRoot: adapter.lockStagingRoot ?? lockStagingRoot,
@@ -366,7 +369,7 @@ export async function runMaintenanceRestore(
   //
   // `lockStagingRoot` 由调用方注入（生产 = `acquireMigratableWriterLock` 包装），
   // 适配器会在 `createStaging` 内、**解压之前**用它取锁（§4.2 S5 锁先行）。
-  const steps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, deps.adapter ?? {})
+  const steps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, deps.adapter ?? {}, deps.assetsIntegrityOptions)
 
   report('extracting', '开始解压到同盘暂存根…')
   const outcome = await runRestore(input, steps, { now })

@@ -119,6 +119,9 @@ const EXCLUDED_PREFIXES = ['.mimir/assets/staging/']
  */
 const EXCLUDED_SUFFIXES = ['-wal', '-shm', '-journal']
 
+// 只排除受管控制路径；用户目录的同名资料和锁备份仍属稳定内容。
+const RUNTIME_LOCK_PATHS = new Set(['.mimir/workspace.writer-lock', '.mimir/assets/assets.db.writer-lock'])
+
 /**
  * 应当排除的绝对路径集合由空间根推导；此处只做相对路径判断。
  *
@@ -140,6 +143,7 @@ function isExcluded(relPath: string): boolean {
   if (EXCLUDED_PREFIXES.some(prefix => withSlash.startsWith(prefix))) return true
   // 大小写不敏感：Windows 上 `ASSETS.DB-WAL` 也可能出现（NTFS 默认不区分大小写）。
   const lower = relPath.toLowerCase()
+  if (RUNTIME_LOCK_PATHS.has(lower)) return true
   return EXCLUDED_SUFFIXES.some(suffix => lower.endsWith(suffix))
 }
 

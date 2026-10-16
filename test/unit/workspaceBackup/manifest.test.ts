@@ -14,6 +14,21 @@ async function moduleUnderTest() {
 }
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
 
+it.each(['.mimir/workspace.writer-lock', '.mimir/assets/assets.db.writer-lock', '.MIMIR/WORKSPACE.WRITER-LOCK'])('运行锁 %s 不进归档，不误排普通资料', async lock => {
+  const { buildManifest } = await moduleUnderTest()
+  const space = root()
+  mkdirSync(join(space, '.mimir/assets'), { recursive: true })
+  mkdirSync(join(space, 'notes'), { recursive: true })
+  writeFileSync(join(space, lock), 'runtime lock')
+  writeFileSync(join(space, '.mimir/workspace.writer-lock.bak'), 'protected backup')
+  writeFileSync(join(space, 'notes/workspace.writer-lock'), 'user data')
+  const { entries } = await buildManifest(space)
+  const paths = entries.map((entry: { path: string }) => entry.path.toLowerCase())
+  expect(paths).not.toContain(lock.toLowerCase())
+  expect(paths).toContain('.mimir/workspace.writer-lock.bak')
+  expect(paths).toContain('notes/workspace.writer-lock')
+})
+
 it('清单包含文件与目录，路径为正斜杠相对路径，逐文件 SHA256 正确', async () => {
   const { buildManifest } = await moduleUnderTest()
   const space = root()

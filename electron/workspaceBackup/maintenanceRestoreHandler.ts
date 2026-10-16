@@ -119,6 +119,8 @@ export interface RestoreHandlerDeps {
   readonly session: { assertUsable(): void } | undefined
   /** 注册表 home（生产 = `homedir()`；测试 = 合成目录）。 */
   readonly homeDir: string
+  /** 主进程实际运行环境，用于恢复副本的原生库完整性校验。 */
+  readonly assetsIntegrityOptions?: MaintenanceRestoreDeps['assetsIntegrityOptions']
   /**
    * 执行一次恢复（缺省 = `runMaintenanceRestore`）。
    *
@@ -175,6 +177,7 @@ export function buildRestoreHandler(deps: RestoreHandlerDeps): RestoreHandler {
     const restoreDeps: MaintenanceRestoreDeps = {
       session,
       homeDir: deps.homeDir,
+      assetsIntegrityOptions: deps.assetsIntegrityOptions,
       // 生产：先建 `<staging>/.mimir` 再取可迁移锁（随发布 rename 迁到目标）。
       lockStagingRoot,
       ...(deps.readManifest !== undefined ? { readManifest: deps.readManifest } : {}),

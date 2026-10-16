@@ -4,14 +4,19 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { launchApp, mainEntry, repoRoot } from '../fixtures/launch'
 
-test('维护启动只暴露专用只读桥，不装载日常业务与源库', async () => {
+test('维护启动只暴露专用桥，不装载日常业务或自动打开源库', async () => {
   test.skip(process.platform !== 'win32' || process.arch !== 'x64', 'I6维护首版限Windows x64')
   const ctx = await launchApp({ extraArgs: ['--workspace-maintenance'], transformSeed: seed => ({ ...seed, spaceData: { unknown: { original: '保留资料' } } }) })
   try {
     const bridge = await ctx.page.evaluate(() => ({ ordinary: typeof (window as any).electronAPI, maintenance: typeof (window as any).workspaceBackupMaintenance }))
     expect(bridge).toEqual({ ordinary: 'undefined', maintenance: 'object' })
     const channels = await ctx.app.evaluate(({ ipcMain }) => Array.from((ipcMain as any)._invokeHandlers.keys()))
-    expect(channels).toEqual(['workspaceBackup:overview'])
+    expect(channels.sort()).toEqual([
+      'workspaceBackup:overview', 'workspaceBackup:restore', 'workspaceBackup:doctor',
+      'workspaceBackup:auditRecent', 'workspaceBackup:retentionPreview',
+      'workspaceBackup:retentionApply', 'workspaceBackup:backupSpace',
+      'workspaceBackup:doctorCancel', 'workspaceBackup:restoreCancel'
+    ].sort())
     await expect(ctx.page.getByRole('heading', { name: '备份与恢复维护窗口' })).toBeVisible()
     const overview = await ctx.page.evaluate(() => (window as any).workspaceBackupMaintenance.overview())
     expect(overview.ok).toBe(true)

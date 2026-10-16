@@ -38,7 +38,7 @@ const MIMIR_DIR = '.mimir'
 /** 新空间写锁文件名（`acquireWorkspaceLock` 的默认名）。 */
 const WORKSPACE_LOCK_NAME = 'workspace.writer-lock'
 /** 资产库在暂存根内的相对路径（存在才校验，不存在则跳过）。 */
-const ASSETS_DB_REL = ['assets', 'assets.db'] as const
+const ASSETS_DB_REL = ['.mimir', 'assets', 'assets.db'] as const
 
 export interface RestoreAdapterOptions {
   /** 时钟（可注入以便测试确定性）。缺省 `new Date().toISOString()`。 */

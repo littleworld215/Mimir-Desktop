@@ -1,5 +1,7 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-16接管补充：下文是原批次交付的历史记录。固定SDK及helper已恢复，本轮真实闭环另发现并修复运行锁误归档、维护打包原生环境漏接、恢复校验资产库路径错误。当前运行结果、目录包参数及未验边界见[最新验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)；旧“SDK缺失/manifest缺失”不能再当成本机现状，也不把六批落盘等同于所有验收完成。安装版未更新，I5待验保持。
+
 本文是 I6（整科研空间**离线备份**与**新空间恢复**）的实施交付记录，对应
 [`INTEGRATION-PLAN-I6.md`](../../docs/INTEGRATION-PLAN-I6.md) 的第 6 批
 「文档与目录包验证：合成全模块开发/打包闭环及旧安装版互斥；源码交付与安装版替换分开」。
