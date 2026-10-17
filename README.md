@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-17 I8证据卡第一批：独立`.mimir/library/evidence.json`支持严格人工字段、5000卡/32MiB全历史上限、原子保存、冲突检查、追加修订与归档，保留失联文献快照和旧阅读笔记。底层专项29/29与类型检查已通过，完整三闸门exit0（1813通过、9既有跳过；180文件、1822项）；当前UI尚未接入，来源核对、矩阵、导出及真实桌面/恢复验证未完成，安装版未更新。
+
 2026-10-17 备份完整性：普通 `-wal/-shm/-journal` 文件及目录正常保留，只排除受管资产库旁文件；Windows 清单与 ZIP 共用快照路径比较，实际 `ASSETS.DB` 也包含已提交 WAL。此前归档若已遗漏资料须重新备份，恢复无法重建缺失字节。回归、目录包与未验边界见[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-backup-exclusions-20261017.md)，安装版未替换，I5待验不变。
 
 2026-10-16 接管修复：I6/I7 的源码交付已推进，以下 10 月 10 日进展是历史状态。维护备份现排除精确的运行写锁路径，避免恢复时与新锁冲突；同名用户资料及锁备份仍保留。维护服务显式使用真实打包环境解析原生绑定，恢复校验实际资产库路径并拒绝缺表副本。新增真实 SQLite/WAL、历史正文、草稿、隐藏文件与 Unicode 路径的维护 IPC 闭环。验证结果和未验边界见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)；不代表安装版已更新或 I5 已终验。

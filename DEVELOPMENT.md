@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+## I8文献证据存储（2026-10-17，第一批）
+
+`shared/libraryEvidenceContracts.ts`定义纯DTO，`electron/library/evidence`内分离validation、repository、service。独立JSON严格验证全部历史；写入唯一wx临时文件、同步并关闭后rename发布，提交前重读revision并重验空间上下文。只增版本、归档不删；断链引用允许保留，新增引用验证当前catalog。32MiB计入UTF-8全部历史，5000卡含归档；不创建新SQLite。测试故障钩子仅主进程单测可用，不进入IPC。
+
+当前仅底层实现，UI和业务IPC未接；来源、矩阵、导出与真实桌面/恢复仍在后续批次。专项29/29、类型检查通过，完整三闸门exit0（1813通过、9既有跳过；180文件、1822项），不以此宣称独立QA或用户验收。
+
 ## 备份资料与快照匹配（2026-10-17）
 
 `manifest.ts` 仅排除受管 `.mimir/assets/assets.db-wal/-shm/-journal`，普通文件及目录即使命名含这些后缀也保留。Windows 的快照替换 Map 和 `packer.ts` 的 ZIP 内容选择共用 `manifestPathKey`，不因实际主文件名 `ASSETS.DB` 而遗漏已提交 WAL；归档名称保持原样，其它平台快照比较仍精确。暂存前缀大小写、单文件超限策略和第三方并发一致性不在本次修复保证内。
