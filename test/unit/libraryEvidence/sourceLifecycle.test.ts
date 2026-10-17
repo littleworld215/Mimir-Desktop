@@ -8,6 +8,21 @@ import { fields, fixture } from './fixtures'
 
 const fixtures: ReturnType<typeof fixture>[] = []
 afterEach(() => fixtures.splice(0).forEach(f => f.clean()))
+it.each(['catalog', 'replace'])('所有异步关流结束后%s变化不得确认来源', async mode => {
+  const f = fixture(); fixtures.push(f)
+  const path = join(f.root, 'papers', paperPdfFileName(fields().paperId))
+  mkdirSync(join(f.root, 'papers')); writeFileSync(path, '%PDF-1.4\nsynthetic')
+  const paper = { ...f.ctx.catalog.papers()[0]!, pdfPath: path }
+  const ctx = { ...f.ctx, catalog: { ...f.ctx.catalog, papers: () => [paper] } }
+  const created = createEvidence(ctx, fields(), 0), before = readFileSync(join(f.root, '.mimir/library/evidence.json'))
+  const source = createEvidenceSourceService({ afterClose: async () => {
+    if (mode === 'catalog') ctx.catalog.papers = () => []
+    else { renameSync(path, `${path}.old`); writeFileSync(path, '%PDF-1.4\nnew-file') }
+  } } as any)
+  await expect(source.confirmEvidenceSource(ctx, created.card.id, 1)).rejects.toThrow(/SOURCE_MISSING|SOURCE_CHANGED/)
+  expect(readFileSync(join(f.root, '.mimir/library/evidence.json'))).toEqual(before)
+  expect(source.sourceObservations(ctx).size).toBe(0)
+})
 it.each(['replace', 'rewrite', 'scope', 'cancel', 'revision', 'catalog'])('摘要等待期间%s变化不发布来源绑定', async mode => {
   const f = fixture(); fixtures.push(f)
   const path = join(f.root, 'papers', paperPdfFileName(fields().paperId))

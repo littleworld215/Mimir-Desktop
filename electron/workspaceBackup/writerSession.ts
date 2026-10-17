@@ -26,6 +26,11 @@ export class WorkspaceWriterSession {
   assertUsable() {
     if (this.closed || this.blocked) throw Error('写者会话失效，已阻止继续写入。')
   }
+  /** 恢复暂存锁随目录发布迁移，仍由维护会话负责最终释放。 */
+  ownWriterLock(lock: WriterLock) {
+    this.assertUsable()
+    this.owned.add(lock)
+  }
   assertRegistryHome(home: string) {
     this.assertUsable()
     if (this.registry.root !== realpathSync(home)) throw Error('当前注册表未持有对应写锁。')

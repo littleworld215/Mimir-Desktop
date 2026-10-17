@@ -42,7 +42,7 @@ function currentPaper(ctx: EvidenceContext, version: EvidenceVersion): PaperReco
   if (!paper) throw new EvidenceError('SOURCE_MISSING', '来源文献已移除')
   return paper
 }
-async function digestSource(ctx: EvidenceContext, version: EvidenceVersion, afterChunk?: () => Promise<void>) {
+async function digestSource(ctx: EvidenceContext, version: EvidenceVersion, hooks: { afterChunk?: () => Promise<void>; afterClose?: () => Promise<void> }) {
   const path = resolveManagedPaperPdf(ctx.scope.root, currentPaper(ctx, version)), initial = lstatSync(path)
   const handle = await open(path, 'r')
   let stream: ReturnType<typeof handle.createReadStream> | undefined
@@ -57,21 +57,26 @@ async function digestSource(ctx: EvidenceContext, version: EvidenceVersion, afte
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       if (header.length < 5) header = Buffer.concat([header, bytes.subarray(0, 5 - header.length)])
       hash.update(bytes); size += bytes.length
-      await afterChunk?.()
+      await hooks.afterChunk?.()
     }
     assertEvidenceContext(ctx)
     const latest = resolveManagedPaperPdf(ctx.scope.root, currentPaper(ctx, version))
     if (!samePath(path, latest) || !sameIdentity(initial, lstatSync(latest)) || !sameIdentity(initial, await handle.stat()) || size !== initial.size) throw new EvidenceError('SOURCE_CHANGED', '摘要期间来源变化，请重新检查')
     if (header.toString('ascii') !== '%PDF-') throw new EvidenceError('SOURCE_UNAUTHORIZED', '来源不是PDF文件')
-    return { sha256: hash.digest('hex'), size, checkedAt: new Date().toISOString() }
+    return { digest: { sha256: hash.digest('hex'), size, checkedAt: new Date().toISOString() }, revalidate: () => {
+      assertEvidenceContext(ctx)
+      const finalPath = resolveManagedPaperPdf(ctx.scope.root, currentPaper(ctx, version))
+      if (!samePath(path, finalPath) || !sameIdentity(initial, lstatSync(finalPath))) throw new EvidenceError('SOURCE_CHANGED', '摘要收尾期间来源变化，请重新检查')
+    } }
   } finally {
     stream?.destroy()
     await handle.close()
+    await hooks.afterClose?.()
   }
 }
 
-/** afterChunk仅为主进程真实文件生命周期测试端口，不能由renderer提交。 */
-export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<void> } = {}) {
+/** 生命周期钩子仅为主进程真实文件测试端口，不能由renderer提交。 */
+export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<void>; afterClose?: () => Promise<void> } = {}) {
   const observations = new Map<string, Map<string, SourceInspection>>()
   const scopeKey = (ctx: EvidenceContext) => JSON.stringify([ctx.scope.id, ctx.scope.epoch, ctx.scope.root])
   const record = (ctx: EvidenceContext, id: string, version: number, result: SourceInspection) => {
@@ -86,7 +91,9 @@ export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<
     if (!ctx.catalog.papers().some(p => p.arxivId === selected.paperId)) result = { status: 'detached', checkedAt: new Date().toISOString() }
     else {
       try {
-        const digest = await digestSource(ctx, selected, hooks.afterChunk)
+        const checked = await digestSource(ctx, selected, hooks)
+        checked.revalidate()
+        const digest = checked.digest
         const status = selected.documentBinding === null ? 'unbound' : selected.documentBinding.sha256 === digest.sha256 && selected.documentBinding.size === digest.size ? 'available' : 'changed'
         result = { status, ...digest }
       } catch (error) {
@@ -106,7 +113,9 @@ export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<
       assertRevision(expectedRevision)
       const { document, card } = evidenceDetail(ctx, id)
       if (document.revision !== expectedRevision) throw new EvidenceError('CONFLICT', '证据已变化', document.revision)
-      const previous = card.versions[card.currentVersion - 1]!, digest = await digestSource(ctx, previous, hooks.afterChunk)
+      const previous = card.versions[card.currentVersion - 1]!, checked = await digestSource(ctx, previous, hooks)
+      checked.revalidate()
+      const digest = checked.digest
       if (previous.documentBinding !== null && (previous.documentBinding.sha256 !== digest.sha256 || previous.documentBinding.size !== digest.size)) throw new EvidenceError('SOURCE_CHANGED', '来源版本变化，保留旧卡，禁止自动重绑')
       assertEvidenceContext(ctx)
       const saved = reviseEvidence(ctx, id, expectedRevision, current => current.reviewState === 'checked' ? current : { ...current, reviewState: 'checked', documentBinding: digest })

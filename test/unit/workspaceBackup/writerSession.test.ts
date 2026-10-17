@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { acquireMigratableWriterLock } from '../../../electron/workspaceBackup/operationGate'
 
 const roots: string[] = []
 const faults = vi.hoisted(() => ({ unlinkPaths: new Set<string>() }))
@@ -20,6 +21,40 @@ async function moduleUnderTest() {
   expect(mod.WorkspaceWriterSession).toBeTypeOf('function')
   return mod
 }
+
+it('恢复迁移锁归维护会话所有，正常退出释放新根锁并允许新会话打开', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), staging = root(), published = root()
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  mkdirSync(join(staging, '.mimir')); mkdirSync(join(published, '.mimir'))
+  const lock = acquireMigratableWriterLock(join(staging, '.mimir/workspace.writer-lock'), staging)
+  session.ownWriterLock(lock)
+  const bytes = readFileSync(lock.lockPath)
+  const { renameSync } = await import('node:fs')
+  renameSync(lock.lockPath, join(published, '.mimir/workspace.writer-lock'))
+  lock.migrate(join(published, '.mimir/workspace.writer-lock'))
+  expect(readFileSync(lock.lockPath)).toEqual(bytes)
+  session.close()
+  expect(existsSync(lock.lockPath)).toBe(false)
+  const next = new WorkspaceWriterSession(home, assertLocalRoot)
+  next.select(published); next.close()
+})
+
+it('恢复锁清理失败保留注册表阻断；不能删除被替换的锁', async () => {
+  const { WorkspaceWriterSession } = await moduleUnderTest()
+  const home = root(), staging = root()
+  mkdirSync(join(staging, '.mimir'))
+  const session = new WorkspaceWriterSession(home, assertLocalRoot)
+  const lock = acquireMigratableWriterLock(join(staging, '.mimir/workspace.writer-lock'), staging)
+  session.ownWriterLock(lock)
+  const original = readFileSync(lock.lockPath)
+  writeFileSync(lock.lockPath, JSON.stringify({ token: 'another-writer' }))
+  expect(() => session.close()).toThrow()
+  expect(existsSync(join(home, '.mimir/registry.writer-lock'))).toBe(true)
+  expect(JSON.parse(readFileSync(lock.lockPath, 'utf8')).token).toBe('another-writer')
+  writeFileSync(lock.lockPath, original)
+  session.close()
+})
 
 it('准备切换同时保持两空间锁，只有指针落盘成功后commit才释放旧锁', async () => {
   const { WorkspaceWriterSession } = await moduleUnderTest()

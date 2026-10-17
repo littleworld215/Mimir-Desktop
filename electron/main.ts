@@ -158,10 +158,10 @@ function createWindow(): void {
     if (!mainWindow) return
     const closingWindow = mainWindow
     const choice = dialog.showMessageBoxSync(closingWindow, { type: 'warning', buttons: ['留在这里', '保存后关闭', '丢弃未保存输入并关闭'], defaultId: 0, cancelId: 0, title: '存在未保存输入或在途操作', message: '保存成功后才能关闭。正在执行的操作请等待完成；丢弃输入后退出仍会排空资产写入。' })
-    if (choice === 2) event.preventDefault()
-    else if (choice === 1) {
+    if (choice === 1 || choice === 2) {
       // Only invokes our renderer guard. No body text or user-provided script is evaluated.
-      void closingWindow.webContents.executeJavaScript("(async () => await (window.mimirRequestAssetsLeave?.('save') ?? true) && await (window.mimirRequestEvidenceLeave?.('save') ?? true))()").then(saved => {
+      const action = choice === 1 ? 'save' : 'discard'
+      void closingWindow.webContents.executeJavaScript(`(async () => await (window.mimirRequestAssetsLeave?.('${action}') ?? true) && await (window.mimirRequestEvidenceLeave?.('${action}') ?? true))()`).then(saved => {
         if (saved && !closingWindow.isDestroyed()) closingWindow.close()
         else quitFlow.cancelClose()
       }).catch(error => { quitFlow.cancelClose(); log.warn('[quit] 保存前关闭取消：', error) })

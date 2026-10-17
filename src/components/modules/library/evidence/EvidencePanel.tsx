@@ -63,8 +63,10 @@ export function EvidencePanel({ paperId, projectId, scope, papers, projects, onO
     if (!await requestEvidenceLeave()) return
     setError(''); setInspection(undefined)
     const token = ++generation.current
-    if (id) { try { await openCard(id, token) } catch { if (generation.current === token) setError('证据详情读取失败，请重试') } }
-    else setSelected(null)
+    busyRef.current = true; setBusy(true)
+    try { if (id) await openCard(id, token); else setSelected(null) }
+    catch { if (generation.current === token) setError('证据详情读取失败，请重试') }
+    finally { if (generation.current === token) { busyRef.current = false; setBusy(false) } }
   }
   function applied(reply: EvidenceCardReply) {
     setSelected(reply.card); setRevision(reply.revision); setInspection(undefined)
@@ -106,7 +108,7 @@ export function EvidencePanel({ paperId, projectId, scope, papers, projects, onO
     {error && <p role="alert" className="p-3 text-sm text-destructive break-words">{error}</p>}
     {!loading && <div className="space-y-1 p-3">{cards.filter(c => archived || !c.archived).map(c => <Button className="h-auto w-full justify-start text-left whitespace-normal" variant="outline" key={c.cardId} onClick={() => void choose(c.cardId)}><span className="break-words">{c.question || '未填写研究问题'} · v{c.version} · {c.archived ? '已归档' : c.reviewState === 'checked' ? '用户已核对' : '草稿'} · {evidenceSourceLabels[c.sourceStatus]}</span></Button>)}{cards.length === 0 && <p className="text-xs text-muted-foreground">暂无证据卡。手动摘录原文，保留不同判断与来源；不会自动转换阅读笔记。</p>}</div>}
     {selected && <div className="space-y-2 border-t border-border p-3"><p className="text-xs break-words">{current?.paperSnapshot.title} · v{selected.currentVersion} · {current?.reviewState === 'checked' ? '用户已核对（不代表科研事实验证）' : '草稿'}{current?.archived ? ' · 已归档' : ''}</p><p className="text-xs text-muted-foreground">{evidenceSourceLabels[inspection?.status ?? (current?.documentBinding ? 'unchecked' : 'unbound')]}{inspection?.checkedAt ? ` · 上次检查 ${inspection.checkedAt}` : ''}</p><div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => void sourceAction('inspect')}>检查来源</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('confirm')}>我已核对原文与页码</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('open')}>打开原文</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('archive')}>{current?.archived ? '取消归档' : '归档证据'}</Button></div></div>}
-    {selected !== undefined && scopeRef.current && <EvidenceEditor key={selected ? `editor:${selected.id}:${selected.currentVersion}` : `new:${paperId}`}  paperId={paperId} projectIds={projectId ? [projectId] : []} papers={papers} projects={projects} initial={current} revision={revision} save={input => {
+    {selected !== undefined && scopeRef.current && <EvidenceEditor key={selected ? `editor:${selected.id}:${selected.currentVersion}` : `new:${paperId}`} externalBusy={busy} paperId={paperId} projectIds={projectId ? [projectId] : []} papers={papers} projects={projects} initial={current} revision={revision} save={input => {
       const accepted = scopeRef.current!
       return selected ? libraryEvidenceApi().update({ scope: accepted, cardId: selected.id, expectedRevision: revision, input }) : libraryEvidenceApi().create({ scope: accepted, expectedRevision: revision, input })
     }} onSaved={applied} onCancel={() => { setSelected(undefined); void load(++generation.current); newButton.current?.focus() }} />}

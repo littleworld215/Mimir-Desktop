@@ -6,7 +6,7 @@ import { WorkspaceWriterSession } from './writerSession'
 import { assertWindowsLocalDisk } from './localDisk'
 import { readRegistryOverview } from './registryView'
 import { listRestoreArchives } from './restoreMain'
-import { buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
+import { acquireStagingLock, buildRestoreHandler, registerRestoreHandler } from './maintenanceRestoreHandler'
 import { buildDoctorHandler, registerDoctorHandler } from './maintenanceDoctorHandler'
 import { buildRetentionHandler, registerRetentionHandler } from './maintenanceRetentionHandler'
 import { buildBackupHandler, registerBackupHandler } from './maintenanceBackupHandler'
@@ -91,6 +91,14 @@ void app.whenReady().then(async () => {
     assetsIntegrityOptions: nativeOptions,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     homeDir: home,
+    lockStagingRoot: root => {
+      if (!session) throw Error('维护会话尚未就绪')
+      session.assertUsable()
+      const lock = acquireStagingLock(root)
+      // 不重新取同址锁；只登记已获取凭据，由同一会话在退出时核验并释放。
+      session.ownWriterLock({ root, release: () => lock.release() })
+      return lock
+    },
     onProgress: (progress) => {
       // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响恢复本身。
       if (owner && !owner.isDestroyed()) {
