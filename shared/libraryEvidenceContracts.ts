@@ -40,7 +40,7 @@ export interface EvidenceCard { id: string; createdAt: string; currentVersion: n
 export interface EvidenceDocument { schemaVersion: 1; revision: number; cards: EvidenceCard[] }
 export interface EvidenceFilter { projectId?: string; keyword?: string; reviewState?: EvidenceReviewState; archive: 'exclude' | 'only' | 'include'; source: 'all' | 'problem' }
 export interface SourceInspection { status: EvidenceSourceStatus; checkedAt?: string; sha256?: string; size?: number }
-export interface SourceOpenResult { status: EvidenceSourceStatus; pdfUrl?: string; requestedPage?: number; locationMode: 'manual-page' }
+export interface SourceOpenResult { status: EvidenceSourceStatus; checkedAt?: string; pdfUrl?: string; requestedPage?: number; locationMode: 'manual-page' }
 export interface EvidenceCardSummary extends Pick<EvidenceVersion, 'question' | 'method' | 'datasetOrMaterial' | 'finding' | 'limitation' | 'locator' | 'relation' | 'reviewState' | 'archived'> { cardId: string; version: number; sourceStatus: EvidenceSourceStatus; checkedAt?: string }
 export interface EvidenceMatrixRow { paperId: string; paperSnapshot: EvidencePaperSnapshot; missingPaper: boolean; missingProjectIds: string[]; cards: EvidenceCardSummary[] }
 export interface EvidenceList { scope: EvidenceScope; revision: number; rows: EvidenceMatrixRow[]; total: number; page: number; pageSize: 50 }

@@ -161,7 +161,7 @@ function createWindow(): void {
     if (choice === 2) event.preventDefault()
     else if (choice === 1) {
       // Only invokes our renderer guard. No body text or user-provided script is evaluated.
-      void closingWindow.webContents.executeJavaScript("window.mimirRequestAssetsLeave?.('save') ?? false").then(saved => {
+      void closingWindow.webContents.executeJavaScript("(async () => await (window.mimirRequestAssetsLeave?.('save') ?? true) && await (window.mimirRequestEvidenceLeave?.('save') ?? true))()").then(saved => {
         if (saved && !closingWindow.isDestroyed()) closingWindow.close()
         else quitFlow.cancelClose()
       }).catch(error => { quitFlow.cancelClose(); log.warn('[quit] 保存前关闭取消：', error) })

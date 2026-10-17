@@ -36,6 +36,7 @@ interface PaperCardProps {
   onRemove: (arxivId: string) => void
   onDownloadPdf: (arxivId: string) => Promise<void>
   onOpenPdf: (paper: PaperRecord) => void
+  onEvidence?: (paper: PaperRecord) => void
   onOpenExternal: (url: string) => void
   onScoreRelevance: (paper: PaperRecord) => Promise<void>
   onExportBib: (paper: PaperRecord) => Promise<void>
@@ -51,6 +52,7 @@ export function PaperCard({
   onRemove,
   onDownloadPdf,
   onOpenPdf,
+  onEvidence,
   onOpenExternal,
   onScoreRelevance,
   onExportBib,
@@ -217,6 +219,7 @@ export function PaperCard({
             >
               <BookOpen className="h-3.5 w-3.5" />
             </button>
+            {onEvidence && <button onClick={() => onEvidence(paper)} title="证据卡" aria-label={`证据卡：${paper.title}`} className="flex h-6 items-center rounded px-1 text-xs text-primary hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"><FileText className="mr-1 h-3.5 w-3.5" />证据</button>}
             <button
               onClick={() => onOpenExternal(paper.url)}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground transition-colors"

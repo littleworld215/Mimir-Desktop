@@ -16,6 +16,7 @@ import { SearchPanel, type SearchSource } from './SearchPanel'
 import { SubscriptionsBar } from './SubscriptionsBar'
 import { PaperCard } from './PaperCard'
 import { PaperReader } from './PaperReader'
+import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { handoffToAgent } from '@/lib/agentContext'
 import type {
   ArxivEntry,
@@ -52,6 +53,7 @@ export function Library() {
 
   // PDF 阅读器
   const [readerPaper, setReaderPaper] = useState<PaperRecord | null>(null)
+  const [readerTab, setReaderTab] = useState<'notes' | 'evidence'>('notes')
 
   // Zotero
   const [zoteroOpen, setZoteroOpen] = useState(false)
@@ -184,7 +186,7 @@ export function Library() {
       setGlobalError('请先下载 PDF')
       return
     }
-    setReaderPaper(paper)
+    setReaderTab('notes'); setReaderPaper(paper)
   }
 
   const handleScoreRelevance = async (paper: PaperRecord) => {
@@ -403,7 +405,7 @@ export function Library() {
         <ProjectBar
           projects={projects}
           selectedProjectId={selectedProjectId}
-          onSelect={setSelectedProjectId}
+          onSelect={async id => { if (await requestEvidenceLeave()) setSelectedProjectId(id) }}
           onCreate={handleCreateProject}
           onRename={handleRenameProject}
           onDelete={handleDeleteProject}
@@ -475,6 +477,7 @@ export function Library() {
                 onRemove={handleRemove}
                 onDownloadPdf={handleDownloadPdf}
                 onOpenPdf={handleOpenPdf}
+                onEvidence={async paper => { if (await requestEvidenceLeave()) { setReaderTab('evidence'); setReaderPaper(paper) } }}
                 onOpenExternal={handleOpenExternal}
                 onScoreRelevance={handleScoreRelevance}
                 onExportBib={handleExportBib}
@@ -488,7 +491,12 @@ export function Library() {
       {/* PDF 阅读器 */}
       {readerPaper && (
         <PaperReader
+          key={`${readerPaper.arxivId}:${readerTab}`}
           paper={readerPaper}
+          initialTab={readerTab}
+          projectId={selectedProjectId ?? undefined}
+          projects={projects}
+          papers={papers}
           onClose={() => setReaderPaper(null)}
           onUpdateNotes={async (arxivId, notes) => {
             await handleUpdate({ arxivId, notes })

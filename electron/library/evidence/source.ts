@@ -116,7 +116,7 @@ export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<
     openEvidenceSource: async (ctx: EvidenceContext, id: string, version: number): Promise<SourceOpenResult> => {
       const selected = selectedVersion(ctx, id, version), inspected = await inspect(ctx, id, version)
       assertEvidenceContext(ctx)
-      return { status: inspected.status, locationMode: 'manual-page', requestedPage: selected.locator.pageStart,
+      return { status: inspected.status, checkedAt: inspected.checkedAt, locationMode: 'manual-page', requestedPage: selected.locator.pageStart,
         ...(['available', 'unbound'].includes(inspected.status) ? { pdfUrl: `mimir-pdf://paper/${paperPdfFileName(selected.paperId)}` } : {}) }
     }
   }
