@@ -47,8 +47,11 @@ export interface EvidenceList { scope: EvidenceScope; revision: number; rows: Ev
 export interface EvidenceListRequest { scope?: EvidenceScope; filter: EvidenceFilter; page: number }
 export interface EvidenceWriteRequest { scope: EvidenceScope; expectedRevision: number; input: EvidenceFields }
 export interface EvidenceCardReply { revision: number; card: EvidenceCard }
+export interface EvidenceExportRequest { scope: EvidenceScope; expectedRevision: number; filter: EvidenceFilter; format: 'markdown' | 'csv' | 'json'; mode: 'preview' | 'save'; includeHistory?: boolean; previewToken?: string }
+export interface EvidenceExportReply { cardCount: number; versionCount: number; saved: boolean; previewToken: string; canceled?: boolean; fileName?: string }
 export type EvidenceCheckRequest = { scope: EvidenceScope; cardId: string } & ({ mode: 'inspect'; version: number } | { mode: 'confirm'; expectedRevision: number })
 export interface EvidenceApi {
+  export(request: EvidenceExportRequest): Promise<EvidenceResult<EvidenceExportReply>>
   list(request: EvidenceListRequest): Promise<EvidenceResult<EvidenceList>>
   detail(request: { scope: EvidenceScope; cardId: string }): Promise<EvidenceResult<EvidenceCardReply>>
   create(request: EvidenceWriteRequest): Promise<EvidenceResult<EvidenceCardReply>>

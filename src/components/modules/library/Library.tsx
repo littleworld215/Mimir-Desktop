@@ -17,6 +17,7 @@ import { SubscriptionsBar } from './SubscriptionsBar'
 import { PaperCard } from './PaperCard'
 import { PaperReader } from './PaperReader'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
+import { EvidenceMatrix } from './evidence/EvidenceMatrix'
 import { handoffToAgent } from '@/lib/agentContext'
 import type {
   ArxivEntry,
@@ -54,6 +55,7 @@ export function Library() {
   // PDF 阅读器
   const [readerPaper, setReaderPaper] = useState<PaperRecord | null>(null)
   const [readerTab, setReaderTab] = useState<'notes' | 'evidence'>('notes')
+  const [matrixOpen, setMatrixOpen] = useState(false)
 
   // Zotero
   const [zoteroOpen, setZoteroOpen] = useState(false)
@@ -402,6 +404,7 @@ export function Library() {
 
       {/* 项目选择器 */}
       <div className="shrink-0 px-5 py-2 border-b border-border">
+        <Button variant="outline" className="mb-2" onClick={async () => { if (await requestEvidenceLeave()) setMatrixOpen(value => !value) }}>{matrixOpen ? '返回文献列表' : '证据比较矩阵'}</Button>
         <ProjectBar
           projects={projects}
           selectedProjectId={selectedProjectId}
@@ -450,7 +453,7 @@ export function Library() {
           </div>
         )}
 
-        {loadingPapers ? (
+        {matrixOpen ? <EvidenceMatrix projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /> : loadingPapers ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin mb-2" />
             <p className="text-[12px]">加载文献库...</p>

@@ -451,6 +451,7 @@ let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
   libraryEvidence: {
+    export: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.export, req),
     list: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.list, req),
     detail: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.detail, req),
     create: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.create, req),

@@ -1,8 +1,12 @@
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { basename } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { EVIDENCE_CHANNELS, type EvidenceFilter, type EvidenceMatrixRow, type EvidenceScope } from '../../shared/libraryEvidenceContracts'
+import { EVIDENCE_CHANNELS, type EvidenceScope } from '../../shared/libraryEvidenceContracts'
 import { readEvidence } from '../library/evidence/repository'
-import { archiveEvidence, createEvidence, currentEvidenceVersion, evidenceDetail, updateEvidence, type EvidenceContext } from '../library/evidence/service'
+import { archiveEvidence, createEvidence, evidenceDetail, updateEvidence, type EvidenceContext } from '../library/evidence/service'
+import { deriveEvidenceMatrix } from '../library/evidence/matrix'
+import { createEvidenceExportWriter, serializeEvidenceExport } from '../library/evidence/export'
 import { evidenceRuntime, type createEvidenceRuntime } from '../library/evidence/runtime'
 import { EvidenceError } from '../library/evidence/validation'
 
@@ -12,6 +16,7 @@ const version = revision.positive()
 const scopeSchema = z.object({ workspaceId: id, spaceEpoch: id }).strict()
 export const evidenceFilterSchema = z.object({ projectId: id.optional(), keyword: z.string().max(4000).optional(), reviewState: z.enum(['draft', 'checked']).optional(), archive: z.enum(['exclude', 'only', 'include']), source: z.enum(['all', 'problem']) }).strict()
 const schemas = {
+  export: z.object({ scope: scopeSchema, expectedRevision: revision, filter: evidenceFilterSchema, format: z.enum(['markdown', 'csv', 'json']), mode: z.enum(['preview', 'save']), includeHistory: z.boolean().optional(), previewToken: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().refine(r => (r.format === 'json' ? r.includeHistory !== false : r.includeHistory !== true) && (r.mode !== 'save' || r.previewToken !== undefined)),
   list: z.object({ scope: scopeSchema.optional(), filter: evidenceFilterSchema, page: version }).strict(),
   detail: z.object({ scope: scopeSchema, cardId: z.string().uuid() }).strict(),
   create: z.object({ scope: scopeSchema, expectedRevision: revision, input: z.unknown() }).strict(),
@@ -28,24 +33,16 @@ export function assertEvidenceScope(ctx: EvidenceContext, requested: EvidenceSco
   ctx.assertCurrent()
   if (requested.workspaceId !== ctx.scope.id || requested.spaceEpoch !== ctx.scope.epoch) throw new EvidenceError('SPACE_CHANGED', '空间已变化，请重新打开')
 }
-/** Task3只提供同形状基础行；Task5替换为独立完整矩阵派生器。 */
-function basicRows(ctx: EvidenceContext, filter: EvidenceFilter, page: number) {
-  const document = readEvidence(ctx.scope.root), grouped = new Map<string, EvidenceMatrixRow>()
-  const papers = ctx.catalog.papers(), projects = new Set(ctx.catalog.projects().map(p => p.id))
-  for (const card of document.cards) {
-    const v = currentEvidenceVersion(card)
-    if ((filter.archive === 'exclude' && v.archived) || (filter.archive === 'only' && !v.archived) || (filter.projectId && !v.projectIds.includes(filter.projectId))) continue
-    const row = grouped.get(v.paperId) ?? { paperId: v.paperId, paperSnapshot: v.paperSnapshot, missingPaper: !papers.some(p => p.arxivId === v.paperId), missingProjectIds: [], cards: [] }
-    row.missingProjectIds = [...new Set([...row.missingProjectIds, ...v.projectIds.filter(id => !projects.has(id))])]
-    const preview = (s: string) => Array.from(s).slice(0, 200).join('')
-    row.cards.push({ cardId: card.id, version: v.version, question: preview(v.question), method: preview(v.method), datasetOrMaterial: preview(v.datasetOrMaterial), finding: preview(v.finding), limitation: preview(v.limitation), locator: v.locator, relation: v.relation, reviewState: v.reviewState, archived: v.archived, sourceStatus: row.missingPaper ? 'detached' : v.documentBinding ? 'unchecked' : 'unbound' })
-    grouped.set(v.paperId, row)
-  }
-  const all = [...grouped.values()].sort((a, b) => a.paperId.localeCompare(b.paperId))
-  return { scope: { workspaceId: ctx.scope.id, spaceEpoch: ctx.scope.epoch }, revision: document.revision, rows: all.slice((page - 1) * 50, page * 50), total: all.length, page, pageSize: 50 as const }
+interface Options {
+  windowRef: { current: BrowserWindow | null }; runtime?: ReturnType<typeof createEvidenceRuntime>
+  selectExportPath?: (win: BrowserWindow, format: 'markdown' | 'csv' | 'json') => Promise<string | undefined>
 }
-interface Options { windowRef: { current: BrowserWindow | null }; runtime?: ReturnType<typeof createEvidenceRuntime> }
-export function registerLibraryEvidenceHandlers({ windowRef, runtime = evidenceRuntime }: Options) {
+async function nativeExportPath(win: BrowserWindow, format: 'markdown' | 'csv' | 'json') {
+  const extension = format === 'markdown' ? 'md' : format
+  const selected = await dialog.showSaveDialog(win, { title: '将证据导出到新文件（不覆盖已有文件）', buttonLabel: '保存为新文件', defaultPath: `Mimir-evidence-${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}.${extension}`, filters: [{ name: '文献证据', extensions: [extension] }] })
+  return selected.canceled ? undefined : selected.filePath
+}
+export function registerLibraryEvidenceHandlers({ windowRef, runtime = evidenceRuntime, selectExportPath = nativeExportPath }: Options) {
   for (const name of Object.keys(schemas) as (keyof typeof schemas)[]) {
     ipcMain.handle(EVIDENCE_CHANNELS[name], async (event: IpcMainInvokeEvent, value: unknown) => {
       let cleanup: (() => void) | undefined
@@ -61,7 +58,26 @@ export function registerLibraryEvidenceHandlers({ windowRef, runtime = evidenceR
           if (request.scope) assertEvidenceScope(ctx, request.scope)
           else if (name !== 'list' || !('page' in request) || request.page !== 1 || JSON.stringify(request.filter) !== JSON.stringify({ archive: 'exclude', source: 'all' })) throw new EvidenceError('BAD_REQUEST', '首次读取仅允许默认全部范围')
           // 各通道单独解析以保留精确类型；不将非判别联合强制断言为另一通道DTO。
-          if (name === 'list') { const r = schemas.list.parse(value); return { ok: true, ...basicRows(ctx, r.filter, r.page) } }
+          if (name === 'list') {
+            const r = schemas.list.parse(value), document = readEvidence(ctx.scope.root)
+            return { ok: true, scope: { workspaceId: ctx.scope.id, spaceEpoch: ctx.scope.epoch }, revision: document.revision, ...deriveEvidenceMatrix(document, ctx.catalog.papers(), ctx.catalog.projects(), r.filter, r.page, runtime.source.sourceObservations(ctx)) }
+          }
+          if (name === 'export') {
+            const r = schemas.export.parse(value), document = readEvidence(ctx.scope.root)
+            if (document.revision !== r.expectedRevision) throw new EvidenceError('CONFLICT', '证据已变化，请重新预览导出范围', document.revision)
+            const result = serializeEvidenceExport(document, r.filter, r.format, { papers: ctx.catalog.papers(), observations: runtime.source.sourceObservations(ctx) })
+            const counts = { cardCount: result.cardCount, versionCount: result.versionCount, previewToken: createHash('sha256').update(result.utf8).digest('hex') }
+            if (r.mode === 'preview') return { ok: true, ...counts, saved: false }
+            if (r.previewToken !== counts.previewToken) throw new EvidenceError('CONFLICT', '导出内容或来源筛选已变化，请重新预览')
+            const path = await selectExportPath(win, r.format)
+            ctx.assertCurrent()
+            if (readEvidence(ctx.scope.root).revision !== r.expectedRevision) throw new EvidenceError('CONFLICT', '选择文件期间证据已变化，请重新预览')
+            if (!path) return { ok: true, ...counts, saved: false, canceled: true }
+            const latest = serializeEvidenceExport(readEvidence(ctx.scope.root), r.filter, r.format, { papers: ctx.catalog.papers(), observations: runtime.source.sourceObservations(ctx) })
+            if (!latest.utf8.equals(result.utf8)) throw new EvidenceError('CONFLICT', '选择文件期间来源范围已变化，请重新预览')
+            createEvidenceExportWriter()(path, result.utf8)
+            return { ok: true, ...counts, saved: true, fileName: basename(path) }
+          }
           if (name === 'create') { const r = schemas.create.parse(value), saved = createEvidence(ctx, r.input, r.expectedRevision); return { ok: true, revision: saved.document.revision, card: saved.card } }
           if (name === 'detail') { const r = schemas.detail.parse(value), found = evidenceDetail(ctx, r.cardId); return { ok: true, revision: found.document.revision, card: found.card } }
           if (name === 'update') { const r = schemas.update.parse(value), saved = updateEvidence(ctx, r.cardId, r.input, r.expectedRevision); return { ok: true, revision: saved.document.revision, card: saved.card } }

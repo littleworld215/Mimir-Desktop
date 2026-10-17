@@ -5,6 +5,14 @@ import { EvidenceEditor } from '../../../src/components/modules/library/evidence
 import { hasEvidenceWork, requestEvidenceLeave } from '../../../src/lib/evidenceEditGuard'
 import { fields, document as evidenceDocument, version } from './fixtures'
 afterEach(cleanup)
+it('最后一个项目删除后仍可显式移除失效引用，不要求先创建新项目', async () => {
+  const save = vi.fn().mockResolvedValue({ ok: false, code: 'WRITE_FAILED', message: '保留输入' })
+  render(<EvidenceEditor paperId={fields().paperId} projectIds={[]} initial={version()} revision={1} projects={[]} save={save} />)
+  fireEvent.click(screen.getByLabelText('失效项目 · project-1'))
+  fireEvent.click(screen.getByRole('button', { name: '保存证据' }))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save.mock.calls[0]![0].projectIds).toEqual([])
+})
 it('摘录空白和emoji完整保留，失败/冲突不清脏，成功才清除', async () => {
   const card = evidenceDocument().cards[0]!
   const save = vi.fn().mockResolvedValueOnce({ ok: false, code: 'CONFLICT', message: '保留输入并重新加载' }).mockImplementation(async input => ({ ok: true, revision: 2, card: { ...card, versions: [{ ...version(), ...input }] } }))
