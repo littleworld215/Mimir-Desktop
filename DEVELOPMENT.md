@@ -1,5 +1,7 @@
 # 开发文档（DEVELOPMENT）
 
+2026-10-17 I8来源层：source.ts共享受管PDF解析器，仅认当前paper记录与标准papers文件，拒绝链接/越界/非PDF；摘要前后核对身份，确认前重验scope和revision。检查观察仅进程内按空间代际和卡片版本隔离；实际时间标签为上次检查，不代表永久有效。14项来源专项通过，完整三闸门exit0（1827通过、9既有跳过；182文件、1836项）；协议接线在下一批，UI尚未接入。
+
 ## I8文献证据存储（2026-10-17，第一批）
 
 `shared/libraryEvidenceContracts.ts`定义纯DTO，`electron/library/evidence`内分离validation、repository、service。独立JSON严格验证全部历史；写入唯一wx临时文件、同步并关闭后rename发布，提交前重读revision并重验空间上下文。只增版本、归档不删；断链引用允许保留，新增引用验证当前catalog。32MiB计入UTF-8全部历史，5000卡含归档；不创建新SQLite。测试故障钩子仅主进程单测可用，不进入IPC。
