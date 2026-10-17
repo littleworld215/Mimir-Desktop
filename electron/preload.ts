@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ServerDraft, ServerPatch, ServerRecord } from './servers/types'
 import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
+import { EVIDENCE_CHANNELS, type EvidenceApi } from '../shared/libraryEvidenceContracts'
 
 /**
  * 渲染进程日志桥：把渲染层日志送到主进程统一写文件（与主进程日志同一时间轴）。
@@ -115,6 +116,7 @@ export interface ElectronAPI {
 
   /** 资产库（`assets:*`）：完整的固定方法合同。 */
   assets: AssetsApiSubset
+  libraryEvidence: EvidenceApi
 
   // Agent
   sendMessage: (message: string, conversationId: string) => Promise<string>
@@ -448,6 +450,15 @@ export interface ElectronAPI {
 let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
+  libraryEvidence: {
+    list: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.list, req),
+    detail: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.detail, req),
+    create: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.create, req),
+    update: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.update, req),
+    archive: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.archive, req),
+    checkSource: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.checkSource, req),
+    openSource: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.openSource, req)
+  },
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatform: () => process.platform,
 

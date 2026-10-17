@@ -43,6 +43,7 @@ import { listModels } from '../modelDiscovery'
 // 论文创作域按域拆分的子模块（每个文件注册一组同前缀的 IPC handler）
 import { registerLatexHandlers } from './latex'
 import { registerLibraryHandlers } from './library'
+import { registerLibraryEvidenceHandlers } from './libraryEvidence'
 import { registerMeetingsHandlers } from './meetings'
 import { registerFiguresHandlers } from './figures'
 import { registerWorkspacesHandlers } from './workspaces'
@@ -737,6 +738,7 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   // 各域拆到 electron/ipc/<domain>.ts，只注入其真正依赖的边界校验函数。
   registerLatexHandlers({ assertRendererPath })
   registerLibraryHandlers({ assertRendererPath })
+  registerLibraryEvidenceHandlers({ windowRef: winRef })
   registerMeetingsHandlers()
   registerFiguresHandlers({ assertProjectDirs })
   registerWorkspacesHandlers({ assertRendererPath })

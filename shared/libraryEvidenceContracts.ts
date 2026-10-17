@@ -44,3 +44,16 @@ export interface SourceOpenResult { status: EvidenceSourceStatus; pdfUrl?: strin
 export interface EvidenceCardSummary extends Pick<EvidenceVersion, 'question' | 'method' | 'datasetOrMaterial' | 'finding' | 'limitation' | 'locator' | 'relation' | 'reviewState' | 'archived'> { cardId: string; version: number; sourceStatus: EvidenceSourceStatus; checkedAt?: string }
 export interface EvidenceMatrixRow { paperId: string; paperSnapshot: EvidencePaperSnapshot; missingPaper: boolean; missingProjectIds: string[]; cards: EvidenceCardSummary[] }
 export interface EvidenceList { scope: EvidenceScope; revision: number; rows: EvidenceMatrixRow[]; total: number; page: number; pageSize: 50 }
+export interface EvidenceListRequest { scope?: EvidenceScope; filter: EvidenceFilter; page: number }
+export interface EvidenceWriteRequest { scope: EvidenceScope; expectedRevision: number; input: EvidenceFields }
+export interface EvidenceCardReply { revision: number; card: EvidenceCard }
+export type EvidenceCheckRequest = { scope: EvidenceScope; cardId: string } & ({ mode: 'inspect'; version: number } | { mode: 'confirm'; expectedRevision: number })
+export interface EvidenceApi {
+  list(request: EvidenceListRequest): Promise<EvidenceResult<EvidenceList>>
+  detail(request: { scope: EvidenceScope; cardId: string }): Promise<EvidenceResult<EvidenceCardReply>>
+  create(request: EvidenceWriteRequest): Promise<EvidenceResult<EvidenceCardReply>>
+  update(request: EvidenceWriteRequest & { cardId: string }): Promise<EvidenceResult<EvidenceCardReply>>
+  archive(request: { scope: EvidenceScope; cardId: string; expectedRevision: number; archived: boolean }): Promise<EvidenceResult<EvidenceCardReply>>
+  checkSource(request: EvidenceCheckRequest): Promise<EvidenceResult<EvidenceCardReply | { inspection: SourceInspection }>>
+  openSource(request: { scope: EvidenceScope; cardId: string; version: number }): Promise<EvidenceResult<{ source: SourceOpenResult }>>
+}

@@ -123,3 +123,17 @@ export function createEvidenceSourceService(hooks: { afterChunk?: () => Promise<
 }
 const sourceService = createEvidenceSourceService()
 export const { sourceObservations, clearSourceObservations, inspectEvidenceSource, confirmEvidenceSource, openEvidenceSource } = sourceService
+export function resolveEvidencePdfRequest(root: string, rawUrl: string, papers: readonly PaperRecord[]): string {
+  try {
+    const url = new URL(rawUrl), fileName = url.pathname.slice(1)
+    if (url.protocol !== 'mimir-pdf:' || url.hostname !== 'paper' || url.username || url.password || url.port || url.search || url.hash || !fileName.endsWith('.pdf') || fileName.includes('/') || fileName.includes('\\')) throw Error('url')
+    const id = decodeURIComponent(fileName.slice(0, -4))
+    if (!id || id.includes('\0') || paperPdfFileName(id) !== fileName || rawUrl !== `mimir-pdf://paper/${fileName}`) throw Error('encoding')
+    const paper = papers.find(p => p.arxivId === id)
+    if (!paper) throw new EvidenceError('SOURCE_MISSING', '来源文献未登记')
+    return resolveManagedPaperPdf(root, paper)
+  } catch (error) {
+    if (error instanceof EvidenceError) throw error
+    throw new EvidenceError('SOURCE_UNAUTHORIZED', 'PDF协议地址非法')
+  }
+}

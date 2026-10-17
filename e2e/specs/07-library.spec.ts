@@ -101,14 +101,15 @@ test.describe('文献库', () => {
     await expect(searchBtn).toBeEnabled()
 
     // 排序下拉：arXiv 来源下才有，含「相关度」「最新」（SearchPanel.tsx L70–77）
-    const sort = page.locator('select').first()
+    // 限定包含arXiv专有排序项的控件；项目栏等其它下拉框不属于搜索排序。
+    const sort = page.locator('select').filter({ has: page.locator('option[value="submittedDate"]') })
     await expect(sort).toBeVisible()
     await expect(sort.locator('option')).toHaveText(['相关度', '最新'])
 
     // 来源切换：切到 Web 后 placeholder 变化，排序下拉消失（L69 条件）
     await page.getByRole('button', { name: 'Web', exact: true }).click()
     await expect(page.getByPlaceholder('搜索网页文献...')).toBeVisible()
-    await expect(page.locator('select')).toHaveCount(0)
+    await expect(sort).toHaveCount(0)
   })
 
   test('项目条：预置项目出现，可切换筛选', async ({ page }) => {

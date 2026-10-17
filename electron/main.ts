@@ -9,6 +9,9 @@ import { resetApprovalSender } from './agent/approval'
 import { isLatexPdfAllowed } from './latex'
 import { existsSync } from 'fs'
 import { paperPdfFileName } from './library/arxiv'
+import { listPapers } from './library/libraryService'
+import { resolveEvidencePdfRequest } from './library/evidence/source'
+import { stopEvidenceTasksAndWait } from './library/evidence/runtime'
 import { figureFilePath } from './figures/figuresService'
 import { loadStore, getStoreValue, spaceRoot, captureWorkspaceOperation, installWorkspaceOperationProtection } from './library/store'
 import { workspaceOperationGate } from './workspaceBackup/operationGate'
@@ -229,12 +232,10 @@ app.whenReady().then(async () => {
 
   // 注册 mimir-pdf:// 自定义协议：供文献库 iframe 内嵌阅读本地 PDF
   protocol.handle('mimir-pdf', (request) => {
-    const url = new URL(request.url)
-    const fileName = url.hostname === 'paper' ? url.pathname.replace(/^\//, '') : ''
-    if (fileName === '') return new Response('Not Found', { status: 404 })
-    const filePath = join(spaceRoot(), 'papers', fileName)
-    if (!existsSync(filePath)) return new Response('Not Found', { status: 404 })
-    return net.fetch(`file://${filePath}`)
+    try {
+      const filePath = resolveEvidencePdfRequest(spaceRoot(), request.url, listPapers())
+      return net.fetch(pathToFileURL(filePath).toString())
+    } catch { return new Response('Not Found', { status: 404 }) }
   })
 
   // 注册 mimir-tex:// 自定义协议：iframe 内嵌预览 LaTeX 项目编译产物 main.pdf
@@ -344,7 +345,7 @@ app.whenReady().then(async () => {
     // 任一失败都会抛出，从而不授予交接（这是「失败交接」语义的落点）。
     stopProducers: async () => {
       await stopVenueDeadlineLoop()
-      await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait()])
+      await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait(), stopEvidenceTasksAndWait()])
     },
     closeMcp: async () => { assetsMcpAbort?.abort(); await (await assetsMcpStartup)?.close() },
     closeManagedProcesses: async () => { disposeIpcResources() },
@@ -473,6 +474,8 @@ const quitFlow = createQuitFlow({
   closeWindow: () => mainWindow?.close(),
   quit: () => app.quit(),
   shutdown: async () => {
+    // 等待真实证据读取结束；取消不提前释放任务或空间写锁。
+    try { await stopEvidenceTasksAndWait() } catch { log.warn('[evidence] 退出时任务失败，已等待实际任务收口') }
     assetsMcpAbort?.abort()
     // 先撤销外部请求和原生批准，再排空唯一writer；启动中的ACL操作也必须收口。
     try { await (await assetsMcpStartup)?.close() } catch { log.warn('[assets-mcp] 退出清理失败，凭据残留须确认后手动处理。') }
