@@ -1,5 +1,7 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-17本机部署补充：I8新目录包及实际安装目录均已运行17/36/37，安装目录7/7零重试通过；真实登记空间维护备份成功且排除0，部署前后字节核对不变。日常快捷方式已切换新版、旧程序保留。下文“安装版未更新”是此前批次状态；不因此消除其它I6待验或把启动检查视为真实科研验收。[部署与回退记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i8-20261017.md)。
+
 > 2026-10-16接管补充：下文是原批次交付的历史记录。固定SDK及helper已恢复，本轮真实闭环另发现并修复运行锁误归档、维护打包原生环境漏接、恢复校验资产库路径错误。当前运行结果、目录包参数及未验边界见[最新验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)；旧“SDK缺失/manifest缺失”不能再当成本机现状，也不把六批落盘等同于所有验收完成。安装版未更新，I5待验保持。
 
 本文是 I6（整科研空间**离线备份**与**新空间恢复**）的实施交付记录，对应
