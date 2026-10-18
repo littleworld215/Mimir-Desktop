@@ -5,6 +5,8 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { createEvidence } from '../../../electron/library/evidence/service'
 import { fields } from '../libraryEvidence/fixtures'
 import type { SourceInspection } from '../../../shared/libraryEvidenceContracts'
+import type { ResearchPackInput } from '../../../shared/libraryResearchContracts'
+import { saveQuestion } from '../../../electron/library/research/questionService'
 
 export const questionVersion = () => ({ version: 1, projectId: 'project-1', title: '研究问题', question: '小样本是否稳定？', note: '', evidenceCardIds: [randomUUID()], archived: false, updatedAt: '2026-10-18T00:00:00.000Z' })
 export const question = () => ({ id: randomUUID(), createdAt: '2026-10-18T00:00:00.000Z', currentVersion: 1, versions: [questionVersion()] })
@@ -33,4 +35,10 @@ export function researchFixture(count = 1) {
   for (let i = 0; i < count; i++) cards.push(createEvidence(ctx, { ...fields(), quote: `${i} ${'字'.repeat(230)} ${i === count - 1 ? '尾部命中' : '普通'}` }, i).card)
   const input = { projectId: 'project-1', title: '问题', question: '是否稳定？', note: '', evidenceCardIds: cards.map(card => card.id) }
   return { ...f, ctx, cards, input, projects, papers, observations }
+}
+export function materialFixture(groupCount = 2) {
+  const f = researchFixture(1)
+  const questions = Array.from({ length: groupCount }, (_, i) => saveQuestion(f.ctx, { input: { ...f.input, title: `问题${i + 1}` }, expectedRevision: i, expectedEvidenceRevision: 1 }).question)
+  const packInput: ResearchPackInput = { projectId: 'project-1', title: '合成素材', note: '', items: questions.map(q => ({ kind: 'new', questionId: q.id, cardId: f.cards[0]!.id, section: '讨论', note: '个人说明' })) }
+  return { ...f, questions, packInput, researchRevision: groupCount }
 }
