@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-18 I9第一批底层：研究问题/写作素材的数据合同与原子保存已实现，含只追加历史、容量和路径保护；新增21项专项、完整类型检查/原始全量/构建通过（1890通过、9既有跳过）。研究组织服务、界面和恢复验收仍待后续批次，当前安装版保持I8。[计划与当前进度](https://github.com/littleworld215/research-asset-library/blob/main/docs/superpowers/plans/2026-10-18-research-question-material-pack.md)。
+
 2026-10-17 本机部署更新：原桌面和开始菜单的“Mimir 科研工作台”已指向 `%LOCALAPPDATA%/Programs/Mimir-Research-Releases/20261017-i8-6f4835f/`，旧 `%LOCALAPPDATA%/Programs/Mimir-Research/` 完整保留。配置与科研空间已备份，安装目录7/7隔离回归、原profile启动与新入口核对通过；未整理真实文献或触发模型。使用原快捷方式即可打开新版，真实课题待用户指定。[部署及回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i8-20261017.md)。下方各批“安装版未替换”保留当时状态。
 
 2026-10-17 I8 收尾：文献证据卡、修订历史、PDF来源核对、比较矩阵和Markdown/CSV/全历史JSON导出已实现。最终完整门1869通过、9既有跳过（192文件1878项），类型/构建exit0；开发Electron13/13零重试通过。新目录包审计及包内7/7零重试通过；安装版未替换，I5/I6原待验不变。[实际证据与边界](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-evidence-20261017.md)。
