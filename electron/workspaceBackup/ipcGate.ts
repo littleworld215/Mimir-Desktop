@@ -36,7 +36,7 @@ export function installWorkspaceIpcGate(
         }
       })
     }
-    if (channel.startsWith('libraryEvidence:')) {
+    if (channel.startsWith('libraryEvidence:') || channel.startsWith('libraryResearch:')) {
       return handle(channel, async (...args) => {
         try { return await gate.run(capture(), async () => fn(...args)) }
         catch { return { ok: false, code: 'MAINTENANCE_BLOCKED', message: '科研空间正在维护或切换，请稍后重新打开' } }

@@ -32,3 +32,6 @@ it('维护入口经状态机推进，且窗口关闭时回退普通退出防止�
   expect(src).toContain("maintenanceHandoff.state === 'requested'")
   expect(src).toContain('quitFlow.windowClosed()')
 })
+it('研究组织在维护交接和普通退出均等待实际任务结束', () => {
+  expect(source().match(/stopResearchTasksAndWait\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+})

@@ -3,6 +3,7 @@ import type { ServerDraft, ServerPatch, ServerRecord } from './servers/types'
 import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
 import { EVIDENCE_CHANNELS, type EvidenceApi } from '../shared/libraryEvidenceContracts'
+import { RESEARCH_CHANNELS, type ResearchApi } from '../shared/libraryResearchContracts'
 
 /**
  * 渲染进程日志桥：把渲染层日志送到主进程统一写文件（与主进程日志同一时间轴）。
@@ -117,6 +118,7 @@ export interface ElectronAPI {
   /** 资产库（`assets:*`）：完整的固定方法合同。 */
   assets: AssetsApiSubset
   libraryEvidence: EvidenceApi
+  libraryResearch: ResearchApi
 
   // Agent
   sendMessage: (message: string, conversationId: string) => Promise<string>
@@ -450,6 +452,21 @@ export interface ElectronAPI {
 let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
+  libraryResearch: {
+    overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),
+    listQuestions: req => ipcRenderer.invoke(RESEARCH_CHANNELS.listQuestions, req),
+    questionDetail: req => ipcRenderer.invoke(RESEARCH_CHANNELS.questionDetail, req),
+    saveQuestion: req => ipcRenderer.invoke(RESEARCH_CHANNELS.saveQuestion, req),
+    archiveQuestion: req => ipcRenderer.invoke(RESEARCH_CHANNELS.archiveQuestion, req),
+    listEvidence: req => ipcRenderer.invoke(RESEARCH_CHANNELS.listEvidence, req),
+    listPacks: req => ipcRenderer.invoke(RESEARCH_CHANNELS.listPacks, req),
+    packDetail: req => ipcRenderer.invoke(RESEARCH_CHANNELS.packDetail, req),
+    savePack: req => ipcRenderer.invoke(RESEARCH_CHANNELS.savePack, req),
+    archivePack: req => ipcRenderer.invoke(RESEARCH_CHANNELS.archivePack, req),
+    previewRefresh: req => ipcRenderer.invoke(RESEARCH_CHANNELS.previewRefresh, req),
+    applyRefresh: req => ipcRenderer.invoke(RESEARCH_CHANNELS.applyRefresh, req),
+    export: req => ipcRenderer.invoke(RESEARCH_CHANNELS.export, req)
+  },
   libraryEvidence: {
     export: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.export, req),
     list: req => ipcRenderer.invoke(EVIDENCE_CHANNELS.list, req),

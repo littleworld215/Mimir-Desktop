@@ -44,6 +44,7 @@ import { listModels } from '../modelDiscovery'
 import { registerLatexHandlers } from './latex'
 import { registerLibraryHandlers } from './library'
 import { registerLibraryEvidenceHandlers } from './libraryEvidence'
+import { registerLibraryResearchHandlers } from './libraryResearch'
 import { registerMeetingsHandlers } from './meetings'
 import { registerFiguresHandlers } from './figures'
 import { registerWorkspacesHandlers } from './workspaces'
@@ -739,6 +740,7 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   registerLatexHandlers({ assertRendererPath })
   registerLibraryHandlers({ assertRendererPath })
   registerLibraryEvidenceHandlers({ windowRef: winRef })
+  registerLibraryResearchHandlers({ windowRef: winRef })
   registerMeetingsHandlers()
   registerFiguresHandlers({ assertProjectDirs })
   registerWorkspacesHandlers({ assertRendererPath })
