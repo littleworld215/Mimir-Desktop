@@ -1,0 +1,13 @@
+import type { EvidenceVersion } from '../../../../../shared/libraryEvidenceContracts'
+import type { ResearchResolvedItem, ResearchQuestionVersion } from '../../../../../shared/libraryResearchContracts'
+import { evidenceSourceLabels } from '../evidence/EvidencePanel'
+export function referenceWarnings(item: ResearchResolvedItem): string[] {
+  const labels = { missingQuestion: '问题历史缺失', missingEvidence: '证据历史缺失', missingProject: '项目已移除', questionArchived: '问题已归档', evidenceArchived: '证据已归档', projectDetached: '证据已移出项目', removedFromQuestion: '已从当前问题组移除', questionHasNewVersion: '问题组已有新版', evidenceHasNewVersion: '证据已有新版' }
+  return (Object.keys(labels) as (keyof typeof labels)[]).filter(key => item.status?.[key]).map(key => labels[key])
+}
+export function ResearchContent({ evidence: v, question }: { evidence?: EvidenceVersion; question?: ResearchQuestionVersion }) {
+  if (!v) return <p className="text-destructive">引用历史缺失或不可读，未生成替代正文。</p>
+  const values = [['文献', v.paperSnapshot.title], ['作者', v.paperSnapshot.authors.join('、')], ['来源', v.paperSnapshot.url], ['待比较判断', v.claim], ['方法', v.method], ['数据或材料', v.datasetOrMaterial], ['主要发现', v.finding], ['局限', v.limitation], ['个人评注', v.comment], ['人工关系', { supports: '支持', opposes: '反对', mixed: '混合', unassessed: '未判断' }[v.relation]], ['核对', v.reviewState === 'checked' ? '用户已核对，不代表科研事实验证' : '草稿'], ['PDF物理页码', `${v.locator.pageStart ?? '未填'}${v.locator.pageEnd ? `–${v.locator.pageEnd}` : ''}`], ['印刷页/章节/图表', [v.locator.printedPageLabel, v.locator.section, v.locator.figureOrTable].filter(Boolean).join(' / ')], ['固定来源摘要', v.documentBinding ? `${v.documentBinding.sha256} / ${v.documentBinding.size}字节 / ${v.documentBinding.checkedAt}` : '未绑定PDF']]
+  return <div className="min-w-0 space-y-2 text-sm">{question && <div className="whitespace-pre-wrap break-words"><p className="font-medium">{question.title} · 问题v{question.version}</p><p>{question.question}</p><p className="text-muted-foreground">{question.note}</p></div>}<p className="text-xs">固定证据 v{v.version} · {v.archived ? '该版本已归档' : ''}</p><p className="font-medium">原文摘录</p><pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border p-2 font-sans">{v.quote || '未填写'}</pre><dl className="space-y-2">{values.map(([label, value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="whitespace-pre-wrap break-words">{value || '未填写'}</dd></div>)}</dl></div>
+}
+export const researchSourceLabel = (value: string) => value in evidenceSourceLabels ? evidenceSourceLabels[value as keyof typeof evidenceSourceLabels] : '来源尚未能检查'

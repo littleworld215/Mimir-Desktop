@@ -43,7 +43,7 @@ test('真实编辑两卡、历史、取消离开与旧笔记保留（不需要PD
   await reader.getByRole('button', { name: '新建证据卡', exact: true }).click()
   await reader.getByLabel('原文摘录', { exact: true }).fill('未保存输入')
   await reader.getByLabel('原文摘录', { exact: true }).press('Escape')
-  const leave = page.getByRole('dialog', { name: '存在未保存的证据编辑', exact: true })
+  const leave = page.getByRole('dialog', { name: '存在未保存的研究资料编辑', exact: true })
   await leave.getByRole('button', { name: '留在这里', exact: true }).click()
   await expect(reader.getByLabel('原文摘录', { exact: true })).toHaveValue('未保存输入')
   await reader.getByRole('button', { name: '取消编辑', exact: true }).click()

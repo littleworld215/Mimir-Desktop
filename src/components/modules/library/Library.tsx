@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Bookmark, Loader2, Settings2, Database, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -30,6 +30,8 @@ import type {
   ZoteroCollection
 } from './types'
 
+const ResearchWorkspace = lazy(() => import('./research/ResearchWorkspace').then(module => ({ default: module.ResearchWorkspace })))
+
 export function Library() {
   const api = window.electronAPI!
 
@@ -55,7 +57,7 @@ export function Library() {
   // PDF 阅读器
   const [readerPaper, setReaderPaper] = useState<PaperRecord | null>(null)
   const [readerTab, setReaderTab] = useState<'notes' | 'evidence'>('notes')
-  const [matrixOpen, setMatrixOpen] = useState(false)
+  const [libraryView, setLibraryView] = useState<'papers' | 'matrix' | 'research'>('papers')
 
   // Zotero
   const [zoteroOpen, setZoteroOpen] = useState(false)
@@ -247,6 +249,7 @@ export function Library() {
 
   // ─── 项目操作 ────────────────────────────────────────────────────
   const handleCreateProject = async (title: string) => {
+    if (!await requestEvidenceLeave()) return
     const res = await api.library.createProject(title)
     if (res.ok) {
       await loadProjects()
@@ -268,6 +271,7 @@ export function Library() {
   }
 
   const handleDeleteProject = async (id: string) => {
+    if (!await requestEvidenceLeave()) return
     const res = await api.library.deleteProject(id)
     if (res.ok) {
       if (selectedProjectId === id) setSelectedProjectId(null)
@@ -404,7 +408,7 @@ export function Library() {
 
       {/* 项目选择器 */}
       <div className="shrink-0 px-5 py-2 border-b border-border">
-        <Button variant="outline" className="mb-2" onClick={async () => { if (await requestEvidenceLeave()) setMatrixOpen(value => !value) }}>{matrixOpen ? '返回文献列表' : '证据比较矩阵'}</Button>
+        <div className="mb-2 flex flex-wrap gap-2"><Button variant="outline" onClick={async () => { if (await requestEvidenceLeave()) setLibraryView(value => value === 'matrix' ? 'papers' : 'matrix') }}>{libraryView === 'matrix' ? '返回文献列表' : '证据比较矩阵'}</Button><Button variant="outline" onClick={async () => { if (await requestEvidenceLeave()) setLibraryView(value => value === 'research' ? 'papers' : 'research') }}>{libraryView === 'research' ? '返回文献列表' : '研究问题与写作素材'}</Button></div>
         <ProjectBar
           projects={projects}
           selectedProjectId={selectedProjectId}
@@ -453,7 +457,7 @@ export function Library() {
           </div>
         )}
 
-        {matrixOpen ? <EvidenceMatrix projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /> : loadingPapers ? (
+        {libraryView === 'research' ? <Suspense fallback={<p role="status">正在打开研究问题与写作素材…</p>}><ResearchWorkspace projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /></Suspense> : libraryView === 'matrix' ? <EvidenceMatrix projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /> : loadingPapers ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin mb-2" />
             <p className="text-[12px]">加载文献库...</p>

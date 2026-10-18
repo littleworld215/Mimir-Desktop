@@ -20,7 +20,7 @@ it('真实离开对话可取消，Esc等于留在这里，关闭时取消未决�
   const view = render(<EvidenceLeaveDialog />)
   try {
     const pending = requestEvidenceLeave()
-    await screen.findByRole('dialog', { name: '存在未保存的证据编辑' })
+    await screen.findByRole('dialog', { name: '存在未保存的研究资料编辑' })
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
     expect(await pending).toBe(false)
     const second = requestEvidenceLeave(); await screen.findByRole('dialog'); view.unmount()
