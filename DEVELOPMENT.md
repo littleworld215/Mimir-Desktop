@@ -1,5 +1,11 @@
 # 开发文档（DEVELOPMENT）
 
+2026-10-18 I9完成Windows x64源码与隔离目录包交付验证：问题分组/比较、固定版本写作素材、差异更新、Markdown导出、健康/恢复及共用退出保护。最终类型检查/原始测试/构建均exit0：1945通过、9既有跳过（211文件1954项）；开发Electron13/13、新目录包14/14，均零重试。包审计26,075项及193辅助文件通过。一次非作者静态复核后集中修复并重新完整验证，不称独立运行QA。现有I8安装版未替换，真实课题及I5/I6原待验不变；全部项目范围的问题默认选项已知限制见下文。
+
+下方按批次保留历史记录；当前状态以上述交付和来源[I9验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)为准。
+
+I9 Task6：integrity为纯只读研究结构/全部历史关联检查，不初始化store或任务运行时；doctor按登记空间输出计数/安全名字/错误码，restoreAdapter在无assets.db提前return之前执行研究检查。断链warning允许保全恢复；损坏/较新格式拒绝发布。产品3项主题按浅、深、系统浅、系统深4种呈现验证。最终闸门和目录包状态以来源I9证据报告为准，不能复用此前历史计数。
+
 2026-10-18 I9 Task5：Library按需加载ResearchWorkspace，复用registerEvidenceEditor，13方法保持主进程scope/revision。编辑基线与后台列表分离，晚到请求以代际丢弃；历史只读、所选刷新完整差异、导出采用主进程完整预览。启动失败重试及课题创建/删除离开保护各保留行为RED；界面与旧守卫14项通过，类型检查及原始全量1931通过/9既有跳过，真实Electron/恢复/目录包另验。
 
 2026-10-18 I9 Task4：libraryResearch独立13方法，严格DTO、可信主窗口主框架和固定scope；overview独占无scope启动。ResearchRuntime包装现有监督器并读取共享来源观察；普通main维护交接与退出均等待实际任务，外层ipcGate为新域返回稳定失败。原生导出绑定完整内容/修订/空间摘要，选择文件后重验；取消不写、wx不覆盖，销毁/停止不提前释放等待中的窗口任务。完整三门exit0（1922通过/9既有跳过）；UI、真实Electron/恢复与目录包仍待，只有自动代码/临时文件验证。

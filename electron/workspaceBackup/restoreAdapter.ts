@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { RestoreError } from './restoreContracts'
+import { assertRestoredResearchIntegrity } from '../library/research/integrity'
 import { planRestore } from './restorePlan'
 import { verifyBackup } from './verify'
 import { cleanupStagingRoot, createStagingRoot } from './stagingRoot'
@@ -187,6 +188,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async recheck(_input: RestoreInput, stagingRoot: string) {
+      assertRestoredResearchIntegrity(stagingRoot)
       // ① 空间层配置：**存在才需要**校验可解析（remap 刚写过就再读一次确认落盘成立）。
       //    不存在是合法状态（空空间，见 remap 注释），此时无从校验、也不该失败。
       if (existsSync(join(stagingRoot, ...SPACE_STORE_REL))) {

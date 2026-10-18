@@ -31,6 +31,7 @@ import { scanSpaces, readRegistrySpacePaths, DOCTOR_SPACE_CHECK_ID, type SpacePa
 import { listResidualStagingRoots, scanResiduals } from './doctorResidual'
 // 归档目录收口为共享常量（I6 批次 3.5 · T01）：与 maintenanceMain / retention 同一事实源。
 import { archiveDirectory } from './directories'
+import { inspectResearchIntegrity } from '../library/research/integrity'
 
 /** 汇总计数形状（`DoctorReport.summary` 的具名别名，供 `summarize` 返回值标注）。 */
 export type DoctorSummary = DoctorReport['summary']
@@ -187,6 +188,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
 
   // ---- C3 空间库完整性 ----
   deps.onProgress?.({ stage: 'doctor', detail: '正在检查空间资产库…' })
+  let researchSpaces: SpacePathView[] | null = null
   if (!registryOk) {
     // 注册表不可读 → 无法定位空间 → C3 降级 notice，并明示跳过原因（设计 §1.3）。
     checks.push({
@@ -205,6 +207,18 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
       spaces = null
     }
     checks.push(await scanSpaces(spaces, checkSpaceIntegrity))
+    researchSpaces = spaces
+  }
+
+  for (const space of researchSpaces ?? []) {
+    const result = inspectResearchIntegrity(space.path)
+    const name = redactText(space.name || space.id)
+    checks.push({
+      id: 'RESEARCH_INTEGRITY', title: '研究问题与素材完整性',
+      severity: result.state === 'invalid' || result.state === 'unsupported' ? 'error' : result.state === 'warning' ? 'warning' : result.state === 'unused' ? 'notice' : 'ok',
+      detail: `${name}：${result.state === 'unused' ? '未找到研究组织文件，可能尚未使用；如预期已有资料请核对备份' : result.state === 'valid' ? '研究历史及引用可解析' : result.code === 'EVIDENCE_MISSING' ? '证据文件缺失（EVIDENCE_MISSING），研究引用保留，请核对备份' : result.code ?? '存在未解析关联'}；问题${result.questionCount}组，素材${result.packCount}包，未解析${result.unresolvedCount}项。验包保全原字节不等于业务引用健康。`,
+      facts: { questions: result.questionCount, packs: result.packCount, unresolved: result.unresolvedCount }
+    })
   }
 
   // ---- C4 残留暂存根 ----

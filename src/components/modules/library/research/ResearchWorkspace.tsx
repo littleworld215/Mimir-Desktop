@@ -26,7 +26,7 @@ export function ResearchWorkspace({ projectId, projects }: { projectId?: string;
   const [questions, setQuestions] = useState<ResearchQuestionSummary[]>([]), [packs, setPacks] = useState<ResearchPackSummary[]>([]), [options, setOptions] = useState<ResearchQuestionSummary[]>([]), [total, setTotal] = useState(0)
   const [selected, setSelected] = useState<Choice>(), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [refreshOpen, setRefreshOpen] = useState(false), [exportOpen, setExportOpen] = useState(false), [readOnly, setReadOnly] = useState<{ cardId: string; evidence: EvidenceVersion }>(), [source, setSource] = useState<SourceOpenResult>()
-  const bootGeneration = useRef(0), listGeneration = useRef(0), detailGeneration = useRef(0), busyRef = useRef(false), selection = useRef(selected), newButton = useRef<HTMLButtonElement>(null)
+  const bootGeneration = useRef(0), listGeneration = useRef(0), detailGeneration = useRef(0), busyRef = useRef(false), selection = useRef(selected), newButton = useRef<HTMLButtonElement>(null), restoreFocus = useRef(false)
   selection.current = selected
   const accepted = boot?.projectKey === projectKey ? boot.scope : undefined, scopeRef = useRef(accepted); scopeRef.current = accepted
   useResearchBusy(busy)
@@ -158,7 +158,10 @@ export function ResearchWorkspace({ projectId, projects }: { projectId?: string;
   const q = selected?.kind === 'question' ? selected.detail : undefined, p = selected?.kind === 'pack' ? selected.detail : undefined
   const current = q ? q.selectedVersion === q.question.currentVersion : p ? p.selectedVersion === p.pack.currentVersion : true
   const editorDisabled = busy || refreshOpen || exportOpen || Boolean(readOnly), canCreate = Boolean(projectId && projects.some(p => p.id === projectId))
-  const cancel = () => { put(undefined); newButton.current?.focus() }
+  const cancel = () => { detailGeneration.current++; busyRef.current = false; restoreFocus.current = true; setBusy(false); put(undefined) }
+  useEffect(() => {
+    if (restoreFocus.current && !selected && !busy && !loading && newButton.current && !newButton.current.disabled) { restoreFocus.current = false; newButton.current.focus() }
+  }, [selected, busy, loading])
   const viewPinned = (item: ResearchResolvedItem) => { if (item.evidence) { setSource(undefined); setReadOnly({ cardId: item.item.cardId, evidence: item.evidence }) } else setError('引用版本不可读，原组织信息仍保留') }
   return <section className="min-w-0 space-y-3 text-foreground" aria-label="研究问题与写作素材">
     <p className="text-sm text-muted-foreground">围绕问题比较证据，再组织写作素材。人工整理，不自动生成科研结论。</p>

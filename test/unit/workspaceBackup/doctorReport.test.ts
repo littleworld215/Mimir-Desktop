@@ -287,3 +287,27 @@ describe('buildDoctorReport · 只读红线（无新文件）', () => {
     }
   })
 })
+
+it('I9：对每个已登记空间输出只读研究检查，含未使用空间且不泄露正文或路径', async () => {
+  const home = makeHome(), root = join(home, 'space')
+  mkdirSync(root)
+  const report = await buildDoctorReport({ ...greenDeps(home), readRegistry: () => [{ id: 's', name: '合成空间' }], resolveSpaces: () => [{ id: 's', name: '合成空间', path: root }] })
+  expect(report.checks.filter(c => c.id === 'RESEARCH_INTEGRITY')).toHaveLength(1)
+  const research = report.checks.find(c => c.id === 'RESEARCH_INTEGRITY')!
+  expect(research.severity).toBe('notice')
+  expect(research.detail).toContain('未找到研究组织文件')
+  expect(research.facts).toMatchObject({ questions: 0, packs: 0, unresolved: 0 })
+  expect(research.detail).not.toContain(root)
+})
+
+it('I9：引用仍在但证据文件缺失，doctor明确显示文件原因而非泛化断链', async () => {
+  const { document } = await import('../libraryResearch/fixtures')
+  const home = makeHome(), root = join(home, 'research-space')
+  mkdirSync(join(root, '.mimir/library'), { recursive: true })
+  writeFileSync(join(root, '.mimir/library/research.json'), JSON.stringify(document()))
+  const report = await buildDoctorReport({ ...greenDeps(home), readRegistry: () => [{ id: 'r', name: '研究空间' }], resolveSpaces: () => [{ id: 'r', name: '研究空间', path: root }] })
+  const check = report.checks.find(c => c.id === 'RESEARCH_INTEGRITY')!
+  expect(check.severity).toBe('warning')
+  expect(check.detail).toContain('证据文件缺失')
+  expect(check.detail).toContain('EVIDENCE_MISSING')
+})
