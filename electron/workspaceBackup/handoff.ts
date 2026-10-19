@@ -9,12 +9,14 @@ interface HandoffPorts {
   closeMcp(): Promise<void>
   closeManagedProcesses(): Promise<void>
   closeAssets(): Promise<void>
+  releaseWriter(): void
   launchMaintenance(): void
 }
 
 /** 必须先经过已有窗口卸载守卫；超时只阻断，不能让迟到回调启动新写者。 */
 export class MaintenanceHandoff {
   state: 'idle' | 'requested' | 'draining' | 'blocked' | 'handedOver' = 'idle'
+  failureStage: string | undefined
   constructor(private readonly ports: HandoffPorts) {}
   request() {
     if (this.state !== 'idle') throw Error('维护交接已经开始。')
@@ -26,6 +28,7 @@ export class MaintenanceHandoff {
   async windowClosed() {
     if (this.state !== 'requested') throw Error('未请求维护，或交接已经结束。')
     this.state = 'draining'
+    let stage = 'drain'
     this.ports.gate.stopAccepting()
     const deadline = performance.now() + this.ports.timeoutMs
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -37,14 +40,18 @@ export class MaintenanceHandoff {
       const drained = this.ports.gate.drain(this.ports.timeoutMs)
       void drained.catch(() => {})
       for (const step of [this.ports.cancelApprovals, this.ports.stopProducers, this.ports.closeMcp]) {
+        stage = step === this.ports.cancelApprovals ? 'approvals' : step === this.ports.stopProducers ? 'producers' : 'mcp'
         ensureActive()
         await step.call(this.ports)
       }
       ensureActive()
+      stage = 'drain'
       await drained
       ensureActive()
+      stage = 'processes'
       await this.ports.closeManagedProcesses()
       ensureActive()
+      stage = 'assets'
       await this.ports.closeAssets()
       ensureActive()
     }
@@ -55,9 +62,14 @@ export class MaintenanceHandoff {
       ])
       ensureActive()
       // 最终端口只同步安排relaunch/退出；不得在此另启异步清理或放行第二写者。
+      stage = 'writer'
+      this.ports.releaseWriter()
+      ensureActive()
+      stage = 'launch'
       this.ports.launchMaintenance()
       this.state = 'handedOver'
     } catch {
+      this.failureStage = stage
       this.state = 'blocked'
       throw Error('维护交接失败；未授予新写者，需确认资源已退出后重试。')
     } finally {

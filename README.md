@@ -1,10 +1,12 @@
 # Mimir Desktop
 
+2026-10-20 源码新增“设置→科研空间→备份与恢复”。先保存设置，再显式确认关闭工作台；原退出保护照常生效，取消关闭后可再次进入。资源结束及写锁释放后才安排维护；入口不会自动备份或覆盖资料。普通桥仅提供固定无参入口。最终类型检查、原始测试及构建均exit0：1956通过、9既有跳过（212文件1965项）；隔离Electron组合23/23零重试。新上下文静态复核无问题，不称独立运行QA。最终系统重启由测试接管，实际同profile维护续接及备份已验证；新目录包与无人干预系统重启待验。日常安装版仍7441987，本轮未更新安装或接触真实资料。[验证记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-settings-maintenance-20261020.md)。
+
 2026-10-19 I9小修复与本机部署完成：素材包的问题选项、默认值与失效回退统一限定所属课题；已打开的选卡窗口固定问题身份。回归先RED（2失败/3通过）再GREEN（5/5），完整类型/原始测试/构建均exit0：1948通过、9既有跳过（211文件1957项）。开发Electron13/13、实际安装目录14/14，均零测试重试。新包与实际运行目录审计通过，564文件逐一SHA256一致。配置/用户profile/整空间已备份，原I8及更旧目录保留；两处日常快捷方式已切换到`%LOCALAPPDATA%/Programs/Mimir-Research-Releases/20261019-i9-reviewed-01/`，已从Windows桌面入口实际启动。真实文献及I5/I6其它待验保持；自验不称独立运行QA。[部署与回退记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i9-20261019.md)。
 
 2026-10-18 I9完成Windows x64源码与隔离目录包交付验证：问题分组/比较、固定版本写作素材、差异更新、Markdown导出、健康/恢复及共用退出保护。最终类型检查/原始测试/构建均exit0：1945通过、9既有跳过（211文件1954项）；开发Electron13/13、新目录包14/14，均零重试。包审计26,075项及193辅助文件通过。一次非作者静态复核后集中修复并重新完整验证，不称独立运行QA。现有I8安装版未替换，真实课题及I5/I6原待验不变；全部项目范围的问题默认选项已知限制见下文。
 
-下方2026-10-18及更早内容按批次保留历史状态；当前状态以本页2026-10-19及[最新部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i9-20261019.md)为准。[前一轮I9验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)保留当时结果。
+下方记录按日期保留历史状态；当前源码以2026-10-20记录为准，日常安装版以2026-10-19[部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i9-20261019.md)为准。[前一轮I9验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)保留当时结果。
 
 2026-10-18 I9第五批：文献库新增“研究问题与写作素材”入口，支持分组比较、跨页选卡、素材排序与固定历史、差异更新和完整Markdown预览。复用未保存保护，冲突保留输入；启动失败可重试，新建/删除课题不能绕过保护。类型检查与原始全量1931通过、9既有跳过（210文件1940项）exit0；真实Electron、整空间恢复和新目录包待Task6，当前安装版保持I8。
 

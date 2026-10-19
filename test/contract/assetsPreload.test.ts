@@ -7,6 +7,15 @@ vi.mock('electron', () => ({
 }))
 import '../../electron/preload'
 import { ASSETS_CHANNELS } from '../../shared/assetsContracts'
+it('普通维护桥仅暴露无参数交接请求，不开放归档路径或维护读写方法', async () => {
+  const api = (state.exposed.get('electronAPI') as { workspaceBackup?: { enterMaintenance(): Promise<unknown> } }).workspaceBackup
+  expect(api).toBeDefined()
+  expect(Object.keys(api!)).toEqual(['enterMaintenance'])
+  state.invoke.mockClear()
+  await api!.enterMaintenance()
+  expect(state.invoke).toHaveBeenCalledTimes(1)
+  expect(state.invoke).toHaveBeenCalledWith('workspaceBackup:enterMaintenance')
+})
 it('实际preload暴露完整固定方法（包含旧32及交换入口），原样传递请求且context无参数', async () => {
   const api = (state.exposed.get('electronAPI') as { assets: AssetsApi }).assets
   expect(Object.keys(api).sort()).toEqual(Object.keys(ASSETS_CHANNELS).sort())

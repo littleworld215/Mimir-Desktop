@@ -50,6 +50,7 @@ import { SettingsResearchSourcesCard } from './settings/SettingsResearchSources'
 import { SettingsObservabilityCard } from './settings/SettingsObservability'
 import { SkillsDialogs } from './settings/SkillsDialogs'
 import { ModelDialog } from './settings/ModelDialog'
+import { SettingsBackupCard } from './settings/SettingsBackup'
 
 interface ModelConfig {
   id: string
@@ -1262,6 +1263,7 @@ export function Settings({ autoOpenModelDialog = 0, guided = false, onModelStepD
 
           {/* Research Space Section */}
           {tab === 'spaces' && (<section className="space-y-3">
+            <SettingsBackupCard disabledReason={baselineKey === null ? '正在读取设置，请稍候。' : saving ? '正在保存设置，请等待完成。' : dirty ? '请先保存设置，再进入备份与恢复。' : spaceBusy ? '科研空间操作尚未完成，请等待。' : undefined} />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FolderKanban className="h-4 w-4 text-primary" />

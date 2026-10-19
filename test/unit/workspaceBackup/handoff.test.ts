@@ -16,6 +16,7 @@ function deps(gate = new WorkspaceOperationGate()) {
     closeMcp: vi.fn(async () => {}),
     closeManagedProcesses: vi.fn(async () => {}),
     closeAssets: vi.fn(async () => {}),
+    releaseWriter: vi.fn(() => {}),
     launchMaintenance: vi.fn(async () => {})
   }
 }
@@ -81,5 +82,22 @@ it('同步原生清理阻塞事件循环超预算，也不能抢在定时器前�
   const handoff = new MaintenanceHandoff(ports)
   handoff.request()
   await expect(handoff.windowClosed()).rejects.toThrow('维护交接失败')
+  expect(ports.launchMaintenance).not.toHaveBeenCalled()
+})
+it('释放写者会话必须在资产连接关闭后、重新启动维护前同步完成', async () => {
+  const { MaintenanceHandoff } = await moduleUnderTest(), order: string[] = [], ports = deps()
+  ports.closeAssets.mockImplementation(async () => { order.push('assets-closed') })
+  ports.releaseWriter.mockImplementation(() => { order.push('writer-released') })
+  ports.launchMaintenance.mockImplementation(async () => { order.push('relaunch') })
+  const handoff = new MaintenanceHandoff(ports); handoff.request(); await handoff.windowClosed()
+  expect(order).toEqual(['assets-closed', 'writer-released', 'relaunch'])
+})
+it('释放写者锁失败时禁止重新启动维护', async () => {
+  const { MaintenanceHandoff } = await moduleUnderTest(), ports = deps()
+  ports.releaseWriter.mockImplementation(() => { throw Error('synthetic lock failure') })
+  const handoff = new MaintenanceHandoff(ports); handoff.request()
+  await expect(handoff.windowClosed()).rejects.toThrow('维护交接失败')
+  expect(handoff.state).toBe('blocked')
+  expect(handoff.failureStage).toBe('writer')
   expect(ports.launchMaintenance).not.toHaveBeenCalled()
 })

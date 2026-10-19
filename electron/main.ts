@@ -133,6 +133,11 @@ function reportFatalError(title: string, error: unknown): void {
   }
 }
 
+function cancelWindowClose(): void {
+  maintenanceHandoff?.cancel()
+  quitFlow.cancelClose()
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1140,
@@ -164,9 +169,9 @@ function createWindow(): void {
       const action = choice === 1 ? 'save' : 'discard'
       void closingWindow.webContents.executeJavaScript(`(async () => await (window.mimirRequestAssetsLeave?.('${action}') ?? true) && await (window.mimirRequestEvidenceLeave?.('${action}') ?? true))()`).then(saved => {
         if (saved && !closingWindow.isDestroyed()) closingWindow.close()
-        else quitFlow.cancelClose()
-      }).catch(error => { quitFlow.cancelClose(); log.warn('[quit] 保存前关闭取消：', error) })
-    } else quitFlow.cancelClose()
+        else cancelWindowClose()
+      }).catch(error => { cancelWindowClose(); log.warn('[quit] 保存前关闭取消：', error) })
+    } else cancelWindowClose()
   })
 
   mainWindow.on('closed', () => {
@@ -178,9 +183,10 @@ function createWindow(): void {
     // 交接失败时状态机自身置 blocked，不放行第二写者；但窗口已关闭，必须回退到
     // 普通退出流程，否则会留下「无窗口且永不 quit」的僵尸进程。
     if (maintenanceHandoff && maintenanceHandoff.state === 'requested') {
-      void maintenanceHandoff.windowClosed().catch(error => {
-        log.warn('[maintenance] 交接未完成：', error)
-        quitFlow.windowClosed()
+      void maintenanceHandoff.windowClosed().catch(() => {
+        log.warn(`[maintenance] 交接未完成（${maintenanceHandoff?.failureStage ?? 'unknown'}）`)
+        dialog.showErrorBox('无法进入维护', '维护交接未完成，未启动新的维护写者。请确认原任务和进程已退出后再重试；不要手工删除运行锁。')
+        app.quit()
       })
     } else {
       quitFlow.windowClosed()
@@ -213,6 +219,8 @@ function createWindow(): void {
 
 // Quit when all windows are closed
 app.on('window-all-closed', () => {
+  // 维护交接独占排空/关锁；普通退出不能并行释放同一写者会话。
+  if (maintenanceHandoff?.state === 'requested' || maintenanceHandoff?.state === 'draining') return
   if (process.platform !== 'darwin') {
     app.quit()
     mainWindow = null
@@ -352,16 +360,25 @@ app.whenReady().then(async () => {
     closeManagedProcesses: async () => { disposeIpcResources() },
     // 维护窗口需要独占资产库：先排空在途写入（含慢开库）再真正放开 db 连接与文件锁。
     closeAssets: async () => { await assetsStoreManager.beforeSpaceSwitch(); await assetsStoreManager.close() },
+    releaseWriter: () => {
+      if (!writerSession) throw Error('写者会话不存在，拒绝交接。')
+      writerSession.close()
+    },
     // 最终端口只**同步**安排重新拉起着维护模式并退出本进程；不得在此另启异步清理。
     launchMaintenance: () => {
       app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== '--assets-mcp').concat('--workspace-maintenance') })
       app.exit(0)
     }
   })
-  installWorkspaceMaintenanceHandler(ipcMain, () => maintenanceHandoff?.request(), event => {
+  installWorkspaceMaintenanceHandler(ipcMain, () => {
+    if (!mainWindow || !maintenanceHandoff) throw Error('维护入口尚未准备完成。')
+    maintenanceHandoff.request()
+    try { mainWindow.close() } catch (error) { maintenanceHandoff.cancel(); throw error }
+  }, event => {
     const win = mainWindow
     // 只信任当前普通窗口主框架：防止被注入的子框架/其它窗口旁路进入维护模式。
-    return Boolean(win && !win.isDestroyed() && (event as { sender?: unknown }).sender === win.webContents)
+    const request = event as { sender?: unknown; senderFrame?: unknown }
+    return Boolean(win && !win.isDestroyed() && request.sender === win.webContents && request.senderFrame === win.webContents.mainFrame)
   })
 
   createWindow()
@@ -500,4 +517,7 @@ const quitFlow = createQuitFlow({
     }
   }
 })
-app.on('before-quit', event => quitFlow.beforeQuit(event))
+app.on('before-quit', event => {
+  if (maintenanceHandoff?.state === 'draining') { event.preventDefault(); return }
+  quitFlow.beforeQuit(event)
+})

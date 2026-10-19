@@ -1,4 +1,5 @@
 import type { OperationScope, WorkspaceOperationGate } from './operationGate'
+import { WORKSPACE_MAINTENANCE_ENTRY_CHANNEL } from '../../shared/workspaceBackupContracts'
 
 type Handler = (...args: any[]) => any
 class ControlResultFailure extends Error {
@@ -19,7 +20,7 @@ export function installWorkspaceIpcGate(
   //   注册，压根不经过本闸门。把它们放进 `workspaceChanges` 会让恢复被
   //   `runControl` 包一层——而恢复自身已持有写者会话、并在内部按 §1.3 规则 4
   //   禁止嵌套控制，包两层即「控制嵌套」死锁。
-  const control = new Set(['agent:approval-respond', 'agent:stop', 'terminal:close', 'workspaceBackup:enterMaintenance'])
+  const control = new Set(['agent:approval-respond', 'agent:stop', 'terminal:close', WORKSPACE_MAINTENANCE_ENTRY_CHANNEL])
   const workspaceChanges = new Set(['workspaces:create', 'workspaces:switch', 'workspaces:rename', 'workspaces:remove', 'workspaces:setDefault'])
   ipc.handle = (channel, fn) => {
     if (spaceControl && workspaceChanges.has(channel)) {
@@ -58,8 +59,9 @@ export function installWorkspaceMaintenanceHandler(
   request: () => void,
   isTrustedSender?: (event: unknown) => boolean
 ) {
-  ipc.handle('workspaceBackup:enterMaintenance', async (event: unknown) => {
+  ipc.handle(WORKSPACE_MAINTENANCE_ENTRY_CHANNEL, async (event: unknown, ...args: unknown[]) => {
     if (isTrustedSender && !isTrustedSender(event)) throw Error('UNAUTHORIZED_SENDER')
+    if (args.length) throw Error('INVALID_REQUEST')
     request()
     return { ok: true }
   })

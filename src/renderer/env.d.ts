@@ -4,6 +4,7 @@ import type { AgentStreamEvent } from '../../electron/agent/streamProtocol'
 import type { AssetsApi } from '../../shared/assetsContracts'
 import type { EvidenceApi } from '../../shared/libraryEvidenceContracts'
 import type { ResearchApi } from '../../shared/libraryResearchContracts'
+import type { WorkspaceMaintenanceEntryApi } from '../../shared/workspaceBackupContracts'
 
 interface ElectronAPI {
   getAppVersion: () => Promise<string>
@@ -14,6 +15,7 @@ interface ElectronAPI {
   assets: AssetsApi
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  workspaceBackup: WorkspaceMaintenanceEntryApi
   sendMessage: (message: string, conversationId: string) => Promise<string>
   /**
    * 发送消息并接收**结构化流式事件**（协议见 `electron/agent/streamProtocol.ts`）。

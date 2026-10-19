@@ -6,6 +6,10 @@
  * 不改既有字段的形状与含义——渲染层可能是旧版本、主进程可能是新版本，双向都要能解析。
  */
 
+/** 普通窗口只允许请求交接；不暴露维护读写或任意路径。ok仅表示已请求。 */
+export const WORKSPACE_MAINTENANCE_ENTRY_CHANNEL = 'workspaceBackup:enterMaintenance'
+export interface WorkspaceMaintenanceEntryApi { enterMaintenance(): Promise<{ ok: true }> }
+
 /** 维护窗口 IPC 通道。 */
 export const WORKSPACE_BACKUP_CHANNELS = {
   overview: 'workspaceBackup:overview',

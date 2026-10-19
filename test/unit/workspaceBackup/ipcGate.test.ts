@@ -73,6 +73,8 @@ it('维护入口只在受信主框架请求时触发，且不被排空阻塞；�
   const drain = gate.drain(1000)
   expect(await handlers.get('workspaceBackup:enterMaintenance')!(trusted)).toEqual({ ok: true })
   expect(requested).toBe(1)
+  await expect(handlers.get('workspaceBackup:enterMaintenance')!(trusted, { path: '/not-allowed' })).rejects.toThrow('INVALID_REQUEST')
+  expect(requested).toBe(1)
   await drain
   await expect(handlers.get('workspaceBackup:enterMaintenance')!({ sender: 'untrusted' })).rejects.toThrow('UNAUTHORIZED_SENDER')
   expect(requested).toBe(1)

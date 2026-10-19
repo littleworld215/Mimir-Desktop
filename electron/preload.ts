@@ -4,6 +4,7 @@ import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
 import { EVIDENCE_CHANNELS, type EvidenceApi } from '../shared/libraryEvidenceContracts'
 import { RESEARCH_CHANNELS, type ResearchApi } from '../shared/libraryResearchContracts'
+import { WORKSPACE_MAINTENANCE_ENTRY_CHANNEL, type WorkspaceMaintenanceEntryApi } from '../shared/workspaceBackupContracts'
 
 /**
  * 渲染进程日志桥：把渲染层日志送到主进程统一写文件（与主进程日志同一时间轴）。
@@ -119,6 +120,7 @@ export interface ElectronAPI {
   assets: AssetsApiSubset
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  workspaceBackup: WorkspaceMaintenanceEntryApi
 
   // Agent
   sendMessage: (message: string, conversationId: string) => Promise<string>
@@ -452,6 +454,7 @@ export interface ElectronAPI {
 let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
+  workspaceBackup: { enterMaintenance: () => ipcRenderer.invoke(WORKSPACE_MAINTENANCE_ENTRY_CHANNEL) },
   libraryResearch: {
     overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),
     listQuestions: req => ipcRenderer.invoke(RESEARCH_CHANNELS.listQuestions, req),
