@@ -4,6 +4,7 @@ import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
 import { EVIDENCE_CHANNELS, type EvidenceApi } from '../shared/libraryEvidenceContracts'
 import { RESEARCH_CHANNELS, type ResearchApi } from '../shared/libraryResearchContracts'
+import { PLANNING_CHANNELS, type PlanningApi } from '../shared/researchPlanningContracts'
 import { WORKSPACE_MAINTENANCE_ENTRY_CHANNEL, type WorkspaceMaintenanceEntryApi } from '../shared/workspaceBackupContracts'
 
 /**
@@ -120,6 +121,7 @@ export interface ElectronAPI {
   assets: AssetsApiSubset
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  researchPlanning: PlanningApi
   workspaceBackup: WorkspaceMaintenanceEntryApi
 
   // Agent
@@ -455,6 +457,12 @@ let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
   workspaceBackup: { enterMaintenance: () => ipcRenderer.invoke(WORKSPACE_MAINTENANCE_ENTRY_CHANNEL) },
+  researchPlanning: {
+    bootstrap: req => ipcRenderer.invoke(PLANNING_CHANNELS.bootstrap, req),
+    list: req => ipcRenderer.invoke(PLANNING_CHANNELS.list, req),
+    detail: req => ipcRenderer.invoke(PLANNING_CHANNELS.detail, req),
+    save: req => ipcRenderer.invoke(PLANNING_CHANNELS.save, req)
+  },
   libraryResearch: {
     overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),
     listQuestions: req => ipcRenderer.invoke(RESEARCH_CHANNELS.listQuestions, req),

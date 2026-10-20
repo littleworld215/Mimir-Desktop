@@ -1,5 +1,7 @@
 # 开发文档（DEVELOPMENT）
 
+I10第一批开发中：`electron/researchPlanning/`与`researchPlanning:*`固定桥提供原子JSON和空间/修订校验，普通退出与维护等待其实际任务结束。独立业务/草稿/提醒修订，草稿允许未完成表单。当前专项22项和完整三闸门通过（1978通过/9既有跳过，exit0）；界面/业务增强及恢复检查后续接入，见[交付状态](docs/I10-DELIVERY.md)。
+
 2026-10-18 I9完成Windows x64源码与隔离目录包交付验证：问题分组/比较、固定版本写作素材、差异更新、Markdown导出、健康/恢复及共用退出保护。最终类型检查/原始测试/构建均exit0：1945通过、9既有跳过（211文件1954项）；开发Electron13/13、新目录包14/14，均零重试。包审计26,075项及193辅助文件通过。一次非作者静态复核后集中修复并重新完整验证，不称独立运行QA。现有I8安装版未替换，真实课题及I5/I6原待验不变；全部项目范围的问题默认选项已知限制见下文。
 
 下方按批次保留历史记录；当前状态以上述交付和来源[I9验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)为准。

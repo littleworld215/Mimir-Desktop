@@ -4,6 +4,7 @@ import type { AgentStreamEvent } from '../../electron/agent/streamProtocol'
 import type { AssetsApi } from '../../shared/assetsContracts'
 import type { EvidenceApi } from '../../shared/libraryEvidenceContracts'
 import type { ResearchApi } from '../../shared/libraryResearchContracts'
+import type { PlanningApi } from '../../shared/researchPlanningContracts'
 import type { WorkspaceMaintenanceEntryApi } from '../../shared/workspaceBackupContracts'
 
 interface ElectronAPI {
@@ -15,6 +16,7 @@ interface ElectronAPI {
   assets: AssetsApi
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  researchPlanning: PlanningApi
   workspaceBackup: WorkspaceMaintenanceEntryApi
   sendMessage: (message: string, conversationId: string) => Promise<string>
   /**
