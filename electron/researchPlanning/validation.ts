@@ -26,7 +26,7 @@ export const planningInputSchema = z.object({
 function assertKind(input: PlanningInput) {
   if ((input.schedule !== null && input.kind !== 'schedule') || (input.recurrence !== null && (input.kind !== 'todo' || input.dueDate === null)) || (input.literature !== null && input.kind !== 'literature') || (input.projectCategory !== null && input.kind !== 'project') || (input.majorDirection && input.kind !== 'direction')) throw new PlanningError('BAD_REQUEST', '字段不适用于该记录类型')
 }
-const item = planningInputSchema.extend({ id: planningId, createdAt: timestamp, updatedAt: timestamp })
+const item = planningInputSchema.extend({ id: planningId, createdAt: timestamp, updatedAt: timestamp, recurrenceParentId: planningId.optional() })
 const collection = z.object({ id: planningId, name: z.string().min(1).max(200), order: z.number().finite(), deleted: z.boolean() }).strict()
 const definition = z.object({ id: planningId, name: z.string().min(1).max(200), kind, builtin: z.boolean(), order: z.number().finite(), deleted: z.boolean() }).strict()
 const document = z.object({ schemaVersion: z.literal(1), revision: planningRevision, collections: z.array(collection).min(1).max(200), types: z.array(definition).min(1).max(200), items: z.array(item).max(PLANNING_MAX_ITEMS) }).strict()
@@ -54,7 +54,10 @@ export function parsePlanningDocument(value: unknown): PlanningDocument {
       if (id !== null && (id === value.id || items.get(id)?.kind !== targetKind)) throw new PlanningError('CORRUPT_DATA', '计划关联目标不存在或类型不符')
     }
     if (!value.deleted && (definition.deleted || group.deleted)) throw new PlanningError('CORRUPT_DATA', '有效记录仍属于已删除分组或类型')
+    if (value.recurrenceParentId && (value.kind !== 'todo' || value.recurrenceParentId === value.id || items.get(value.recurrenceParentId)?.kind !== 'todo')) throw new PlanningError('CORRUPT_DATA', '周期来源关联非法')
   }
+  const parents = doc.items.flatMap(i => i.recurrenceParentId ? [i.recurrenceParentId] : [])
+  if (new Set(parents).size !== parents.length) throw new PlanningError('CORRUPT_DATA', '同一任务重复派生下一期')
   return doc
 }
 export { emptyPlanningDocument, emptyPlanningInput } from '../../shared/researchPlanningDefaults'

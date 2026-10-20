@@ -9,14 +9,16 @@ import { planningDate, planningId, planningInputSchema, planningRevision, planni
 const filterSchema = z.object({
   keyword: z.string().max(4000).optional(), kind: planningInputSchema.shape.kind.optional(), typeId: planningId.optional(), collectionId: planningId.optional(),
   projectId: planningId.optional(), status: planningInputSchema.shape.status.optional(), archived: z.enum(['exclude', 'only', 'include']).optional(),
-  deleted: z.boolean().optional(), important: z.boolean().optional(), done: z.boolean().optional(), myDay: planningDate.optional(), dateFrom: planningDate.optional(), dateTo: planningDate.optional()
+  deleted: z.boolean().optional(), important: z.boolean().optional(), done: z.boolean().optional(), myDay: planningDate.optional(), dateFrom: planningDate.optional(), dateTo: planningDate.optional(), dueBefore: planningDate.optional(), priority: planningInputSchema.shape.priority.optional()
 }).strict().refine(f => !f.dateFrom || !f.dateTo || f.dateFrom <= f.dateTo)
 const schemas = {
   bootstrap: z.object({}).strict(),
   list: z.object({ scope: planningScopeSchema, filter: filterSchema, page: z.number().int().min(1).max(1_000_000) }).strict(),
   detail: z.object({ scope: planningScopeSchema, itemId: planningId }).strict(),
   save: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, itemId: planningId.optional(), input: planningInputSchema }).strict(),
-  mutate: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, command: planningCommandSchema, preview: z.boolean().optional() }).strict()
+  mutate: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, command: planningCommandSchema, preview: z.boolean().optional() }).strict(),
+  summary: z.object({ scope: planningScopeSchema, date: planningDate, projectIds: z.array(planningId).max(50).optional() }).strict(),
+  calendar: z.object({ scope: planningScopeSchema, from: planningDate, to: planningDate, filter: filterSchema.optional() }).strict()
 }
 export function registerResearchPlanningHandlers({ windowRef, runtime = planningRuntime }: { windowRef: { current: BrowserWindow | null }; runtime?: PlanningRuntime }) {
   for (const name of Object.keys(schemas) as (keyof typeof schemas)[]) {
@@ -38,6 +40,8 @@ export function registerResearchPlanningHandlers({ windowRef, runtime = planning
           if (name === 'bootstrap') return { ok: true, ...service.bootstrap() }
           if (name === 'list') { const r = schemas.list.parse(value); return { ok: true, ...service.list(r.filter, r.page) } }
           if (name === 'detail') return { ok: true, ...service.detail(schemas.detail.parse(value).itemId) }
+          if (name === 'summary') { const r = schemas.summary.parse(value); return { ok: true, ...service.summary(r.date, r.projectIds) } }
+          if (name === 'calendar') { const r = schemas.calendar.parse(value); return { ok: true, ...service.calendar(r.from, r.to, r.filter) } }
           if (name === 'mutate') { const r = schemas.mutate.parse(value); return { ok: true, ...service.mutate(r.expectedRevision, r.command, r.preview) } }
           const r = schemas.save.parse(value)
           return { ok: true, ...service.save(r.expectedRevision, r.input, r.itemId) }

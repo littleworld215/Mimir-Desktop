@@ -19,7 +19,7 @@ export interface PlanningInput {
   literature: { authors: string[]; year: number | null; doi: string; url: string; readingState: 'unread' | 'reading' | 'read'; paperId: string | null } | null
   libraryProjectId: string | null; experimentIds: string[]
 }
-export interface PlanningItem extends PlanningInput { id: string; createdAt: string; updatedAt: string }
+export interface PlanningItem extends PlanningInput { id: string; createdAt: string; updatedAt: string; recurrenceParentId?: string }
 export interface PlanningDocument { schemaVersion: 1; revision: number; collections: PlanningCollection[]; types: PlanningType[]; items: PlanningItem[] }
 export interface PlanningDraft { id: string; itemId: string | null; baseRevision: number; input: PlanningInput; updatedAt: string }
 export interface PlanningDraftDocument { schemaVersion: 1; revision: number; drafts: PlanningDraft[] }
@@ -30,6 +30,13 @@ export interface PlanningFilter {
   keyword?: string; kind?: PlanningKind; typeId?: string; collectionId?: string; projectId?: string; status?: PlanningStatus
   archived?: 'exclude' | 'only' | 'include'; deleted?: boolean; important?: boolean; done?: boolean; myDay?: string
   dateFrom?: string; dateTo?: string
+  dueBefore?: string; priority?: PlanningPriority
+}
+export type PlanningSummaryItem = Pick<PlanningItem, 'id' | 'title' | 'kind' | 'status' | 'done' | 'priority' | 'important' | 'projectId' | 'dueDate' | 'myDay' | 'schedule'>
+export interface PlanningSummary {
+  counts: { myDay: number; overdue: number; weekEvents: number; activeProjects: number }
+  myDay: PlanningSummaryItem[]; overdue: PlanningSummaryItem[]; weekEvents: PlanningSummaryItem[]; activeProjects: PlanningSummaryItem[]
+  nextActions: Record<string, PlanningSummaryItem[]>
 }
 export interface PlanningState { revision: number; scope: PlanningScope }
 export interface PlanningWrite { scope: PlanningScope; expectedRevision: number }
@@ -39,14 +46,18 @@ export type PlanningCommand =
   | { kind: 'bulk'; ids: string[]; patch: { archived?: boolean; deleted?: boolean; collectionId?: string; status?: PlanningStatus; important?: boolean } }
   | { kind: 'duplicate'; id: string }
   | { kind: 'reorder'; ids: string[] }
-  | { kind: 'clearCompleted' }
+  | { kind: 'clearCompleted'; collectionId?: string; typeId?: string }
+  | { kind: 'completeTodo'; id: string; done: boolean }
+  | { kind: 'planTodoDay'; id: string; date: string | null }
 export interface PlanningApi {
   bootstrap(request: Record<string, never>): Promise<PlanningResult<PlanningState & { collections: PlanningCollection[]; types: PlanningType[]; total: number }>>
   list(request: { scope: PlanningScope; filter: PlanningFilter; page: number }): Promise<PlanningResult<PlanningState & { items: PlanningItem[]; total: number; page: number; pageSize: 50 }>>
   detail(request: { scope: PlanningScope; itemId: string }): Promise<PlanningResult<PlanningState & { item: PlanningItem }>>
   save(request: PlanningWrite & { itemId?: string; input: PlanningInput }): Promise<PlanningResult<PlanningState & { item: PlanningItem }>>
   mutate(request: PlanningWrite & { command: PlanningCommand; preview?: boolean }): Promise<PlanningResult<PlanningState & { entityId?: string; affectedCount: number; preview: boolean }>>
+  summary(request: { scope: PlanningScope; date: string; projectIds?: string[] }): Promise<PlanningResult<PlanningState & PlanningSummary>>
+  calendar(request: { scope: PlanningScope; from: string; to: string; filter?: PlanningFilter }): Promise<PlanningResult<PlanningState & { total: number; days: { date: string; total: number; items: PlanningSummaryItem[] }[] }>>
 }
 export const PLANNING_CHANNELS: { [K in keyof PlanningApi]: `researchPlanning:${K}` } = {
-  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate'
+  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate', summary: 'researchPlanning:summary', calendar: 'researchPlanning:calendar'
 }

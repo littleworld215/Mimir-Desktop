@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   FileText,
@@ -15,6 +15,8 @@ import {
 import { cn } from '@/lib/utils'
 import type { ModuleId } from '@/components/layout/Sidebar'
 import { computeActionCards, type ActionCard, type ActionSeverity } from '@/lib/actionCards'
+
+const PlanningOverview = lazy(() => import('./planning/PlanningOverview').then(module => ({ default: module.PlanningOverview })))
 
 interface StatItem {
   title: string
@@ -199,6 +201,7 @@ export function Overview({ onNavigate }: OverviewProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <Suspense fallback={<p role="status" className="text-sm text-muted-foreground">正在准备科研计划摘要…</p>}><PlanningOverview onNavigate={onNavigate} /></Suspense>
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3">
           {stats.map((stat) => {

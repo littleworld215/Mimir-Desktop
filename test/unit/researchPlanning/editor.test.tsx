@@ -31,3 +31,23 @@ it('输入法CtrlEnter不保存；自定义字段可保留空值，分栏预览�
   await waitFor(() => expect(screen.getByRole('heading', { name: '标题' })).toBeTruthy())
   expect(document.querySelector('img')).toBeNull()
 })
+it('待办独立填写我的一天、截止日、优先级及周期规则，保存保留各字段', async () => {
+  const save = vi.fn().mockResolvedValue(undefined), defaults = emptyPlanningDocument()
+  render(<PlanningEditor initial={emptyPlanningInput('todo')} types={defaults.types} collections={defaults.collections} save={save} onSaved={vi.fn()} onCancel={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('标题'), { target: { value: '阅读计划' } })
+  fireEvent.change(screen.getByLabelText('截止日期'), { target: { value: '2026-10-23' } })
+  fireEvent.change(screen.getByLabelText('我的一天日期'), { target: { value: '2026-10-20' } })
+  fireEvent.change(screen.getByLabelText('优先级'), { target: { value: 'high' } })
+  fireEvent.change(screen.getByLabelText('重复规则'), { target: { value: 'weekly' } })
+  fireEvent.change(screen.getByLabelText('重复间隔'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存记录' }))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save.mock.calls[0]![0]).toMatchObject({ myDay: '2026-10-20', dueDate: '2026-10-23', priority: 'high', recurrence: { unit: 'weekly', interval: 2 } })
+})
+it('已有计划关联显示可读名称及归档状态，不把内部标识当用户文案', async () => {
+  const defaults = emptyPlanningDocument()
+  window.electronAPI = { researchPlanning: { detail: vi.fn().mockResolvedValue({ ok: true, item: { title: '可读项目名称', archived: true, deleted: false } }) } } as unknown as typeof window.electronAPI
+  render(<PlanningEditor initial={{ ...emptyPlanningInput('todo'), projectId: 'internal-project' }} scope={{ workspaceId: 's', spaceEpoch: 'e' }} types={defaults.types} collections={defaults.collections} save={vi.fn()} onSaved={vi.fn()} onCancel={vi.fn()} />)
+  expect(await screen.findByText('可读项目名称（已归档）')).toBeTruthy()
+  expect(screen.queryByText('internal-project')).toBeNull()
+})

@@ -41,3 +41,11 @@ it('同类型排序稳定；清空已完成可从回收站恢复且不处理别�
   s.mutate(5, { kind: 'bulk', ids: [a.id], patch: { deleted: false } })
   expect(s.detail(a.id).item.deleted).toBe(false)
 })
+it('清空已完成明确限定所选分组与类型，不处理其它分组', () => {
+  const s = setup(), group = s.mutate(0, { kind: 'collection', name: '另一组' }).entityId!
+  const a = s.save(1, { ...emptyPlanningInput('todo'), title: '本组完成', done: true }).item
+  const b = s.save(2, { ...emptyPlanningInput('todo'), title: '另一组完成', collectionId: group, done: true }).item
+  s.mutate(3, { kind: 'clearCompleted', collectionId: 'default', typeId: 'todo' })
+  expect(s.detail(a.id).item.deleted).toBe(true)
+  expect(s.detail(b.id).item.deleted).toBe(false)
+})

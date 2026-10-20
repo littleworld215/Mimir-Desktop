@@ -3,24 +3,41 @@ import { Button } from '@/components/ui/button'
 import { researchControl, useResearchBusy } from '../library/research/useResearchForm'
 import { PlanningEditor, planningStatusLabels } from './PlanningEditor'
 import { PlanningManager } from './PlanningManager'
+import { PlanningCalendar, type CalendarDay, type CalendarMode } from './PlanningCalendar'
+import { calendarRange, localPlanningDate } from '../../../../shared/researchPlanningDates'
+import { consumePlanningIntent } from '@/lib/planningNavigation'
+import { usePlanningToday } from '@/lib/usePlanningToday'
+import { registerEvidenceEditor } from '@/lib/evidenceEditGuard'
 import { PLANNING_KIND_LABELS, emptyPlanningInput } from '../../../../shared/researchPlanningDefaults'
-import type { PlanningCollection, PlanningCommand, PlanningFilter, PlanningInput, PlanningItem, PlanningKind, PlanningScope, PlanningType } from '../../../../shared/researchPlanningContracts'
+import type { PlanningCollection, PlanningCommand, PlanningFilter, PlanningInput, PlanningItem, PlanningKind, PlanningScope, PlanningSummaryItem, PlanningType } from '../../../../shared/researchPlanningContracts'
 
 type Metadata = { scope: PlanningScope; revision: number; collections: PlanningCollection[]; types: PlanningType[] }
 type Editing = { input: PlanningInput; itemId?: string; scope: PlanningScope; revision: number }
-const inputOf = ({ id, createdAt, updatedAt, ...input }: PlanningItem): PlanningInput => input
+const inputOf = ({ id, createdAt, updatedAt, recurrenceParentId, ...input }: PlanningItem): PlanningInput => input
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '操作未完成，原资料保留'
 function planningApi() { const api = window.electronAPI?.researchPlanning; if (!api) throw Error('科研计划桌面接口不可用，请重新打开新版工作台'); return api }
 export function ResearchPlanning() {
+  const today = usePlanningToday()
+  const [intent] = useState(consumePlanningIntent), checkedIntent = useRef(false)
   const [meta, setMeta] = useState<Metadata | null>(null), [items, setItems] = useState<PlanningItem[]>([]), [total, setTotal] = useState(0)
-  const [kind, setKind] = useState<PlanningKind>('project'), [keyword, setKeyword] = useState(''), [debounced, setDebounced] = useState(''), [collectionId, setCollectionId] = useState(''), [typeId, setTypeId] = useState('')
+  const [kind, setKind] = useState<PlanningKind>(intent?.kind ?? 'project'), [keyword, setKeyword] = useState(''), [debounced, setDebounced] = useState(''), [collectionId, setCollectionId] = useState(''), [typeId, setTypeId] = useState('')
+  const [todoView, setTodoView] = useState<'today' | 'important' | 'all' | 'completed' | 'overdue'>(intent?.todoView ?? 'today'), [priority, setPriority] = useState(''), [quickTitle, setQuickTitle] = useState('')
+  const [anchor, setAnchor] = useState(intent?.date ?? localPlanningDate()), [calendarMode, setCalendarMode] = useState<CalendarMode>('week-grid'), [selectedDay, setSelectedDay] = useState<string | null>(null), [calendarDays, setCalendarDays] = useState<CalendarDay[]>([])
+  const [nextActions, setNextActions] = useState<Record<string, PlanningSummaryItem[]>>({})
+  const range = useMemo(() => calendarRange(anchor, calendarMode === 'month' ? 'month' : 'week'), [anchor, calendarMode])
   const [status, setStatus] = useState(''), [archive, setArchive] = useState<'exclude' | 'only' | 'include'>('exclude'), [trash, setTrash] = useState(false), [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null), [manager, setManager] = useState(false), [board, setBoard] = useState(false)
   const [selected, setSelected] = useState<string[]>([]), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
-  const sequence = useRef(0), working = useRef(false), lastFocus = useRef<HTMLElement | null>(null), errorRef = useRef<HTMLParagraphElement>(null)
+  const sequence = useRef(0), detailSequence = useRef(0), working = useRef(false), lastFocus = useRef<HTMLElement | null>(null), errorRef = useRef<HTMLParagraphElement>(null)
+  const quickInput = useRef(quickTitle), quickSaver = useRef<() => Promise<boolean>>(async () => false)
+  quickInput.current = quickTitle; quickSaver.current = quickAdd
+  useEffect(() => registerEvidenceEditor({ isDirty: () => quickInput.current.length > 0, isBusy: () => working.current, save: () => quickSaver.current(), discard: () => { quickInput.current = ''; setQuickTitle('') } }), [])
   useResearchBusy(busy)
   useEffect(() => { const timer = setTimeout(() => { setDebounced(keyword); setPage(1) }, 200); return () => clearTimeout(timer) }, [keyword])
-  const filter = useMemo<PlanningFilter>(() => ({ kind, keyword: debounced, ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(status ? { status: status as PlanningInput['status'] } : {}), archived: archive, deleted: trash }), [kind, debounced, collectionId, typeId, status, archive, trash])
+  const filter = useMemo<PlanningFilter>(() => ({ kind, keyword: debounced, ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(status ? { status: status as PlanningInput['status'] } : {}), archived: archive, deleted: trash,
+    ...(kind === 'todo' ? { ...(todoView === 'all' ? {} : { done: todoView === 'completed' }), ...(todoView === 'today' ? { myDay: today } : {}), ...(todoView === 'important' ? { important: true } : {}), ...(todoView === 'overdue' ? { dueBefore: today } : {}), ...(priority ? { priority: priority as PlanningInput['priority'] } : {}) } : {}),
+    ...(kind === 'schedule' ? { dateFrom: selectedDay ?? range.from, dateTo: selectedDay ?? range.to } : {})
+  }), [kind, debounced, collectionId, typeId, status, archive, trash, todoView, priority, selectedDay, range.from, range.to, today])
   const reload = useCallback(async () => {
     const request = ++sequence.current
     setLoading(true); setError('')
@@ -30,23 +47,70 @@ export function ResearchPlanning() {
       const bootstrap = await api.bootstrap({})
       if (request !== sequence.current) return
       if (!bootstrap.ok) throw Error(bootstrap.message)
-      const result = await api.list({ scope: bootstrap.scope, filter, page })
+      if (intent && !checkedIntent.current) {
+        checkedIntent.current = true
+        if (intent.workspaceId !== bootstrap.scope.workspaceId) { setKind('project'); setTodoView('today'); setAnchor(localPlanningDate()) }
+      }
+      const queryFilter = { ...filter }
+      let queryPage = page
+      if (queryFilter.collectionId && !bootstrap.collections.some(c => c.id === queryFilter.collectionId && !c.deleted)) { delete queryFilter.collectionId; setCollectionId(''); setPage(1); queryPage = 1 }
+      if (queryFilter.typeId && !bootstrap.types.some(t => t.id === queryFilter.typeId && !t.deleted)) { delete queryFilter.typeId; setTypeId(''); setPage(1); queryPage = 1 }
+      const result = await api.list({ scope: bootstrap.scope, filter: queryFilter, page: queryPage })
       if (request !== sequence.current) return
       if (!result.ok) throw Error(result.message)
       if (result.revision !== bootstrap.revision) throw Error('计划在加载期间有更新，请重试加载')
+      if (kind === 'project') {
+        const summary = await api.summary({ scope: bootstrap.scope, date: today, projectIds: result.items.map(i => i.id) })
+        if (request !== sequence.current) return
+        if (!summary.ok) throw Error(summary.message)
+        if (summary.revision !== result.revision) throw Error('项目行动已变化，请重试加载')
+        setNextActions(summary.nextActions)
+      }
+      if (kind === 'schedule') {
+        const calendar = await api.calendar({ scope: bootstrap.scope, from: range.from, to: range.to, filter: queryFilter })
+        if (request !== sequence.current) return
+        if (!calendar.ok) throw Error(calendar.message)
+        if (calendar.revision !== result.revision) throw Error('日程已变化，请重试加载')
+        setCalendarDays(calendar.days)
+      }
       setMeta({ ...bootstrap, revision: result.revision }); setItems(result.items); setTotal(result.total); setSelected([])
     } catch (failure) { if (request === sequence.current) { setError(errorMessage(failure)); setItems([]); setMeta(null) } }
     finally { if (request === sequence.current) setLoading(false) }
-  }, [filter, page])
-  useEffect(() => { void reload(); return () => { sequence.current++ } }, [reload])
+  }, [filter, page, kind, range.from, range.to, intent, today])
+  // 编辑期间延后日期/筛选驱动的读取，读取失败不能通过清空meta卸载未保存输入。
+  useEffect(() => { if (editing || manager) return; void reload(); return () => { sequence.current++ } }, [reload, editing, manager])
   useEffect(() => { if (error) errorRef.current?.focus() }, [error])
   const locked = busy || loading || editing !== null
+  const hasQuickInput = quickTitle.length > 0
   function closeEditor() { setEditing(null); setTimeout(() => { if (lastFocus.current?.isConnected) lastFocus.current.focus() }, 0) }
-  function begin(item?: PlanningItem) {
-    if (!meta || locked) return
+  function begin(item?: PlanningItem, override?: Partial<PlanningInput>) {
+    if (!meta || locked || hasQuickInput) return
     lastFocus.current = document.activeElement as HTMLElement
-    const input = item ? inputOf(item) : { ...emptyPlanningInput(kind), ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}) }
+    detailSequence.current++
+    const input = item ? inputOf(item) : { ...emptyPlanningInput(kind), ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(kind === 'todo' ? { myDay: todoView === 'today' ? localPlanningDate() : null, important: todoView === 'important' } : {}), ...(kind === 'schedule' ? { schedule: { date: selectedDay ?? anchor, start: null, end: null } } : {}), ...override }
     setEditing({ input, itemId: item?.id, scope: meta.scope, revision: meta.revision })
+  }
+  async function openItem(id: string) {
+    if (!meta || locked) return
+    const request = ++detailSequence.current, listing = sequence.current
+    lastFocus.current = document.activeElement as HTMLElement
+    try {
+      const result = await planningApi().detail({ scope: meta.scope, itemId: id })
+      if (request !== detailSequence.current || listing !== sequence.current) return
+      if (!result.ok) throw Error(result.message)
+      setEditing({ input: inputOf(result.item), itemId: id, scope: result.scope, revision: result.revision })
+    } catch (failure) { if (request === detailSequence.current) setError(errorMessage(failure)) }
+  }
+  async function quickAdd() {
+    if (!meta || locked || working.current) return false
+    if (!quickTitle.trim()) { setError('请补全待办标题，或明确丢弃未提交的输入'); return false }
+    working.current = true; setBusy(true); setError('')
+    try {
+      const result = await planningApi().save({ scope: meta.scope, expectedRevision: meta.revision, input: { ...emptyPlanningInput('todo'), title: quickTitle, collectionId: collectionId || 'default', typeId: typeId || 'todo', myDay: todoView === 'today' ? localPlanningDate() : null, important: todoView === 'important' } })
+      if (!result.ok) throw Error(result.message)
+      quickInput.current = ''; setQuickTitle(''); setNotice('待办已添加；如未显示，可在全部待办中查看。'); await reload(); return true
+    } catch (failure) { setError(errorMessage(failure)); return false }
+    finally { working.current = false; setBusy(false) }
   }
   async function execute(command: PlanningCommand, preview = false) {
     if (!meta || working.current) throw Error('操作进行中，请稍后重试')
@@ -60,12 +124,15 @@ export function ResearchPlanning() {
     finally { working.current = false; setBusy(false) }
   }
   const action = (command: PlanningCommand) => { void execute(command).catch(() => {}) }
-  function changeKind(next: PlanningKind) { if (locked) return; setKind(next); setTypeId(''); setPage(1); setSelected([]) }
+  function changeKind(next: PlanningKind) { if (locked) return; setKind(next); setTypeId(''); setStatus(''); setPage(1); setSelected([]) }
   function card(item: PlanningItem, at: number) {
     return <article key={item.id} className="space-y-2 rounded-lg border border-border bg-card p-3" draggable={kind === 'project' && !locked && !trash} onDragStart={e => e.dataTransfer.setData('application/x-mimir-planning', item.id)}>
-      <div className="flex items-start gap-2"><input type="checkbox" aria-label={`选择${item.title}`} checked={selected.includes(item.id)} disabled={locked} onChange={e => setSelected(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} /><button className="min-w-0 flex-1 break-words text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={locked} onClick={() => begin(item)}>{item.important ? '★ ' : ''}{item.majorDirection ? '主方向 · ' : ''}{item.title}</button></div>
+      <div className="flex items-start gap-2"><input type="checkbox" aria-label={`选择${item.title}`} checked={selected.includes(item.id)} disabled={locked} onChange={e => setSelected(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} /><button className="min-w-0 flex-1 break-words text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={locked || hasQuickInput} onClick={() => begin(item)}>{item.important ? '★ ' : ''}{item.majorDirection ? '主方向 · ' : ''}{item.title}</button></div>
       <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.content || '暂无正文'}</p>
       <p className="text-xs text-muted-foreground">{planningStatusLabels[item.status]} · {meta?.collections.find(c => c.id === item.collectionId)?.name} {item.projectCategory ? `· ${ { vertical: '纵向', horizontal: '横向', other: '其他' }[item.projectCategory]}` : ''}</p>
+      {item.kind === 'todo' && <div className="space-y-2 text-xs"><label className="flex items-center gap-2"><input type="checkbox" aria-label={`完成${item.title}`} disabled={locked || trash} checked={item.done} onChange={e => action({ kind: 'completeTodo', id: item.id, done: e.target.checked })} />{item.done ? '已完成' : '标记完成'}</label><p className={item.dueDate && item.dueDate < localPlanningDate() && !item.done ? 'text-destructive' : 'text-muted-foreground'}>截止：{item.dueDate ?? '未设置'} · 优先级：{ { none: '无', low: '低', medium: '中', high: '高' }[item.priority]}{item.recurrence ? ' · 周期待办' : ''}</p><Button size="sm" variant="outline" disabled={locked || trash} onClick={() => action({ kind: 'planTodoDay', id: item.id, date: item.myDay === today ? null : today })}>{item.myDay === today ? '移出我的一天' : '安排到我的一天'}</Button><Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: [item.id], patch: { important: !item.important } })}>{item.important ? '取消重要' : '标为重要'}</Button></div>}
+      {item.schedule && <p className="text-xs text-muted-foreground">{item.schedule.date} · {item.schedule.start ? `${item.schedule.start}–${item.schedule.end}` : '全天'}</p>}
+      {item.kind === 'project' && <div className="space-y-1 border-t border-border pt-2 text-xs"><p>下一步行动</p>{(nextActions[item.id] ?? []).map(todo => <button key={todo.id} className="block text-left text-primary underline" disabled={locked} onClick={() => { void openItem(todo.id) }}>{todo.title}</button>)}{!(nextActions[item.id]?.length) && <p className="text-muted-foreground">尚无未完成待办</p>}<Button size="sm" variant="outline" disabled={locked || trash} onClick={() => { if (meta) { lastFocus.current = document.activeElement as HTMLElement; setEditing({ input: { ...emptyPlanningInput('todo'), collectionId: item.collectionId, projectId: item.id }, scope: meta.scope, revision: meta.revision }) } }}>添加项目待办</Button></div>}
       <div className="flex flex-wrap gap-1">
         <Button size="sm" variant="outline" disabled={locked || trash} onClick={() => action({ kind: 'duplicate', id: item.id })}>复制</Button>
         <Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: [item.id], patch: { archived: !item.archived } })}>{item.archived ? '取消归档' : '归档'}</Button>
@@ -77,11 +144,13 @@ export function ResearchPlanning() {
     </article>
   }
   return <div className="h-full overflow-y-auto bg-background p-4 text-foreground sm:p-6"><div className="mx-auto max-w-7xl space-y-4">
-    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button variant="outline" disabled={locked || !meta} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
-    <nav className="flex flex-wrap gap-2" aria-label="计划内容">{(['project', 'direction', 'generic'] as const).map(id => <Button key={id} variant={id === kind ? 'default' : 'outline'} disabled={locked || manager} onClick={() => changeKind(id)}>{PLANNING_KIND_LABELS[id]}</Button>)}</nav>
+    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button variant="outline" disabled={locked || !meta || hasQuickInput} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager || hasQuickInput || trash} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
+    <nav className="flex flex-wrap gap-2" aria-label="计划内容">{(['project', 'direction', 'todo', 'schedule', 'generic'] as const).map(id => <Button key={id} variant={id === kind ? 'default' : 'outline'} disabled={locked || manager || hasQuickInput} onClick={() => changeKind(id)}>{PLANNING_KIND_LABELS[id]}</Button>)}</nav>
     {error && <div className="space-y-2"><p role="alert" ref={errorRef} tabIndex={-1} className="text-sm text-destructive">{error}</p><Button variant="outline" disabled={busy} onClick={() => { void reload() }}>重试加载</Button></div>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
-    {manager && meta ? <PlanningManager collections={meta.collections} types={meta.types} busy={busy} execute={execute} onClose={() => setManager(false)} /> : editing && meta ? <PlanningEditor initial={editing.input} types={meta.types} collections={meta.collections} busy={busy} save={async input => { const result = await planningApi().save({ scope: editing.scope, expectedRevision: editing.revision, itemId: editing.itemId, input }); if (!result.ok) throw Error(result.message) }} onSaved={() => { closeEditor(); void reload() }} onCancel={closeEditor} /> : <>
+    {manager && meta ? <PlanningManager collections={meta.collections} types={meta.types} busy={busy} execute={execute} onClose={() => setManager(false)} /> : editing && meta ? <PlanningEditor initial={editing.input} types={meta.types} collections={meta.collections} scope={editing.scope} busy={busy} save={async input => { const result = await planningApi().save({ scope: editing.scope, expectedRevision: editing.revision, itemId: editing.itemId, input }); if (!result.ok) throw Error(result.message) }} onSaved={() => { closeEditor(); setNotice('记录已保存；如未显示，请检查当前筛选。') }} onCancel={closeEditor} /> : <>
+      {kind === 'todo' && <section className="space-y-3" aria-label="人工待办"><div className="flex flex-wrap gap-2">{([['today', '我的一天'], ['important', '重要待办'], ['all', '全部待办'], ['completed', '已完成待办'], ['overdue', '逾期待办']] as const).map(([id, label]) => <Button key={id} size="sm" variant={todoView === id ? 'default' : 'outline'} disabled={locked} onClick={() => { setTodoView(id); setPage(1) }}>{label}</Button>)}</div><form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); void quickAdd() }}><input aria-label="快速添加待办" placeholder="写下一个具体行动，Enter添加" maxLength={500} className={`${researchControl} flex-1`} disabled={locked || trash} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault() }} /><Button type="submit" disabled={locked || trash || !quickTitle.trim()}>添加待办</Button><Button type="button" variant="outline" disabled={locked || trash || !!debounced || !!priority || !!status} title='仅清理当前分组/类型；文字、优先级、状态筛选时请用勾选批量操作' onClick={() => action({ kind: 'clearCompleted', ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}) })}>当前分组/类型已完成移入回收站</Button></form><select aria-label="筛选优先级" className={`${researchControl} sm:max-w-48`} disabled={locked} value={priority} onChange={e => { setPriority(e.target.value); setPage(1) }}><option value="">全部优先级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option><option value="none">无</option></select></section>}
+      {kind === 'schedule' && <PlanningCalendar anchor={anchor} mode={calendarMode} days={calendarDays} selected={selectedDay} busy={locked} onChange={(date, mode) => { setAnchor(date); setCalendarMode(mode); setSelectedDay(null); setPage(1) }} onSelect={date => { setSelectedDay(date); setPage(1) }} onCreate={date => begin(undefined, { schedule: { date, start: null, end: null } })} onOpen={id => { void openItem(id) }} />}
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <input aria-label="搜索科研计划" placeholder="搜索标题、正文、字段" className={researchControl} value={keyword} disabled={locked} onChange={e => setKeyword(e.target.value)} />
         <select aria-label="筛选分组" className={researchControl} value={collectionId} disabled={locked} onChange={e => { setCollectionId(e.target.value); setPage(1) }}><option value="">全部分组</option>{meta?.collections.filter(c => !c.deleted).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
