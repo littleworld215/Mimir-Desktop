@@ -5,7 +5,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 
 test('设置未保存时禁止进入维护，取消确认不关闭工作台', async () => {
-  const ctx = await launchApp()
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED })
   try {
     const { page } = ctx
     await gotoModule(page, 'settings')
@@ -25,13 +25,17 @@ test('设置未保存时禁止进入维护，取消确认不关闭工作台', as
 })
 
 test('取消原生关闭可再次进入；交接完成时写锁已释放且没有并行普通退出', async ({}, testInfo) => {
-  const ctx = await launchApp()
+  const executablePath = process.env.MIMIR_E2E_PACKAGED
+  const ctx = await launchApp({ executablePath })
   let primaryFailure: unknown
   let maintenance: ElectronApplication | undefined
   try {
     const { page, app } = ctx
     // 仅替换最终进程重启/退出，真实关闭守卫、任务排空和释放锁照常执行。
-    await app.evaluate(({ app, dialog }) => {
+    await app.evaluate(({ app, dialog, net }) => {
+      const actualFetch = net.fetch.bind(net)
+      net.fetch = (input, init) => String(input) === 'https://ccfddl.github.io/conference/allconf.yml'
+        ? Promise.resolve(new Response('- title: SYNTHETIC\n  confs:\n    - id: s2026\n      year: 2026\n')) : actualFetch(input, init)
       const state = { relaunches: 0, exitCodes: [] as number[], locksReleased: false, modeArgsCorrect: false }
       const write = () => process.getBuiltinModule('fs').writeFileSync(process.getBuiltinModule('path').join(app.getPath('userData'), 'maintenance-probe.json'), JSON.stringify(state))
       ;(globalThis as any).__maintenanceProbe = state
@@ -47,6 +51,8 @@ test('取消原生关闭可再次进入；交接完成时写锁已释放且没�
       dialog.showMessageBoxSync = () => 0
       dialog.showErrorBox = () => { console.error('Synthetic maintenance handoff failed') }
     })
+    await expect.poll(() => existsSync(join(ctx.tempHome.home, 'Mimir/科研空间/.mimir/venue-deadlines.cache.json'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(ctx.tempHome.home, 'Mimir/科研空间/.mimir/venue-deadlines.cache.json'), 'utf8')).venues[0].title).toBe('SYNTHETIC')
     await gotoModule(page, 'settings')
     await page.getByRole('main').getByRole('button', { name: '科研空间', exact: true }).click()
     await page.getByRole('button', { name: '备份与恢复', exact: true }).click()
@@ -64,7 +70,7 @@ test('取消原生关闭可再次进入；交接完成时写锁已释放且没�
     await expect.poll(() => existsSync(probe) ? JSON.parse(readFileSync(probe, 'utf8')) : null, { timeout: 15_000 }).toEqual({ relaunches: 1, exitCodes: [0], locksReleased: true, modeArgsCorrect: true })
     await app.close()
     // 最终启动由测试进程接管，以继续核对同一隔离profile的真实维护IPC。
-    maintenance = await electron.launch({ args: [mainEntry, '--workspace-maintenance', `--user-data-dir=${ctx.tempHome.userData}`], cwd: ctx.tempHome.root,
+    maintenance = await electron.launch({ executablePath, args: [...(executablePath ? [] : [mainEntry]), '--workspace-maintenance', `--user-data-dir=${ctx.tempHome.userData}`], cwd: ctx.tempHome.root,
       env: { ...process.env, HOME: ctx.tempHome.home, USERPROFILE: ctx.tempHome.home, MIMIR_OTEL_ENDPOINT: '', MIMIR_OTEL_PUBLIC_KEY: '', MIMIR_OTEL_SECRET_KEY: '' } })
     const maintenancePage = await maintenance.firstWindow()
     const actual = await maintenance.evaluate(({ app }) => ({ home: process.getBuiltinModule('os').homedir(), userData: app.getPath('userData') }))
