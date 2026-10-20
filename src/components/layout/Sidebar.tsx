@@ -30,6 +30,7 @@ import {
 export const MODULE_IDS = [
   'chat',
   'overview',
+  'planning',
   'paper',
   'library',
   'experiments',
@@ -66,6 +67,7 @@ export const navGroups: NavGroup[] = [
   {
     label: '研究工具',
     items: [
+      { id: 'planning', label: '科研计划', icon: CalendarClock },
       { id: 'library', label: '文献库', icon: BookOpen },
       { id: 'paper', label: '论文', icon: FileText },
       { id: 'experiments', label: '实验', icon: BarChart3 },

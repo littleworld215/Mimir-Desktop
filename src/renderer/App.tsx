@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +32,8 @@ import { Servers } from '@/components/modules/Servers'
 import { Ledger } from '@/components/modules/Ledger'
 import { Settings } from '@/components/modules/Settings'
 import { Plugins } from '@/components/modules/Plugins'
+
+const ResearchPlanning = lazy(() => import('@/components/modules/planning/ResearchPlanning').then(module => ({ default: module.ResearchPlanning })))
 
 interface SpaceView {
   id: string
@@ -378,6 +380,8 @@ export default function App() {
         return null
       case 'overview':
         return <Overview onNavigate={handleNavigate} />
+      case 'planning':
+        return <Suspense fallback={<p role="status" className="p-6">正在加载科研计划…</p>}><ResearchPlanning key={activeSpaceId ?? 'no-space'} /></Suspense>
       case 'paper':
         return <Paper rightSidebarCollapsed={rightSidebarCollapsed} onToggleRightSidebar={toggleRightSidebar} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
       case 'library':

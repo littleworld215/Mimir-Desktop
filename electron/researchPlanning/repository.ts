@@ -52,8 +52,9 @@ function store<T extends { schemaVersion: 1; revision: number }>(name: Filename,
     if (next.revision !== expected + 1) throw new PlanningError('BAD_REQUEST', '修订必须递增')
     if (name === 'planning.json') {
       const prior = previous as unknown as PlanningDocument, after = next as unknown as PlanningDocument
-      for (const key of ['items', 'types', 'collections'] as const) if (prior[key].some(old => !after[key].some(v => v.id === old.id))) throw new PlanningError('BAD_REQUEST', '请移入回收站，不可移除持久记录')
-      for (const old of prior.items) { const value = after.items.find(v => v.id === old.id)!; if (value.createdAt !== old.createdAt || value.kind !== old.kind) throw new PlanningError('BAD_REQUEST', '记录身份不可修改') }
+      for (const key of ['items', 'types', 'collections'] as const) { const ids = new Set(after[key].map(v => v.id)); if (prior[key].some(old => !ids.has(old.id))) throw new PlanningError('BAD_REQUEST', '请移入回收站，不可移除持久记录') }
+      const items = new Map(after.items.map(item => [item.id, item]))
+      for (const old of prior.items) { const value = items.get(old.id)!; if (value.createdAt !== old.createdAt || value.kind !== old.kind) throw new PlanningError('BAD_REQUEST', '记录身份不可修改') }
     }
     const bytes = Buffer.from(JSON.stringify(next), 'utf8'); assertPlanningBytes(bytes.length)
     const path = pathFor(root, name, true), folder = dirname(path), parent = lstatSync(folder), temp = `${path}.${randomUUID()}.partial`

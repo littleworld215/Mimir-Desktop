@@ -24,7 +24,7 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 const call = (name: keyof typeof PLANNING_CHANNELS, input: unknown, supplied: unknown = event) => handlers.get(PLANNING_CHANNELS[name])!(supplied, input)
-it('四个固定底座接口；启动不收路径，列表必须有当前scope', async () => {
+it('固定白名单接口；启动不收路径，列表必须有当前scope', async () => {
   expect([...handlers.keys()].sort()).toEqual(Object.values(PLANNING_CHANNELS).sort())
   expect(await call('bootstrap', {})).toMatchObject({ ok: true, revision: 0, total: 0, scope })
   for (const input of [null, [], { path: 'C:/secret' }]) expect(await call('bootstrap', input)).toMatchObject({ ok: false, code: 'BAD_REQUEST' })

@@ -57,13 +57,7 @@ export function parsePlanningDocument(value: unknown): PlanningDocument {
   }
   return doc
 }
-export function emptyPlanningDocument(): PlanningDocument {
-  const labels = { project: '科研项目', direction: '科研方向', todo: '待办', schedule: '日程', generic: '记录', literature: '文献计划' } as const
-  return { schemaVersion: 1, revision: 0, collections: [{ id: 'default', name: '默认分组', order: 0, deleted: false }], types: Object.entries(labels).map(([id, name], order) => ({ id, name, kind: id as PlanningInput['kind'], builtin: true, order, deleted: false })), items: [] }
-}
-export function emptyPlanningInput(kind: PlanningInput['kind']): PlanningInput {
-  return { kind, typeId: kind, collectionId: 'default', title: '', content: '', status: 'active', important: false, archived: false, deleted: false, priority: 'none', order: 0, fields: [], projectId: null, directionId: null, projectCategory: kind === 'project' ? 'other' : null, majorDirection: false, done: false, dueDate: null, myDay: null, schedule: null, recurrence: null, literature: null, libraryProjectId: null, experimentIds: [] }
-}
+export { emptyPlanningDocument, emptyPlanningInput } from '../../shared/researchPlanningDefaults'
 export function parsePlanningDrafts(value: unknown): PlanningDraftDocument {
   version(value)
   // 草稿是尚未完成的表单，不能套用正式保存的必填标题、起止时间配对约束。

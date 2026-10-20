@@ -13,6 +13,7 @@ import { expect, type Page } from '@playwright/test'
 export const MODULE_LABELS = {
   chat: '对话',
   overview: '总览',
+  planning: '科研计划',
   assets: '资产库',
   library: '文献库',
   paper: '论文',

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { PLANNING_CHANNELS } from '../../shared/researchPlanningContracts'
 import { planningRuntime, type PlanningRuntime } from '../researchPlanning/runtime'
 import { createPlanningService } from '../researchPlanning/service'
+import { planningCommandSchema } from '../researchPlanning/mutations'
 import { planningDate, planningId, planningInputSchema, planningRevision, planningScopeSchema, PlanningError } from '../researchPlanning/validation'
 
 const filterSchema = z.object({
@@ -14,7 +15,8 @@ const schemas = {
   bootstrap: z.object({}).strict(),
   list: z.object({ scope: planningScopeSchema, filter: filterSchema, page: z.number().int().min(1).max(1_000_000) }).strict(),
   detail: z.object({ scope: planningScopeSchema, itemId: planningId }).strict(),
-  save: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, itemId: planningId.optional(), input: planningInputSchema }).strict()
+  save: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, itemId: planningId.optional(), input: planningInputSchema }).strict(),
+  mutate: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, command: planningCommandSchema, preview: z.boolean().optional() }).strict()
 }
 export function registerResearchPlanningHandlers({ windowRef, runtime = planningRuntime }: { windowRef: { current: BrowserWindow | null }; runtime?: PlanningRuntime }) {
   for (const name of Object.keys(schemas) as (keyof typeof schemas)[]) {
@@ -36,6 +38,7 @@ export function registerResearchPlanningHandlers({ windowRef, runtime = planning
           if (name === 'bootstrap') return { ok: true, ...service.bootstrap() }
           if (name === 'list') { const r = schemas.list.parse(value); return { ok: true, ...service.list(r.filter, r.page) } }
           if (name === 'detail') return { ok: true, ...service.detail(schemas.detail.parse(value).itemId) }
+          if (name === 'mutate') { const r = schemas.mutate.parse(value); return { ok: true, ...service.mutate(r.expectedRevision, r.command, r.preview) } }
           const r = schemas.save.parse(value)
           return { ok: true, ...service.save(r.expectedRevision, r.input, r.itemId) }
         }, controller)

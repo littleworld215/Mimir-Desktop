@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { PLANNING_PAGE_SIZE, type PlanningFilter, type PlanningItem } from '../../shared/researchPlanningContracts'
+import { PLANNING_PAGE_SIZE, type PlanningCommand, type PlanningFilter, type PlanningItem } from '../../shared/researchPlanningContracts'
 import { createPlanningRepository } from './repository'
-import { parsePlanningInput, PlanningError } from './validation'
+import { parsePlanningDocument, parsePlanningInput, PlanningError } from './validation'
+import { applyPlanningCommand } from './mutations'
 
 export interface PlanningContext { scope: { id: string; epoch: string; root: string }; assertCurrent(): void }
 export function createPlanningService(ctx: PlanningContext) {
@@ -24,6 +25,14 @@ export function createPlanningService(ctx: PlanningContext) {
       return { ...state(doc.revision), items: items.slice((page - 1) * PLANNING_PAGE_SIZE, page * PLANNING_PAGE_SIZE), total: items.length, page, pageSize: PLANNING_PAGE_SIZE }
     },
     detail(id: string) { const doc = read(), item = doc.items.find(i => i.id === id); if (!item) throw new PlanningError('NOT_FOUND', '记录不存在'); return { ...state(doc.revision), item } },
+    mutate(expectedRevision: number, command: PlanningCommand, preview = false) {
+      const doc = read()
+      if (expectedRevision !== doc.revision) throw new PlanningError('CONFLICT', '已有更新，请重新预览', doc.revision)
+      const next = applyPlanningCommand(doc, command)
+      parsePlanningDocument(next.document)
+      if (!preview) repo.commit(ctx.scope.root, expectedRevision, next.document, () => ctx.assertCurrent())
+      return { ...state(preview ? doc.revision : next.document.revision), entityId: next.entityId, affectedCount: next.affectedCount, preview }
+    },
     save(expectedRevision: number, value: unknown, id?: string) {
       const doc = read()
       if (expectedRevision !== doc.revision) throw new PlanningError('CONFLICT', '已有更新，请保留输入并重新加载', doc.revision)

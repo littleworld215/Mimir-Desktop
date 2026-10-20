@@ -33,12 +33,20 @@ export interface PlanningFilter {
 }
 export interface PlanningState { revision: number; scope: PlanningScope }
 export interface PlanningWrite { scope: PlanningScope; expectedRevision: number }
+export type PlanningCommand =
+  | { kind: 'collection'; id?: string; name: string; deleted?: boolean; moveTo?: string }
+  | { kind: 'type'; id?: string; name: string; itemKind?: 'generic' | 'todo'; deleted?: boolean; moveTo?: string }
+  | { kind: 'bulk'; ids: string[]; patch: { archived?: boolean; deleted?: boolean; collectionId?: string; status?: PlanningStatus; important?: boolean } }
+  | { kind: 'duplicate'; id: string }
+  | { kind: 'reorder'; ids: string[] }
+  | { kind: 'clearCompleted' }
 export interface PlanningApi {
   bootstrap(request: Record<string, never>): Promise<PlanningResult<PlanningState & { collections: PlanningCollection[]; types: PlanningType[]; total: number }>>
   list(request: { scope: PlanningScope; filter: PlanningFilter; page: number }): Promise<PlanningResult<PlanningState & { items: PlanningItem[]; total: number; page: number; pageSize: 50 }>>
   detail(request: { scope: PlanningScope; itemId: string }): Promise<PlanningResult<PlanningState & { item: PlanningItem }>>
   save(request: PlanningWrite & { itemId?: string; input: PlanningInput }): Promise<PlanningResult<PlanningState & { item: PlanningItem }>>
+  mutate(request: PlanningWrite & { command: PlanningCommand; preview?: boolean }): Promise<PlanningResult<PlanningState & { entityId?: string; affectedCount: number; preview: boolean }>>
 }
 export const PLANNING_CHANNELS: { [K in keyof PlanningApi]: `researchPlanning:${K}` } = {
-  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save'
+  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate'
 }

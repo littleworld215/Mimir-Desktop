@@ -461,7 +461,8 @@ const electronAPI: ElectronAPI = {
     bootstrap: req => ipcRenderer.invoke(PLANNING_CHANNELS.bootstrap, req),
     list: req => ipcRenderer.invoke(PLANNING_CHANNELS.list, req),
     detail: req => ipcRenderer.invoke(PLANNING_CHANNELS.detail, req),
-    save: req => ipcRenderer.invoke(PLANNING_CHANNELS.save, req)
+    save: req => ipcRenderer.invoke(PLANNING_CHANNELS.save, req),
+    mutate: req => ipcRenderer.invoke(PLANNING_CHANNELS.mutate, req)
   },
   libraryResearch: {
     overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),
