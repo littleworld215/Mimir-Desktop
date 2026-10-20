@@ -464,7 +464,17 @@ const electronAPI: ElectronAPI = {
     save: req => ipcRenderer.invoke(PLANNING_CHANNELS.save, req),
     mutate: req => ipcRenderer.invoke(PLANNING_CHANNELS.mutate, req),
     summary: req => ipcRenderer.invoke(PLANNING_CHANNELS.summary, req),
-    calendar: req => ipcRenderer.invoke(PLANNING_CHANNELS.calendar, req)
+    calendar: req => ipcRenderer.invoke(PLANNING_CHANNELS.calendar, req),
+    drafts: req => ipcRenderer.invoke(PLANNING_CHANNELS.drafts, req),
+    saveDraft: req => ipcRenderer.invoke(PLANNING_CHANNELS.saveDraft, req),
+    removeDraft: req => ipcRenderer.invoke(PLANNING_CHANNELS.removeDraft, req),
+    references: req => ipcRenderer.invoke(PLANNING_CHANNELS.references, req),
+    selectImport: req => ipcRenderer.invoke(PLANNING_CHANNELS.selectImport, req),
+    previewImport: req => ipcRenderer.invoke(PLANNING_CHANNELS.previewImport, req),
+    applyImport: req => ipcRenderer.invoke(PLANNING_CHANNELS.applyImport, req),
+    importDifference: req => ipcRenderer.invoke(PLANNING_CHANNELS.importDifference, req),
+    exportPreview: req => ipcRenderer.invoke(PLANNING_CHANNELS.exportPreview, req),
+    saveExport: req => ipcRenderer.invoke(PLANNING_CHANNELS.saveExport, req)
   },
   libraryResearch: {
     overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),

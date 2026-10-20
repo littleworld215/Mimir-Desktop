@@ -61,11 +61,12 @@ export function parsePlanningDocument(value: unknown): PlanningDocument {
   return doc
 }
 export { emptyPlanningDocument, emptyPlanningInput } from '../../shared/researchPlanningDefaults'
+export const planningDraftInputSchema = planningInputSchema.extend({ title: z.string().max(500), schedule: z.object({ date: planningDate, start: time.nullable(), end: time.nullable() }).strict().nullable() })
+export const planningDraftWriteSchema = z.object({ id: planningId, itemId: planningId.nullable(), baseRevision: planningRevision, input: planningDraftInputSchema }).strict()
 export function parsePlanningDrafts(value: unknown): PlanningDraftDocument {
   version(value)
   // 草稿是尚未完成的表单，不能套用正式保存的必填标题、起止时间配对约束。
-  const draftInput = planningInputSchema.extend({ title: z.string().max(500), schedule: z.object({ date: planningDate, start: time.nullable(), end: time.nullable() }).strict().nullable() })
-  const parsed = z.object({ schemaVersion: z.literal(1), revision: planningRevision, drafts: z.array(z.object({ id: planningId, itemId: planningId.nullable(), baseRevision: planningRevision, input: draftInput, updatedAt: timestamp }).strict()).max(200) }).strict().safeParse(value)
+  const parsed = z.object({ schemaVersion: z.literal(1), revision: planningRevision, drafts: z.array(planningDraftWriteSchema.extend({ updatedAt: timestamp })).max(200) }).strict().safeParse(value)
   if (!parsed.success) throw new PlanningError('CORRUPT_DATA', '编辑草稿不可读，原文件保留')
   unique(parsed.data.drafts)
   return parsed.data

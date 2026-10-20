@@ -1,22 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { researchControl, useResearchBusy } from '../library/research/useResearchForm'
 import { PlanningEditor, planningStatusLabels } from './PlanningEditor'
 import { PlanningManager } from './PlanningManager'
+import { PlanningRecovery } from './PlanningRecovery'
+import { PlanningHostLinks } from './PlanningHostLinks'
+import { PlanningLinkPicker, PlanningReferenceName } from './PlanningLinkPicker'
 import { PlanningCalendar, type CalendarDay, type CalendarMode } from './PlanningCalendar'
 import { calendarRange, localPlanningDate } from '../../../../shared/researchPlanningDates'
 import { consumePlanningIntent } from '@/lib/planningNavigation'
 import { usePlanningToday } from '@/lib/usePlanningToday'
+import { rememberPlanningHostIntent } from '@/lib/planningHostNavigation'
 import { registerEvidenceEditor } from '@/lib/evidenceEditGuard'
 import { PLANNING_KIND_LABELS, emptyPlanningInput } from '../../../../shared/researchPlanningDefaults'
-import type { PlanningCollection, PlanningCommand, PlanningFilter, PlanningInput, PlanningItem, PlanningKind, PlanningScope, PlanningSummaryItem, PlanningType } from '../../../../shared/researchPlanningContracts'
+import type { PlanningCollection, PlanningCommand, PlanningDraft, PlanningFilter, PlanningHostKind, PlanningInput, PlanningItem, PlanningKind, PlanningScope, PlanningSummaryItem, PlanningType } from '../../../../shared/researchPlanningContracts'
 
 type Metadata = { scope: PlanningScope; revision: number; collections: PlanningCollection[]; types: PlanningType[] }
-type Editing = { input: PlanningInput; itemId?: string; scope: PlanningScope; revision: number }
+type Editing = { input: PlanningInput; itemId?: string; scope: PlanningScope; revision: number; draftId: string }
+const PlanningExchange = lazy(() => import('./PlanningExchange').then(module => ({ default: module.PlanningExchange })))
 const inputOf = ({ id, createdAt, updatedAt, recurrenceParentId, ...input }: PlanningItem): PlanningInput => input
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '操作未完成，原资料保留'
 function planningApi() { const api = window.electronAPI?.researchPlanning; if (!api) throw Error('科研计划桌面接口不可用，请重新打开新版工作台'); return api }
-export function ResearchPlanning() {
+export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | 'experiments'): void | Promise<void> } = {}) {
   const today = usePlanningToday()
   const [intent] = useState(consumePlanningIntent), checkedIntent = useRef(false)
   const [meta, setMeta] = useState<Metadata | null>(null), [items, setItems] = useState<PlanningItem[]>([]), [total, setTotal] = useState(0)
@@ -27,17 +32,23 @@ export function ResearchPlanning() {
   const range = useMemo(() => calendarRange(anchor, calendarMode === 'month' ? 'month' : 'week'), [anchor, calendarMode])
   const [status, setStatus] = useState(''), [archive, setArchive] = useState<'exclude' | 'only' | 'include'>('exclude'), [trash, setTrash] = useState(false), [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null), [manager, setManager] = useState(false), [board, setBoard] = useState(false)
+  const [drafts, setDrafts] = useState<PlanningDraft[]>([]), [deleteDraft, setDeleteDraft] = useState<string | null>(null)
+  const [recovery, setRecovery] = useState<{ draft: PlanningDraft; live?: PlanningItem; revision: number } | null>(null)
+  const [navigation, setNavigation] = useState<'library' | 'experiments' | null>(null)
+  const [exchangeOpen, setExchangeOpen] = useState(false), [projectFilterId, setProjectFilterId] = useState<string | null>(null), [projectFilterPicker, setProjectFilterPicker] = useState(false)
   const [selected, setSelected] = useState<string[]>([]), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const sequence = useRef(0), detailSequence = useRef(0), working = useRef(false), lastFocus = useRef<HTMLElement | null>(null), errorRef = useRef<HTMLParagraphElement>(null)
   const quickInput = useRef(quickTitle), quickSaver = useRef<() => Promise<boolean>>(async () => false)
   quickInput.current = quickTitle; quickSaver.current = quickAdd
   useEffect(() => registerEvidenceEditor({ isDirty: () => quickInput.current.length > 0, isBusy: () => working.current, save: () => quickSaver.current(), discard: () => { quickInput.current = ''; setQuickTitle('') } }), [])
-  useResearchBusy(busy)
+  useResearchBusy(busy || recovery !== null || deleteDraft !== null || exchangeOpen || projectFilterPicker)
+  useEffect(() => { if (navigation && !busy) { setNavigation(null); void onNavigate?.(navigation) } }, [navigation, busy, onNavigate])
   useEffect(() => { const timer = setTimeout(() => { setDebounced(keyword); setPage(1) }, 200); return () => clearTimeout(timer) }, [keyword])
   const filter = useMemo<PlanningFilter>(() => ({ kind, keyword: debounced, ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(status ? { status: status as PlanningInput['status'] } : {}), archived: archive, deleted: trash,
+    ...(projectFilterId ? { projectId: projectFilterId } : {}),
     ...(kind === 'todo' ? { ...(todoView === 'all' ? {} : { done: todoView === 'completed' }), ...(todoView === 'today' ? { myDay: today } : {}), ...(todoView === 'important' ? { important: true } : {}), ...(todoView === 'overdue' ? { dueBefore: today } : {}), ...(priority ? { priority: priority as PlanningInput['priority'] } : {}) } : {}),
     ...(kind === 'schedule' ? { dateFrom: selectedDay ?? range.from, dateTo: selectedDay ?? range.to } : {})
-  }), [kind, debounced, collectionId, typeId, status, archive, trash, todoView, priority, selectedDay, range.from, range.to, today])
+  }), [kind, debounced, collectionId, typeId, status, archive, trash, todoView, priority, selectedDay, range.from, range.to, today, projectFilterId])
   const reload = useCallback(async () => {
     const request = ++sequence.current
     setLoading(true); setError('')
@@ -73,14 +84,20 @@ export function ResearchPlanning() {
         if (calendar.revision !== result.revision) throw Error('日程已变化，请重试加载')
         setCalendarDays(calendar.days)
       }
+      if (api.drafts) {
+        const savedDrafts = await api.drafts({ scope: bootstrap.scope })
+        if (request !== sequence.current) return
+        if (!savedDrafts.ok) throw Error(savedDrafts.message)
+        setDrafts(savedDrafts.drafts)
+      }
       setMeta({ ...bootstrap, revision: result.revision }); setItems(result.items); setTotal(result.total); setSelected([])
     } catch (failure) { if (request === sequence.current) { setError(errorMessage(failure)); setItems([]); setMeta(null) } }
     finally { if (request === sequence.current) setLoading(false) }
   }, [filter, page, kind, range.from, range.to, intent, today])
   // 编辑期间延后日期/筛选驱动的读取，读取失败不能通过清空meta卸载未保存输入。
-  useEffect(() => { if (editing || manager) return; void reload(); return () => { sequence.current++ } }, [reload, editing, manager])
+  useEffect(() => { if (editing || manager || recovery || deleteDraft || exchangeOpen || projectFilterPicker) return; void reload(); return () => { sequence.current++ } }, [reload, editing, manager, recovery, deleteDraft, exchangeOpen, projectFilterPicker])
   useEffect(() => { if (error) errorRef.current?.focus() }, [error])
-  const locked = busy || loading || editing !== null
+  const locked = busy || loading || editing !== null || recovery !== null || deleteDraft !== null || exchangeOpen || projectFilterPicker
   const hasQuickInput = quickTitle.length > 0
   function closeEditor() { setEditing(null); setTimeout(() => { if (lastFocus.current?.isConnected) lastFocus.current.focus() }, 0) }
   function begin(item?: PlanningItem, override?: Partial<PlanningInput>) {
@@ -88,7 +105,7 @@ export function ResearchPlanning() {
     lastFocus.current = document.activeElement as HTMLElement
     detailSequence.current++
     const input = item ? inputOf(item) : { ...emptyPlanningInput(kind), ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(kind === 'todo' ? { myDay: todoView === 'today' ? localPlanningDate() : null, important: todoView === 'important' } : {}), ...(kind === 'schedule' ? { schedule: { date: selectedDay ?? anchor, start: null, end: null } } : {}), ...override }
-    setEditing({ input, itemId: item?.id, scope: meta.scope, revision: meta.revision })
+    setEditing({ input, itemId: item?.id, scope: meta.scope, revision: meta.revision, draftId: crypto.randomUUID() })
   }
   async function openItem(id: string) {
     if (!meta || locked) return
@@ -98,8 +115,43 @@ export function ResearchPlanning() {
       const result = await planningApi().detail({ scope: meta.scope, itemId: id })
       if (request !== detailSequence.current || listing !== sequence.current) return
       if (!result.ok) throw Error(result.message)
-      setEditing({ input: inputOf(result.item), itemId: id, scope: result.scope, revision: result.revision })
+      setEditing({ input: inputOf(result.item), itemId: id, scope: result.scope, revision: result.revision, draftId: crypto.randomUUID() })
     } catch (failure) { if (request === detailSequence.current) setError(errorMessage(failure)) }
+  }
+  async function reviewDraft(draft: PlanningDraft) {
+    if (!meta || locked || hasQuickInput || working.current) return
+    lastFocus.current = document.activeElement as HTMLElement
+    working.current = true; setBusy(true); setError('')
+    try {
+      const result = draft.itemId ? await planningApi().detail({ scope: meta.scope, itemId: draft.itemId }) : null
+      if (result && !result.ok && result.code !== 'NOT_FOUND') throw Error(result.message)
+      setRecovery({ draft, live: result?.ok ? result.item : undefined, revision: result?.ok ? result.revision : meta.revision })
+    } catch (failure) { setError(errorMessage(failure)) }
+    finally { working.current = false; setBusy(false) }
+  }
+  async function openHost(kind: PlanningHostKind, id: string) {
+    if (!meta || locked || hasQuickInput || !onNavigate || working.current) return
+    working.current = true; setBusy(true); setError('')
+    try {
+      const result = await planningApi().references({ scope: meta.scope, kind, keyword: '', page: 1, ids: [id] })
+      if (!result.ok) throw Error(result.message)
+      if (!result.items[0]?.exists) throw Error('关联资料已失联，请在原模块核对。')
+      rememberPlanningHostIntent({ scope: meta.scope, kind, id })
+    } catch (failure) { setError(errorMessage(failure)); return }
+    finally { working.current = false; setBusy(false) }
+    setNavigation(kind === 'experiment' ? 'experiments' : 'library')
+  }
+  async function discardDraft() {
+    if (!meta || !deleteDraft || working.current) return
+    working.current = true; setBusy(true); setError('')
+    try {
+      const state = await planningApi().drafts({ scope: meta.scope })
+      if (!state.ok) throw Error(state.message)
+      const result = await planningApi().removeDraft({ scope: meta.scope, expectedRevision: state.revision, draftId: deleteDraft })
+      if (!result.ok) throw Error(result.message)
+      setDeleteDraft(null); setNotice('已删除所选恢复草稿；正式记录保留。')
+    } catch (failure) { setError(errorMessage(failure)) }
+    finally { working.current = false; setBusy(false) }
   }
   async function quickAdd() {
     if (!meta || locked || working.current) return false
@@ -124,15 +176,16 @@ export function ResearchPlanning() {
     finally { working.current = false; setBusy(false) }
   }
   const action = (command: PlanningCommand) => { void execute(command).catch(() => {}) }
-  function changeKind(next: PlanningKind) { if (locked) return; setKind(next); setTypeId(''); setStatus(''); setPage(1); setSelected([]) }
+  function changeKind(next: PlanningKind) { if (locked) return; setKind(next); setTypeId(''); setStatus(''); setProjectFilterId(null); setPage(1); setSelected([]) }
   function card(item: PlanningItem, at: number) {
     return <article key={item.id} className="space-y-2 rounded-lg border border-border bg-card p-3" draggable={kind === 'project' && !locked && !trash} onDragStart={e => e.dataTransfer.setData('application/x-mimir-planning', item.id)}>
-      <div className="flex items-start gap-2"><input type="checkbox" aria-label={`选择${item.title}`} checked={selected.includes(item.id)} disabled={locked} onChange={e => setSelected(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} /><button className="min-w-0 flex-1 break-words text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={locked || hasQuickInput} onClick={() => begin(item)}>{item.important ? '★ ' : ''}{item.majorDirection ? '主方向 · ' : ''}{item.title}</button></div>
+      <div className="flex items-start gap-2"><input type="checkbox" aria-label={`选择${item.title}`} checked={selected.includes(item.id)} disabled={locked} onChange={e => setSelected(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} /><button data-planning-open className="min-w-0 flex-1 break-words text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={locked || hasQuickInput} onClick={() => begin(item)}>{item.important ? '★ ' : ''}{item.majorDirection ? '主方向 · ' : ''}{item.title}</button></div>
       <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.content || '暂无正文'}</p>
       <p className="text-xs text-muted-foreground">{planningStatusLabels[item.status]} · {meta?.collections.find(c => c.id === item.collectionId)?.name} {item.projectCategory ? `· ${ { vertical: '纵向', horizontal: '横向', other: '其他' }[item.projectCategory]}` : ''}</p>
       {item.kind === 'todo' && <div className="space-y-2 text-xs"><label className="flex items-center gap-2"><input type="checkbox" aria-label={`完成${item.title}`} disabled={locked || trash} checked={item.done} onChange={e => action({ kind: 'completeTodo', id: item.id, done: e.target.checked })} />{item.done ? '已完成' : '标记完成'}</label><p className={item.dueDate && item.dueDate < localPlanningDate() && !item.done ? 'text-destructive' : 'text-muted-foreground'}>截止：{item.dueDate ?? '未设置'} · 优先级：{ { none: '无', low: '低', medium: '中', high: '高' }[item.priority]}{item.recurrence ? ' · 周期待办' : ''}</p><Button size="sm" variant="outline" disabled={locked || trash} onClick={() => action({ kind: 'planTodoDay', id: item.id, date: item.myDay === today ? null : today })}>{item.myDay === today ? '移出我的一天' : '安排到我的一天'}</Button><Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: [item.id], patch: { important: !item.important } })}>{item.important ? '取消重要' : '标为重要'}</Button></div>}
       {item.schedule && <p className="text-xs text-muted-foreground">{item.schedule.date} · {item.schedule.start ? `${item.schedule.start}–${item.schedule.end}` : '全天'}</p>}
-      {item.kind === 'project' && <div className="space-y-1 border-t border-border pt-2 text-xs"><p>下一步行动</p>{(nextActions[item.id] ?? []).map(todo => <button key={todo.id} className="block text-left text-primary underline" disabled={locked} onClick={() => { void openItem(todo.id) }}>{todo.title}</button>)}{!(nextActions[item.id]?.length) && <p className="text-muted-foreground">尚无未完成待办</p>}<Button size="sm" variant="outline" disabled={locked || trash} onClick={() => { if (meta) { lastFocus.current = document.activeElement as HTMLElement; setEditing({ input: { ...emptyPlanningInput('todo'), collectionId: item.collectionId, projectId: item.id }, scope: meta.scope, revision: meta.revision }) } }}>添加项目待办</Button></div>}
+      {meta && (item.libraryProjectId || item.experimentIds.length > 0 || item.literature?.paperId) && <PlanningHostLinks scope={meta.scope} libraryProjectId={item.libraryProjectId} experimentIds={item.experimentIds} paperId={item.literature?.paperId} readOnly disabled={locked || hasQuickInput} onChange={() => {}} onOpen={onNavigate ? (kind, id) => { void openHost(kind, id) } : undefined} />}
+      {item.kind === 'project' && <div className="space-y-1 border-t border-border pt-2 text-xs"><p>下一步行动</p>{(nextActions[item.id] ?? []).map(todo => <button key={todo.id} className="block text-left text-primary underline" disabled={locked} onClick={() => { void openItem(todo.id) }}>{todo.title}</button>)}{!(nextActions[item.id]?.length) && <p className="text-muted-foreground">尚无未完成待办</p>}<Button size="sm" variant="outline" disabled={locked || trash} onClick={() => { if (meta) { lastFocus.current = document.activeElement as HTMLElement; setEditing({ input: { ...emptyPlanningInput('todo'), collectionId: item.collectionId, projectId: item.id }, scope: meta.scope, revision: meta.revision, draftId: crypto.randomUUID() }) } }}>添加项目待办</Button></div>}
       <div className="flex flex-wrap gap-1">
         <Button size="sm" variant="outline" disabled={locked || trash} onClick={() => action({ kind: 'duplicate', id: item.id })}>复制</Button>
         <Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: [item.id], patch: { archived: !item.archived } })}>{item.archived ? '取消归档' : '归档'}</Button>
@@ -144,12 +197,17 @@ export function ResearchPlanning() {
     </article>
   }
   return <div className="h-full overflow-y-auto bg-background p-4 text-foreground sm:p-6"><div className="mx-auto max-w-7xl space-y-4">
-    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button variant="outline" disabled={locked || !meta || hasQuickInput} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager || hasQuickInput || trash} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
-    <nav className="flex flex-wrap gap-2" aria-label="计划内容">{(['project', 'direction', 'todo', 'schedule', 'generic'] as const).map(id => <Button key={id} variant={id === kind ? 'default' : 'outline'} disabled={locked || manager || hasQuickInput} onClick={() => changeKind(id)}>{PLANNING_KIND_LABELS[id]}</Button>)}</nav>
+    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button variant="outline" disabled={locked || !meta || manager || hasQuickInput} onClick={() => setExchangeOpen(true)}>导入与导出</Button><Button variant="outline" disabled={locked || !meta || hasQuickInput} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager || hasQuickInput || trash} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
+    <nav className="flex flex-wrap gap-2" aria-label="计划内容">{(['project', 'direction', 'todo', 'schedule', 'generic', 'literature'] as const).map(id => <Button key={id} variant={id === kind ? 'default' : 'outline'} disabled={locked || manager || hasQuickInput} onClick={() => changeKind(id)}>{PLANNING_KIND_LABELS[id]}</Button>)}</nav>
     {error && <div className="space-y-2"><p role="alert" ref={errorRef} tabIndex={-1} className="text-sm text-destructive">{error}</p><Button variant="outline" disabled={busy} onClick={() => { void reload() }}>重试加载</Button></div>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
-    {manager && meta ? <PlanningManager collections={meta.collections} types={meta.types} busy={busy} execute={execute} onClose={() => setManager(false)} /> : editing && meta ? <PlanningEditor initial={editing.input} types={meta.types} collections={meta.collections} scope={editing.scope} busy={busy} save={async input => { const result = await planningApi().save({ scope: editing.scope, expectedRevision: editing.revision, itemId: editing.itemId, input }); if (!result.ok) throw Error(result.message) }} onSaved={() => { closeEditor(); setNotice('记录已保存；如未显示，请检查当前筛选。') }} onCancel={closeEditor} /> : <>
-      {kind === 'todo' && <section className="space-y-3" aria-label="人工待办"><div className="flex flex-wrap gap-2">{([['today', '我的一天'], ['important', '重要待办'], ['all', '全部待办'], ['completed', '已完成待办'], ['overdue', '逾期待办']] as const).map(([id, label]) => <Button key={id} size="sm" variant={todoView === id ? 'default' : 'outline'} disabled={locked} onClick={() => { setTodoView(id); setPage(1) }}>{label}</Button>)}</div><form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); void quickAdd() }}><input aria-label="快速添加待办" placeholder="写下一个具体行动，Enter添加" maxLength={500} className={`${researchControl} flex-1`} disabled={locked || trash} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault() }} /><Button type="submit" disabled={locked || trash || !quickTitle.trim()}>添加待办</Button><Button type="button" variant="outline" disabled={locked || trash || !!debounced || !!priority || !!status} title='仅清理当前分组/类型；文字、优先级、状态筛选时请用勾选批量操作' onClick={() => action({ kind: 'clearCompleted', ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}) })}>当前分组/类型已完成移入回收站</Button></form><select aria-label="筛选优先级" className={`${researchControl} sm:max-w-48`} disabled={locked} value={priority} onChange={e => { setPriority(e.target.value); setPage(1) }}><option value="">全部优先级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option><option value="none">无</option></select></section>}
+    {exchangeOpen && meta && <Suspense fallback={<p role="status">正在准备交换窗口…</p>}><PlanningExchange scope={meta.scope} revision={meta.revision} collections={meta.collections} onClose={() => setExchangeOpen(false)} onApplied={message => { setExchangeOpen(false); setNotice(message) }} /></Suspense>}
+    {projectFilterPicker && meta && <PlanningLinkPicker scope={meta.scope} kind="project" onPick={id => { setProjectFilterId(id); setPage(1) }} onClose={() => setProjectFilterPicker(false)} />}
+    {!editing && !manager && drafts.length > 0 && <details className="rounded border border-border p-3"><summary className="cursor-pointer text-sm">恢复草稿（{drafts.length}）· 尚未正式保存</summary><div className="mt-2 space-y-2">{drafts.map(draft => <div key={draft.id} className="flex flex-wrap items-center gap-2 text-sm"><span className="min-w-0 break-words">{draft.input.title || '未命名草稿'} · {draft.updatedAt}</span><Button size="sm" variant="outline" aria-label={`恢复编辑${draft.input.title || '未命名草稿'}`} disabled={locked || hasQuickInput} onClick={() => { void reviewDraft(draft) }}>恢复编辑</Button><Button size="sm" variant="outline" aria-label={`删除恢复草稿${draft.input.title || '未命名草稿'}`} disabled={locked || hasQuickInput} onClick={() => setDeleteDraft(draft.id)}>删除恢复草稿</Button></div>)}</div></details>}
+    {deleteDraft && <section role="alertdialog" aria-label="确认删除恢复草稿" className="rounded border border-destructive p-3"><p>仅删除所选恢复草稿，未正式保存的内容将无法恢复。正式记录保留。</p><div className="mt-2 flex gap-2"><Button variant="destructive" disabled={busy} onClick={() => { void discardDraft() }}>确认删除所选草稿</Button><Button variant="outline" disabled={busy} onClick={() => setDeleteDraft(null)}>保留草稿</Button></div></section>}
+    {recovery && meta && <PlanningRecovery {...recovery} onClose={() => setRecovery(null)} onRestore={(useCurrent, asNew) => { setEditing({ input: recovery.draft.input, itemId: asNew ? undefined : recovery.draft.itemId ?? undefined, scope: meta.scope, revision: useCurrent ? recovery.revision : recovery.draft.baseRevision, draftId: recovery.draft.id }); setRecovery(null) }} />}
+    {manager && meta ? <PlanningManager collections={meta.collections} types={meta.types} busy={busy} execute={execute} onClose={() => setManager(false)} /> : editing && meta ? <PlanningEditor key={editing.draftId} initial={editing.input} types={meta.types} collections={meta.collections} scope={editing.scope} draftIdentity={{ id: editing.draftId, itemId: editing.itemId ?? null, baseRevision: editing.revision }} busy={busy} save={async input => { const result = await planningApi().save({ scope: editing.scope, expectedRevision: editing.revision, itemId: editing.itemId, input }); if (!result.ok) throw Error(result.message) }} onSaved={message => { closeEditor(); setNotice(message ?? '记录已保存；如未显示，请检查当前筛选。') }} onCancel={closeEditor} /> : <>
+      {kind === 'todo' && <section className="space-y-3" aria-label="人工待办"><div className="flex flex-wrap gap-2">{([['today', '我的一天'], ['important', '重要待办'], ['all', '全部待办'], ['completed', '已完成待办'], ['overdue', '逾期待办']] as const).map(([id, label]) => <Button key={id} size="sm" variant={todoView === id ? 'default' : 'outline'} disabled={locked} onClick={() => { setTodoView(id); setPage(1) }}>{label}</Button>)}</div><form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); void quickAdd() }}><input aria-label="快速添加待办" placeholder="写下一个具体行动，Enter添加" maxLength={500} className={`${researchControl} flex-1`} disabled={locked || trash} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault() }} /><Button type="submit" disabled={locked || trash || !quickTitle.trim()}>添加待办</Button><Button type="button" variant="outline" disabled={locked || trash || !!debounced || !!priority || !!status || !!projectFilterId} title='仅清理当前分组/类型；文字、优先级、状态或科研项目筛选时请用勾选批量操作' onClick={() => action({ kind: 'clearCompleted', ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}) })}>当前分组/类型已完成移入回收站</Button></form><select aria-label="筛选优先级" className={`${researchControl} sm:max-w-48`} disabled={locked} value={priority} onChange={e => { setPriority(e.target.value); setPage(1) }}><option value="">全部优先级</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option><option value="none">无</option></select></section>}
       {kind === 'schedule' && <PlanningCalendar anchor={anchor} mode={calendarMode} days={calendarDays} selected={selectedDay} busy={locked} onChange={(date, mode) => { setAnchor(date); setCalendarMode(mode); setSelectedDay(null); setPage(1) }} onSelect={date => { setSelectedDay(date); setPage(1) }} onCreate={date => begin(undefined, { schedule: { date, start: null, end: null } })} onOpen={id => { void openItem(id) }} />}
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <input aria-label="搜索科研计划" placeholder="搜索标题、正文、字段" className={researchControl} value={keyword} disabled={locked} onChange={e => setKeyword(e.target.value)} />
@@ -159,10 +217,18 @@ export function ResearchPlanning() {
         <select aria-label="归档范围" className={researchControl} value={archive} disabled={locked} onChange={e => { setArchive(e.target.value as typeof archive); setPage(1) }}><option value="exclude">未归档</option><option value="only">仅归档</option><option value="include">含归档</option></select>
         <Button variant="outline" disabled={locked} onClick={() => { setTrash(!trash); setArchive('include'); setPage(1) }}>{trash ? '返回有效记录' : '查看回收站'}</Button>
       </div>
+      {meta && !['project', 'direction'].includes(kind) && <div className="flex flex-wrap items-center gap-2 text-sm"><span>科研项目范围：<PlanningReferenceName scope={meta.scope} id={projectFilterId} /></span><Button variant="outline" size="sm" disabled={locked} onClick={() => setProjectFilterPicker(true)}>按科研项目筛选</Button>{projectFilterId && <Button variant="outline" size="sm" disabled={locked} onClick={() => { setProjectFilterId(null); setPage(1) }}>清除科研项目筛选</Button>}</div>}
       {kind === 'project' && <div className="flex gap-2"><Button size="sm" variant={board ? 'outline' : 'default'} onClick={() => setBoard(false)}>项目列表</Button><Button size="sm" variant={board ? 'default' : 'outline'} onClick={() => setBoard(true)}>项目看板</Button></div>}
       {selected.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded border border-border p-2 text-sm"><span>已选{selected.length}条</span><Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: selected, patch: { archived: archive !== 'only' } })}>{archive === 'only' ? '批量取消归档' : '批量归档'}</Button><Button size="sm" variant="outline" disabled={locked} onClick={() => action({ kind: 'bulk', ids: selected, patch: { deleted: !trash } })}>{trash ? '批量恢复' : '批量移入回收站'}</Button><select aria-label="批量移动分组" className={`${researchControl} sm:max-w-52`} value="" disabled={locked} onChange={e => { if (e.target.value) action({ kind: 'bulk', ids: selected, patch: { collectionId: e.target.value } }) }}><option value="">移动到分组…</option>{meta?.collections.filter(c => !c.deleted).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
       <div className="flex items-center gap-3 text-xs text-muted-foreground"><span>{loading ? '正在加载…' : `共${total}条 · 当前第${page}页（每页50条）`}</span><Button size="sm" variant="outline" disabled={locked || items.length === 0} onClick={() => setSelected(selected.length === items.length ? [] : items.map(i => i.id))}>选择／取消本页</Button><Button size="sm" variant="outline" disabled={locked} onClick={() => { void reload() }}>刷新列表</Button></div>
-      <section aria-busy={loading}>{!loading && !error && items.length === 0 ? <p className="rounded border border-dashed border-border p-8 text-sm text-muted-foreground">当前没有匹配的科研计划。</p> : board && kind === 'project' ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{Object.entries(planningStatusLabels).map(([id, text]) => <section key={id} className="min-w-0 space-y-2 rounded border border-border p-2" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const itemId = e.dataTransfer.getData('application/x-mimir-planning'); if (!locked && items.some(item => item.id === itemId)) action({ kind: 'bulk', ids: [itemId], patch: { status: id as PlanningInput['status'] } }) }}><h2 className="text-sm font-medium">{text}（本页{items.filter(i => i.status === id).length}）</h2>{items.map((item, at) => item.status === id ? card(item, at) : null)}</section>)}</div> : <div className="grid gap-3 lg:grid-cols-2">{items.map(card)}</div>}</section>
+      <p className="text-xs text-muted-foreground">标题按钮支持↑/↓和Home/End定位，Enter打开；编辑中Ctrl/Cmd+Enter保存、Esc返回。</p>
+      <section aria-busy={loading} onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229 || !(event.target instanceof HTMLButtonElement) || !event.target.hasAttribute('data-planning-open') || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-planning-open]')).filter(button => !button.disabled), index = buttons.indexOf(event.target)
+        if (index < 0) return
+        event.preventDefault()
+        buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
+      }}>{!loading && !error && items.length === 0 ? <p className="rounded border border-dashed border-border p-8 text-sm text-muted-foreground">当前没有匹配的科研计划。</p> : board && kind === 'project' ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{Object.entries(planningStatusLabels).map(([id, text]) => <section key={id} className="min-w-0 space-y-2 rounded border border-border p-2" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const itemId = e.dataTransfer.getData('application/x-mimir-planning'); if (!locked && items.some(item => item.id === itemId)) action({ kind: 'bulk', ids: [itemId], patch: { status: id as PlanningInput['status'] } }) }}><h2 className="text-sm font-medium">{text}（本页{items.filter(i => i.status === id).length}）</h2>{items.map((item, at) => item.status === id ? card(item, at) : null)}</section>)}</div> : <div className="grid gap-3 lg:grid-cols-2">{items.map(card)}</div>}</section>
       <div className="flex gap-2"><Button variant="outline" disabled={locked || page <= 1} onClick={() => setPage(page - 1)}>上一页</Button><Button variant="outline" disabled={locked || page * 50 >= total} onClick={() => setPage(page + 1)}>下一页</Button></div>
     </>}
   </div></div>

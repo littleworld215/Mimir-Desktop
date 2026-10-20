@@ -17,6 +17,7 @@ import { SubscriptionsBar } from './SubscriptionsBar'
 import { PaperCard } from './PaperCard'
 import { PaperReader } from './PaperReader'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
+import { consumePlanningHostIntent, samePlanningHostScope } from '@/lib/planningHostNavigation'
 import { EvidenceMatrix } from './evidence/EvidenceMatrix'
 import { handoffToAgent } from '@/lib/agentContext'
 import type {
@@ -34,6 +35,7 @@ const ResearchWorkspace = lazy(() => import('./research/ResearchWorkspace').then
 
 export function Library() {
   const api = window.electronAPI!
+  const [planningIntent] = useState(() => consumePlanningHostIntent('library'))
 
   // 项目
   const [projects, setProjects] = useState<ProjectRecord[]>([])
@@ -102,6 +104,28 @@ export function Library() {
     loadPapers()
     loadSubscriptions()
   }, [loadProjects, loadPapers, loadSubscriptions])
+
+  useEffect(() => {
+    if (!planningIntent) return
+    let active = true
+    void (async () => {
+      try {
+        const current = await api.researchPlanning.bootstrap({})
+        if (!current.ok || !samePlanningHostScope(current.scope, planningIntent.scope)) throw Error('科研空间已变化，已取消关联跳转。')
+        if (planningIntent.kind === 'paper') {
+          const result = await api.library.listPapers()
+          const paper = (result.papers as PaperRecord[] | undefined)?.find(p => p.arxivId === planningIntent.id)
+          if (!result.ok || !paper) throw Error('关联文献已失联，原计划记录保留。')
+          if (active) { setSelectedProjectId(null); setLibraryView('papers'); setReaderTab('notes'); setReaderPaper(paper) }
+        } else {
+          const result = await api.library.listProjects()
+          if (!result.ok || !(result.projects as ProjectRecord[] | undefined)?.some(p => p.id === planningIntent.id)) throw Error('关联文献项目已失联，原计划记录保留。')
+          if (active) { setSelectedProjectId(planningIntent.id); setLibraryView('papers') }
+        }
+      } catch (failure) { if (active) setGlobalError(failure instanceof Error ? failure.message : '关联跳转未完成') }
+    })()
+    return () => { active = false }
+  }, [planningIntent])
 
   // ─── 搜索 ────────────────────────────────────────────────────────
   const handleSearch = async () => {

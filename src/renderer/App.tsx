@@ -381,7 +381,7 @@ export default function App() {
       case 'overview':
         return <Overview onNavigate={handleNavigate} />
       case 'planning':
-        return <Suspense fallback={<p role="status" className="p-6">正在加载科研计划…</p>}><ResearchPlanning key={activeSpaceId ?? 'no-space'} /></Suspense>
+        return <Suspense fallback={<p role="status" className="p-6">正在加载科研计划…</p>}><ResearchPlanning key={activeSpaceId ?? 'no-space'} onNavigate={handleNavigate} /></Suspense>
       case 'paper':
         return <Paper rightSidebarCollapsed={rightSidebarCollapsed} onToggleRightSidebar={toggleRightSidebar} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
       case 'library':

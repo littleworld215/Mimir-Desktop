@@ -6,6 +6,19 @@ export type PlanningKind = 'project' | 'direction' | 'todo' | 'schedule' | 'gene
 export type PlanningStatus = 'planned' | 'active' | 'paused' | 'done'
 export type PlanningPriority = 'none' | 'low' | 'medium' | 'high'
 export interface PlanningScope { workspaceId: string; spaceEpoch: string }
+export type PlanningHostKind = 'paper' | 'libraryProject' | 'experiment'
+export interface PlanningHostReference { id: string; name: string; exists: boolean }
+export type PlanningExportFormat = 'json' | 'markdown' | 'csv' | 'html'
+export interface PlanningImportOptions { strategy: 'skip' | 'copy' | 'update'; collections: Record<string, string> }
+export interface PlanningImportSelection {
+  importId: string; fileName: string; format: string; sha256: string; bytes: number; itemCount: number; typeCount: number; brokenReferenceCount: number
+  collections: { id: string; name: string; count: number }[]; warnings: string[]
+}
+export interface PlanningImportPreview extends PlanningState {
+  previewToken: string; counts: { added: number; updated: number; skipped: number; copied: number }; totalAfter: number
+  duplicates: { id: string; before: Pick<PlanningItem, 'title' | 'kind' | 'archived' | 'deleted' | 'updatedAt'>; incoming: Pick<PlanningItem, 'title' | 'kind' | 'archived' | 'deleted' | 'updatedAt'>; bodyChanged: boolean }[]
+}
+export interface PlanningExportPreview extends PlanningState { previewToken: string; format: PlanningExportFormat; sha256: string; bytes: number; itemCount: number; text: string }
 export interface PlanningCollection { id: string; name: string; order: number; deleted: boolean }
 export interface PlanningType { id: string; name: string; kind: PlanningKind; builtin: boolean; order: number; deleted: boolean }
 export interface PlanningField { id: string; name: string; value: string }
@@ -57,7 +70,17 @@ export interface PlanningApi {
   mutate(request: PlanningWrite & { command: PlanningCommand; preview?: boolean }): Promise<PlanningResult<PlanningState & { entityId?: string; affectedCount: number; preview: boolean }>>
   summary(request: { scope: PlanningScope; date: string; projectIds?: string[] }): Promise<PlanningResult<PlanningState & PlanningSummary>>
   calendar(request: { scope: PlanningScope; from: string; to: string; filter?: PlanningFilter }): Promise<PlanningResult<PlanningState & { total: number; days: { date: string; total: number; items: PlanningSummaryItem[] }[] }>>
+  drafts(request: { scope: PlanningScope }): Promise<PlanningResult<PlanningState & { drafts: PlanningDraft[] }>>
+  saveDraft(request: PlanningWrite & { draft: Omit<PlanningDraft, 'updatedAt'> }): Promise<PlanningResult<PlanningState & { draft: PlanningDraft }>>
+  removeDraft(request: PlanningWrite & { draftId: string }): Promise<PlanningResult<PlanningState>>
+  references(request: { scope: PlanningScope; kind: PlanningHostKind; keyword: string; page: number; ids?: string[] }): Promise<PlanningResult<{ scope: PlanningScope; items: PlanningHostReference[]; total: number; page: number; pageSize: 50 }>>
+  selectImport(request: { scope: PlanningScope }): Promise<PlanningResult<{ selection: PlanningImportSelection | null; canceled: boolean }>>
+  previewImport(request: PlanningWrite & { importId: string; options: PlanningImportOptions }): Promise<PlanningResult<PlanningImportPreview>>
+  applyImport(request: PlanningWrite & { importId: string; previewToken: string }): Promise<PlanningResult<PlanningState & { counts: PlanningImportPreview['counts'] }>>
+  importDifference(request: PlanningWrite & { importId: string; previewToken: string; itemId: string }): Promise<PlanningResult<{ before: PlanningItem; incoming: PlanningItem }>>
+  exportPreview(request: PlanningWrite & { format: PlanningExportFormat }): Promise<PlanningResult<PlanningExportPreview>>
+  saveExport(request: PlanningWrite & { previewToken: string }): Promise<PlanningResult<{ saved: boolean; canceled: boolean; fileName?: string }>>
 }
 export const PLANNING_CHANNELS: { [K in keyof PlanningApi]: `researchPlanning:${K}` } = {
-  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate', summary: 'researchPlanning:summary', calendar: 'researchPlanning:calendar'
+  bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate', summary: 'researchPlanning:summary', calendar: 'researchPlanning:calendar', drafts: 'researchPlanning:drafts', saveDraft: 'researchPlanning:saveDraft', removeDraft: 'researchPlanning:removeDraft', references: 'researchPlanning:references', selectImport: 'researchPlanning:selectImport', previewImport: 'researchPlanning:previewImport', applyImport: 'researchPlanning:applyImport', importDifference: 'researchPlanning:importDifference', exportPreview: 'researchPlanning:exportPreview', saveExport: 'researchPlanning:saveExport'
 }

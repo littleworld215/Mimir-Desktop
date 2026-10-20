@@ -1,5 +1,5 @@
 export type EvidenceLeaveChoice = 'save' | 'discard' | 'cancel'
-export interface EvidenceEditorSession { isDirty(): boolean; isBusy(): boolean; save(): Promise<boolean>; discard(): void }
+export interface EvidenceEditorSession { isDirty(): boolean; isBusy(): boolean; save(): Promise<boolean>; discard(): void | Promise<void> }
 import { requestAssetsLeave } from './assetsEditGuard'
 declare global { interface Window { mimirRequestEvidenceLeave?: (choice: EvidenceLeaveChoice) => Promise<boolean> } }
 const editors = new Set<EvidenceEditorSession>()
@@ -19,7 +19,7 @@ export async function requestEvidenceLeave(nativeChoice?: EvidenceLeaveChoice): 
     for (const e of dirty) {
       if (!editors.has(e)) continue
       if (e.isBusy()) return false
-      if (choice === 'discard') e.discard()
+      if (choice === 'discard') await e.discard()
       else if (!await e.save()) return false
     }
     return true

@@ -6,6 +6,42 @@ import { emptyPlanningDocument, emptyPlanningInput } from '../../../shared/resea
 import { hasEvidenceWork, requestEvidenceLeave } from '../../../src/lib/evidenceEditGuard'
 
 afterEach(cleanup)
+it('明确保留草稿并返回只持久化草稿，成功后才允许离开，不正式保存或清理草稿', async () => {
+  const defaults = emptyPlanningDocument(), scope = { workspaceId: 's', spaceEpoch: 'e' }, save = vi.fn(), onCancel = vi.fn(), removeDraft = vi.fn()
+  const saveDraft = vi.fn().mockResolvedValue({ ok: true, scope, revision: 1 })
+  window.electronAPI = { researchPlanning: { drafts: vi.fn().mockResolvedValue({ ok: true, scope, revision: 0, drafts: [] }), saveDraft, removeDraft } } as unknown as typeof window.electronAPI
+  render(<PlanningEditor initial={emptyPlanningInput('generic')} scope={scope} types={defaults.types} collections={defaults.collections} save={save} onSaved={vi.fn()} onCancel={onCancel} />)
+  fireEvent.change(screen.getByLabelText('正文'), { target: { value: ' \n待续内容\n' } })
+  fireEvent.click(screen.getByRole('button', { name: '保留草稿并返回' }))
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce())
+  expect(saveDraft).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled(); expect(removeDraft).not.toHaveBeenCalled()
+  expect(hasEvidenceWork()).toBe(false)
+})
+it('文献计划保留作者、年份、DOI、URL和阅读状态，不自动读取PDF', async () => {
+  const save = vi.fn().mockResolvedValue(undefined), defaults = emptyPlanningDocument()
+  render(<PlanningEditor initial={emptyPlanningInput('literature')} types={defaults.types} collections={defaults.collections} save={save} onSaved={vi.fn()} onCancel={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('标题'), { target: { value: '待读文献' } })
+  fireEvent.change(screen.getByLabelText('作者（每行一位）'), { target: { value: '甲\n乙' } })
+  fireEvent.change(screen.getByLabelText('发表年份'), { target: { value: '2026' } })
+  fireEvent.change(screen.getByLabelText('DOI'), { target: { value: '10.1000/example' } })
+  fireEvent.change(screen.getByLabelText('文献URL'), { target: { value: 'https://example.test/paper' } })
+  fireEvent.change(screen.getByLabelText('阅读状态'), { target: { value: 'reading' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存记录' }))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save.mock.calls[0]![0].literature).toEqual({ authors: ['甲', '乙'], year: 2026, doi: '10.1000/example', url: 'https://example.test/paper', readingState: 'reading', paperId: null })
+})
+it('编辑暂停后保存恢复草稿，自动保存不冒充正式保存；失败保留输入', async () => {
+  const defaults = emptyPlanningDocument(), scope = { workspaceId: 's', spaceEpoch: 'e' }
+  const saveDraft = vi.fn().mockResolvedValue({ ok: false, code: 'WRITE_FAILED', message: '恢复草稿磁盘失败' }), save = vi.fn()
+  window.electronAPI = { researchPlanning: { drafts: vi.fn().mockResolvedValue({ ok: true, scope, revision: 0, drafts: [] }), saveDraft, removeDraft: vi.fn() } } as unknown as typeof window.electronAPI
+  render(<PlanningEditor initial={emptyPlanningInput('generic')} scope={scope} types={defaults.types} collections={defaults.collections} save={save} onSaved={vi.fn()} onCancel={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('正文'), { target: { value: '\n  未命名草稿\n' } })
+  await waitFor(() => expect(saveDraft).toHaveBeenCalledOnce(), { timeout: 2000 })
+  expect(saveDraft.mock.calls[0]![0]).toMatchObject({ scope, expectedRevision: 0, draft: { itemId: null, baseRevision: 0, input: { title: '', content: '\n  未命名草稿\n' } } })
+  expect(await screen.findByText(/恢复草稿磁盘失败/)).toBeTruthy()
+  expect(screen.getByLabelText('正文')).toHaveProperty('value', '\n  未命名草稿\n')
+  expect(save).not.toHaveBeenCalled(); expect(hasEvidenceWork()).toBe(true)
+})
 it('保存失败保留标题与多行正文并聚焦反馈；重试成功后才清除未保存状态', async () => {
   const saved = vi.fn().mockRejectedValueOnce(Error('已有更新，请保留输入')).mockResolvedValue(undefined), closed = vi.fn(), defaults = emptyPlanningDocument()
   render(<PlanningEditor initial={emptyPlanningInput('project')} types={defaults.types} collections={defaults.collections} save={saved} onSaved={closed} onCancel={vi.fn()} />)

@@ -6,6 +6,49 @@ import { emptyPlanningDocument, emptyPlanningInput } from '../../../shared/resea
 import { hasEvidenceWork, requestEvidenceLeave } from '../../../src/lib/evidenceEditGuard'
 
 afterEach(cleanup)
+it('科研项目筛选不能使用会清理其他项目的整组已完成按钮', async () => {
+  const planning = api(), item = { ...emptyPlanningInput('project'), id: 'project-filter', title: '限定课题', createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' }
+  planning.list.mockImplementation(async request => ({ ok: true, ...state, items: request.filter.kind === 'project' ? [item] : [], total: request.filter.kind === 'project' ? 1 : 0, page: 1, pageSize: 50 }))
+  window.electronAPI = { researchPlanning: planning } as unknown as typeof window.electronAPI
+  render(<ResearchPlanning />)
+  await screen.findByRole('button', { name: '限定课题', exact: true })
+  fireEvent.click(screen.getByRole('button', { name: '待办', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: '按科研项目筛选', exact: true }))
+  fireEvent.click(await screen.findByRole('button', { name: '限定课题', exact: true }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '刷新列表' })).toHaveProperty('disabled', false))
+  expect(screen.getByRole('button', { name: '当前分组/类型已完成移入回收站' })).toHaveProperty('disabled', true)
+})
+it('列表标题支持方向键和Home/End定位，输入框不被抢走焦点', async () => {
+  const planning = api()
+  const items = ['第一条项目', '第二条项目'].map((title, index) => ({ ...emptyPlanningInput('project'), id: `p${index}`, title, createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' }))
+  planning.list.mockResolvedValue({ ok: true, ...state, items, total: 2, page: 1, pageSize: 50 })
+  window.electronAPI = { researchPlanning: planning } as unknown as typeof window.electronAPI
+  render(<ResearchPlanning />)
+  const first = await screen.findByRole('button', { name: '第一条项目', exact: true }), second = screen.getByRole('button', { name: '第二条项目', exact: true })
+  first.focus(); fireEvent.keyDown(first, { key: 'ArrowDown' }); expect(document.activeElement).toBe(second)
+  fireEvent.keyDown(second, { key: 'Home' }); expect(document.activeElement).toBe(first)
+  fireEvent.keyDown(first, { key: 'End' }); expect(document.activeElement).toBe(second)
+  const search = screen.getByLabelText('搜索科研计划'); search.focus(); fireEvent.keyDown(search, { key: 'ArrowDown' }); expect(document.activeElement).toBe(search)
+})
+it('恢复草稿先完整核对，明确采用当前修订后保存仍更新原记录', async () => {
+  const planning = api(), defaults = emptyPlanningDocument(), input = { ...emptyPlanningInput('generic'), title: '恢复内容', content: '\n  草稿原文\n' }
+  const draft = { id: 'draft-session', itemId: 'record', baseRevision: 0, input, updatedAt: '2026-10-21T00:00:00.000Z' }
+  planning.bootstrap.mockResolvedValue({ ok: true, ...state, revision: 2, total: 0, types: defaults.types, collections: defaults.collections })
+  planning.list.mockResolvedValue({ ok: true, ...state, revision: 2, items: [], total: 0, page: 1, pageSize: 50 })
+  planning.summary.mockResolvedValue({ ok: true, ...state, revision: 2, nextActions: {} })
+  const detail = vi.fn().mockResolvedValue({ ok: true, ...state, revision: 2, item: { ...input, id: 'record', title: '当前正式内容', content: '当前原文' } })
+  const drafts = vi.fn().mockResolvedValue({ ok: true, ...state, revision: 1, drafts: [draft] })
+  window.electronAPI = { researchPlanning: { ...planning, detail, drafts, saveDraft: vi.fn(), removeDraft: vi.fn().mockResolvedValue({ ok: true, ...state, revision: 2 }) } } as unknown as typeof window.electronAPI
+  render(<ResearchPlanning />)
+  fireEvent.click(await screen.findByRole('button', { name: '恢复编辑恢复内容' }))
+  expect(await screen.findByRole('dialog', { name: '核对恢复草稿' })).toBeTruthy()
+  expect(screen.getByText('当前原文')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '已核对，采用当前修订继续编辑', exact: true }))
+  expect(screen.getByLabelText('正文')).toHaveProperty('value', '\n  草稿原文\n')
+  fireEvent.click(screen.getByRole('button', { name: '保存记录' }))
+  await waitFor(() => expect(planning.save).toHaveBeenCalledOnce())
+  expect(planning.save.mock.calls[0]![0]).toMatchObject({ expectedRevision: 2, itemId: 'record', input: { title: '恢复内容' } })
+})
 const state = { revision: 0, scope: { workspaceId: 's', spaceEpoch: 'e' } }
 function api() {
   const defaults = emptyPlanningDocument()

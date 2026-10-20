@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { consumePlanningHostIntent, samePlanningHostScope } from '@/lib/planningHostNavigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -129,6 +130,7 @@ export function Experiments() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<ExperimentRecord | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [planningIntent] = useState(() => consumePlanningHostIntent('experiments'))
 
   // 表单状态
   const [formName, setFormName] = useState('')
@@ -138,6 +140,7 @@ export function Experiments() {
 
   // 加载实验与服务器列表
   useEffect(() => {
+    let active = true
     const load = async () => {
       try {
         if (window.electronAPI?.getStoreValue) {
@@ -145,8 +148,13 @@ export function Experiments() {
             window.electronAPI.getStoreValue<ExperimentRecord[]>('experiments:list'),
             window.electronAPI.getStoreValue<ServerOption[]>('servers:list')
           ])
+          if (!active) return
           if (expData) setExperiments(expData)
           if (serverData) setServers(serverData.map((s) => ({ id: s.id, name: s.name })))
+          if (planningIntent) {
+            const current = await window.electronAPI.researchPlanning.bootstrap({})
+            if (active && current.ok && samePlanningHostScope(current.scope, planningIntent.scope) && expData?.some(exp => exp.id === planningIntent.id)) setExpandedIds(new Set([planningIntent.id]))
+          }
         } else {
           const cached = localStorage.getItem('mimir-experiments')
           if (cached) setExperiments(JSON.parse(cached))
@@ -161,6 +169,7 @@ export function Experiments() {
       }
     }
     load()
+    return () => { active = false }
   }, [])
 
   // 持久化实验列表

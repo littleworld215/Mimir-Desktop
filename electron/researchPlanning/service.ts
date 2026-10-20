@@ -6,9 +6,11 @@ import { applyPlanningCommand } from './mutations'
 import { appendRecurringSuccessor } from './recurrence'
 import { filterPlanningItems, planningCalendar, planningItemOrder, planningSummary } from './views'
 import { localPlanningDate } from '../../shared/researchPlanningDates'
+import { getStoreValue } from '../library/store'
+import { validatePlanningReferences, type PlanningHostReader } from './references'
 
 export interface PlanningContext { scope: { id: string; epoch: string; root: string }; assertCurrent(): void; today?(): string }
-export function createPlanningService(ctx: PlanningContext) {
+export function createPlanningService(ctx: PlanningContext, readHost: PlanningHostReader = getStoreValue) {
   const repo = createPlanningRepository()
   const read = () => { ctx.assertCurrent(); return repo.read(ctx.scope.root) }
   const state = (revision: number) => ({ revision, scope: { workspaceId: ctx.scope.id, spaceEpoch: ctx.scope.epoch } })
@@ -36,6 +38,7 @@ export function createPlanningService(ctx: PlanningContext) {
       if (expectedRevision !== doc.revision) throw new PlanningError('CONFLICT', '已有更新，请保留输入并重新加载', doc.revision)
       const input = parsePlanningInput(value), previous = id === undefined ? undefined : doc.items.find(i => i.id === id)
       if (id !== undefined && !previous) throw new PlanningError('NOT_FOUND', '记录不存在')
+      validatePlanningReferences(readHost, input, previous)
       const now = new Date().toISOString(), item: PlanningItem = { ...input, ...(input.kind === 'todo' ? { status: input.done ? 'done' as const : input.status === 'done' ? 'active' as const : input.status } : {}), id: previous?.id ?? randomUUID(), createdAt: previous?.createdAt ?? now, updatedAt: now, ...(previous?.recurrenceParentId ? { recurrenceParentId: previous.recurrenceParentId } : {}) }
       const items = previous ? doc.items.map(i => i.id === item.id ? item : i) : [...doc.items, item]
       const document = { ...doc, revision: doc.revision + 1, items }

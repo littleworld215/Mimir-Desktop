@@ -87,7 +87,7 @@ test('科研计划：真实周/月日程、日期详情和总览跳转', async (
     for (const dark of [false, true]) {
       await page.evaluate(value => document.documentElement.classList.toggle('dark', value), dark)
       await page.setViewportSize({ width: 800, height: 1000 })
-      await page.screenshot({ path: join(directory, `batch3-calendar-${dark ? 'dark' : 'light'}-800.png`) })
+      await page.screenshot({ animations: 'disabled', path: join(directory, `batch3-calendar-${dark ? 'dark' : 'light'}-800.png`) })
     }
     await page.getByRole('button', { name: '周列表', exact: true }).click()
     await expect(page.getByRole('button', { name: '合成日程', exact: true })).toBeVisible()
