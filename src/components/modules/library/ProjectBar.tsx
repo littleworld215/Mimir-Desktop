@@ -10,8 +10,8 @@ interface ProjectBarProps {
   projects: ProjectRecord[]
   selectedProjectId: string | null
   onSelect: (id: string | null) => void
-  onCreate: (title: string, paperDir?: string) => Promise<void>
-  onRename: (id: string, title: string) => Promise<void>
+  onCreate: (title: string, paperDir?: string) => Promise<boolean>
+  onRename: (id: string, title: string) => Promise<boolean>
   onDelete: (id: string) => Promise<void>
 }
 
@@ -28,14 +28,19 @@ export function ProjectBar({
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   const submitCreate = async () => {
     if (!newTitle.trim() || busy) return
     setBusy(true)
+    setError('')
     try {
-      await onCreate(newTitle.trim())
-      setNewTitle('')
-      setCreating(false)
+      if (await onCreate(newTitle.trim())) {
+        setNewTitle('')
+        setCreating(false)
+      }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : '创建项目失败，请重试')
     } finally {
       setBusy(false)
     }
@@ -44,9 +49,11 @@ export function ProjectBar({
   const submitRename = async () => {
     if (!renamingId || !renameTitle.trim() || busy) return
     setBusy(true)
+    setError('')
     try {
-      await onRename(renamingId, renameTitle.trim())
-      setRenamingId(null)
+      if (await onRename(renamingId, renameTitle.trim())) setRenamingId(null)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : '重命名失败，请重试')
     } finally {
       setBusy(false)
     }
@@ -54,6 +61,7 @@ export function ProjectBar({
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
+      {error && <p role="alert" className="w-full text-xs text-destructive">{error}</p>}
       <button
         onClick={() => onSelect(null)}
         className={cn(
@@ -81,19 +89,21 @@ export function ProjectBar({
           {renamingId === project.id ? (
             <div className="flex items-center gap-1">
               <Input
+                aria-label="项目新名称"
+                disabled={busy}
                 value={renameTitle}
                 onChange={(e) => setRenameTitle(e.target.value)}
                 onKeyDown={(e) => {
                   if (isSubmitEnter(e)) submitRename()
-                  if (e.key === 'Escape') setRenamingId(null)
+                  if (e.key === 'Escape' && !busy) setRenamingId(null)
                 }}
                 className="h-6 w-28 text-[11px] px-1.5"
                 autoFocus
               />
-              <button onClick={submitRename} className="text-green-600 hover:text-green-700" title="保存">
+              <button disabled={busy} onClick={submitRename} className="text-green-600 hover:text-green-700" title="保存">
                 <Check className="h-3 w-3" />
               </button>
-              <button onClick={() => setRenamingId(null)} className="text-muted-foreground hover:text-foreground" title="取消">
+              <button disabled={busy} onClick={() => { setRenamingId(null); setError('') }} className="text-muted-foreground hover:text-foreground" title="取消">
                 <X className="h-3 w-3" />
               </button>
             </div>
@@ -109,7 +119,9 @@ export function ProjectBar({
               </button>
               <div className="hidden group-hover:flex items-center gap-0.5">
                 <button
+                  disabled={busy}
                   onClick={() => {
+                    setError('')
                     setRenamingId(project.id)
                     setRenameTitle(project.title)
                   }}
@@ -138,20 +150,21 @@ export function ProjectBar({
       {creating ? (
         <div className="flex items-center gap-1">
           <Input
+            disabled={busy}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => {
               if (isSubmitEnter(e)) submitCreate()
-              if (e.key === 'Escape') setCreating(false)
+              if (e.key === 'Escape' && !busy) setCreating(false)
             }}
             placeholder="项目名称"
             className="h-6 w-28 text-[11px] px-1.5"
             autoFocus
           />
-          <button onClick={submitCreate} className="text-green-600 hover:text-green-700" title="创建">
+          <button disabled={busy} onClick={submitCreate} className="text-green-600 hover:text-green-700" title="创建">
             <Check className="h-3 w-3" />
           </button>
-          <button onClick={() => setCreating(false)} className="text-muted-foreground hover:text-foreground" title="取消">
+          <button disabled={busy} onClick={() => { setCreating(false); setError('') }} className="text-muted-foreground hover:text-foreground" title="取消">
             <X className="h-3 w-3" />
           </button>
         </div>
@@ -160,7 +173,8 @@ export function ProjectBar({
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-          onClick={() => setCreating(true)}
+          disabled={busy}
+          onClick={() => { setCreating(true); setError('') }}
         >
           <FolderPlus className="h-3.5 w-3.5 mr-1" />
           新建项目

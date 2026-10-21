@@ -12,6 +12,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ProjectBar } from './ProjectBar'
+import { PaperMatchDialog } from './PaperMatchDialog'
+import { useWebPaperMatch } from './useWebPaperMatch'
 import { SearchPanel, type SearchSource } from './SearchPanel'
 import { SubscriptionsBar } from './SubscriptionsBar'
 import { PaperCard } from './PaperCard'
@@ -75,7 +77,9 @@ export function Library() {
     const res = await api.library.listProjects()
     if (res.ok && res.projects) {
       setProjects(res.projects as ProjectRecord[])
+      return true
     }
+    return false
   }, [])
 
   const loadPapers = useCallback(async () => {
@@ -98,6 +102,8 @@ export function Library() {
       setSubscriptions(res.subscriptions as ArxivSubscriptionView[])
     }
   }, [])
+
+  const webMatch = useWebPaperMatch(selectedProjectId, loadPapers, setGlobalError)
 
   useEffect(() => {
     loadProjects()
@@ -157,28 +163,18 @@ export function Library() {
 
   // ─── 论文操作 ────────────────────────────────────────────────────
   const handleImport = async (entry: ArxivEntry | WebSearchEntry) => {
-    if ('id' in entry) {
-      const res = await api.library.importPaper(entry, selectedProjectId ?? undefined)
-      if (res.ok) {
-        await loadPapers()
-      } else {
-        setGlobalError(res.message || '导入失败')
-      }
-    } else {
-      // Web 结果：尝试用标题搜索 arXiv 后导入
-      const res = await api.library.searchArxiv(entry.title, 1)
-      if (res.ok && res.entries && (res.entries as ArxivEntry[]).length > 0) {
-        const arxivEntry = (res.entries as ArxivEntry[])[0]
-        const importRes = await api.library.importPaper(arxivEntry, selectedProjectId ?? undefined)
-        if (importRes.ok) {
+    try {
+      if ('id' in entry) {
+        const res = await api.library.importPaper(entry, selectedProjectId ?? undefined)
+        if (res.ok) {
           await loadPapers()
         } else {
-          setGlobalError(importRes.message || '导入失败')
+          setGlobalError(res.message || '导入失败')
         }
       } else {
-        setGlobalError('未能在 arXiv 找到对应论文，请直接打开网页查看')
+        await webMatch.begin(entry)
       }
-    }
+    } catch (failure) { setGlobalError(failure instanceof Error ? failure.message : '导入失败') }
   }
 
   const handleRemove = async (arxivId: string) => {
@@ -273,25 +269,32 @@ export function Library() {
 
   // ─── 项目操作 ────────────────────────────────────────────────────
   const handleCreateProject = async (title: string) => {
-    if (!await requestEvidenceLeave()) return
+    if (!await requestEvidenceLeave()) return false
     const res = await api.library.createProject(title)
     if (res.ok) {
-      await loadProjects()
+      // 写入已确认成功，刷新失败不能让编辑器提示重试创建。
+      try {
+        if (!await loadProjects()) setGlobalError('项目已创建，列表刷新失败，请重新打开文献库')
+      } catch { setGlobalError('项目已创建，列表刷新失败，请重新打开文献库') }
       if (res.project) {
         setSelectedProjectId((res.project as ProjectRecord).id)
       }
     } else {
       setGlobalError(res.message || '创建项目失败')
     }
+    return res.ok
   }
 
   const handleRenameProject = async (id: string, title: string) => {
     const res = await api.library.updateProject(id, { title })
     if (res.ok) {
-      await loadProjects()
+      try {
+        if (!await loadProjects()) setGlobalError('项目已重命名，列表刷新失败，请重新打开文献库')
+      } catch { setGlobalError('项目已重命名，列表刷新失败，请重新打开文献库') }
     } else {
       setGlobalError(res.message || '重命名失败')
     }
+    return res.ok
   }
 
   const handleDeleteProject = async (id: string) => {
@@ -520,6 +523,16 @@ export function Library() {
       </div>
 
       {/* PDF 阅读器 */}
+      {webMatch.match && <PaperMatchDialog
+        key={webMatch.match.generation}
+        source={webMatch.match.source}
+        candidates={webMatch.match.candidates}
+        trigger={webMatch.match.trigger}
+        busy={webMatch.busy}
+        error={webMatch.error}
+        onClose={webMatch.close}
+        onConfirm={webMatch.confirm}
+      />}
       {readerPaper && (
         <PaperReader
           key={`${readerPaper.arxivId}:${readerTab}`}

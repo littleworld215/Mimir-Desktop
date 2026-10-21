@@ -151,7 +151,7 @@ export function SearchPanel({
                           ? 'text-primary hover:text-destructive'
                           : 'text-muted-foreground/50 hover:text-muted-foreground'
                       )}
-                      title={isSaved ? '已导入（点击移除）' : isArxivEntry(entry) ? '导入文献库' : '按标题匹配 arXiv 并导入'}
+                      title={isSaved ? '已导入（点击移除）' : isArxivEntry(entry) ? '导入文献库' : '按标题查找论文候选并核对'}
                     >
                       {importing === key ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />

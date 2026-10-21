@@ -7,6 +7,7 @@ export interface ArxivEntry {
   summary: string
   published: string
   url: string
+  source?: 'openalex' | 'semantic-scholar' | 'arxiv'
 }
 
 export interface WebSearchEntry {
