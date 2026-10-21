@@ -39,6 +39,7 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
   const [selected, setSelected] = useState<string[]>([]), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const sequence = useRef(0), detailSequence = useRef(0), working = useRef(false), lastFocus = useRef<HTMLElement | null>(null), errorRef = useRef<HTMLParagraphElement>(null)
   const quickInput = useRef(quickTitle), quickSaver = useRef<() => Promise<boolean>>(async () => false)
+  const exchangeTrigger = useRef<HTMLButtonElement>(null), exchangeReturnFocus = useRef<Metadata | null>(null)
   quickInput.current = quickTitle; quickSaver.current = quickAdd
   useEffect(() => registerEvidenceEditor({ isDirty: () => quickInput.current.length > 0, isBusy: () => working.current, save: () => quickSaver.current(), discard: () => { quickInput.current = ''; setQuickTitle('') } }), [])
   useResearchBusy(busy || recovery !== null || deleteDraft !== null || exchangeOpen || projectFilterPicker)
@@ -98,6 +99,9 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
   useEffect(() => { if (editing || manager || recovery || deleteDraft || exchangeOpen || projectFilterPicker) return; void reload(); return () => { sequence.current++ } }, [reload, editing, manager, recovery, deleteDraft, exchangeOpen, projectFilterPicker])
   useEffect(() => { if (error) errorRef.current?.focus() }, [error])
   const locked = busy || loading || editing !== null || recovery !== null || deleteDraft !== null || exchangeOpen || projectFilterPicker
+  // Closing re-reads the list and temporarily disables its entry. Restore only
+  // after that new metadata snapshot is ready, not before the loading render.
+  useEffect(() => { if (exchangeReturnFocus.current && !locked && meta && meta !== exchangeReturnFocus.current) { exchangeReturnFocus.current = null; exchangeTrigger.current?.focus() } }, [locked, meta])
   const noticeConsumed = useRef(false)
   useEffect(() => {
     if (!intent?.itemId || noticeConsumed.current || !meta || locked) return
@@ -204,11 +208,11 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
     </article>
   }
   return <div className="h-full overflow-y-auto bg-background p-4 text-foreground sm:p-6"><div className="mx-auto max-w-7xl space-y-4">
-    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button variant="outline" disabled={locked || !meta || manager || hasQuickInput} onClick={() => setExchangeOpen(true)}>导入与导出</Button><Button variant="outline" disabled={locked || !meta || hasQuickInput} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager || hasQuickInput || trash} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
+    <header className="flex flex-wrap items-center gap-3"><div className="mr-auto"><h1 className="module-title text-xl font-semibold">科研计划</h1><p className="text-xs text-muted-foreground">当前科研空间内的人工规划 · 不自动执行Agent任务</p></div><Button ref={exchangeTrigger} variant="outline" disabled={locked || !meta || manager || hasQuickInput} onClick={() => setExchangeOpen(true)}>导入与导出</Button><Button variant="outline" disabled={locked || !meta || hasQuickInput} onClick={() => setManager(true)}>分组与类型</Button><Button disabled={locked || !meta || manager || hasQuickInput || trash} onClick={() => begin()}>新建{PLANNING_KIND_LABELS[kind]}</Button></header>
     <nav className="flex flex-wrap gap-2" aria-label="计划内容">{(['project', 'direction', 'todo', 'schedule', 'generic', 'literature'] as const).map(id => <Button key={id} variant={id === kind ? 'default' : 'outline'} disabled={locked || manager || hasQuickInput} onClick={() => changeKind(id)}>{PLANNING_KIND_LABELS[id]}</Button>)}</nav>
     {error && <div className="space-y-2"><p role="alert" ref={errorRef} tabIndex={-1} className="text-sm text-destructive">{error}</p><Button variant="outline" disabled={busy} onClick={() => { void reload() }}>重试加载</Button></div>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
-    {exchangeOpen && meta && <Suspense fallback={<p role="status">正在准备交换窗口…</p>}><PlanningExchange scope={meta.scope} revision={meta.revision} collections={meta.collections} onClose={() => setExchangeOpen(false)} onApplied={message => { setExchangeOpen(false); setNotice(message) }} /></Suspense>}
+    {exchangeOpen && meta && <Suspense fallback={<p role="status">正在准备交换窗口…</p>}><PlanningExchange scope={meta.scope} revision={meta.revision} collections={meta.collections} onClose={() => { exchangeReturnFocus.current = meta; setExchangeOpen(false) }} onApplied={message => { exchangeReturnFocus.current = meta; setExchangeOpen(false); setNotice(message) }} /></Suspense>}
     {projectFilterPicker && meta && <PlanningLinkPicker scope={meta.scope} kind="project" onPick={id => { setProjectFilterId(id); setPage(1) }} onClose={() => setProjectFilterPicker(false)} />}
     {!editing && !manager && drafts.length > 0 && <details className="rounded border border-border p-3"><summary className="cursor-pointer text-sm">恢复草稿（{drafts.length}）· 尚未正式保存</summary><div className="mt-2 space-y-2">{drafts.map(draft => <div key={draft.id} className="flex flex-wrap items-center gap-2 text-sm"><span className="min-w-0 break-words">{draft.input.title || '未命名草稿'} · {draft.updatedAt}</span><Button size="sm" variant="outline" aria-label={`恢复编辑${draft.input.title || '未命名草稿'}`} disabled={locked || hasQuickInput} onClick={() => { void reviewDraft(draft) }}>恢复编辑</Button><Button size="sm" variant="outline" aria-label={`删除恢复草稿${draft.input.title || '未命名草稿'}`} disabled={locked || hasQuickInput} onClick={() => setDeleteDraft(draft.id)}>删除恢复草稿</Button></div>)}</div></details>}
     {deleteDraft && <section role="alertdialog" aria-label="确认删除恢复草稿" className="rounded border border-destructive p-3"><p>仅删除所选恢复草稿，未正式保存的内容将无法恢复。正式记录保留。</p><div className="mt-2 flex gap-2"><Button variant="destructive" disabled={busy} onClick={() => { void discardDraft() }}>确认删除所选草稿</Button><Button variant="outline" disabled={busy} onClick={() => setDeleteDraft(null)}>保留草稿</Button></div></section>}

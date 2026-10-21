@@ -66,7 +66,7 @@ test('科研计划：正常退出后同profile新进程恢复草稿，正式保�
 test('科研计划：文献项目、实验与文献标识关联及原生模块跳转', async () => {
   test.setTimeout(180_000)
   const stamp = '2026-10-21T00:00:00.000Z'
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => ({ ...seed, spaceData: { 'library:projects': [{ id: 'library-project', title: '文献课题', createdAt: stamp, updatedAt: stamp }], 'experiments:list': [{ id: 'exp', name: '合成实验', status: 'success', metrics: { accuracy: 0.9 }, updatedAt: stamp }], 'library:papers': [{ arxivId: 'doi:10.1000/synthetic', title: '合成文献', authors: ['合成作者'], summary: '合成摘要', url: '', notes: '', tags: [], projectIds: [], addedAt: stamp }] } }) })
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => ({ ...seed, spaceData: { 'library:projects': [{ id: 'library-project', title: '文献课题', createdAt: stamp, updatedAt: stamp }], 'experiments:list': [{ id: 'exp', name: '合成实验', status: 'success', metrics: { accuracy: 0.9 }, updatedAt: stamp }], 'library:papers': { 'doi:10.1000/synthetic': { arxivId: 'doi:10.1000/synthetic', title: '合成文献', authors: ['合成作者'], summary: '合成摘要', url: '', notes: '[2026-10-21 09:00]\n字典中的原始阅读笔记', tags: [], projectIds: [], addedAt: stamp } } } }) })
   try {
     const { page } = ctx
     await gotoModule(page, 'planning')
@@ -94,6 +94,7 @@ test('科研计划：文献项目、实验与文献标识关联及原生模块�
     await page.getByRole('button', { name: '保存记录', exact: true }).click()
     await page.getByRole('button', { name: '打开关联文献', exact: true }).click()
     await expect(page.getByRole('dialog').getByText('合成文献', { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole('dialog').getByText('字典中的原始阅读笔记', { exact: true })).toBeVisible()
   } finally { await ctx.cleanup() }
 })
 

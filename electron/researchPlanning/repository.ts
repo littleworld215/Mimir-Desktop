@@ -1,4 +1,5 @@
-import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { isUtf8 } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { assertPlanningBytes, emptyPlanningDocument, parsePlanningDocument, parsePlanningDrafts, parsePlanningDeliveries, PlanningError } from './validation'
@@ -35,9 +36,17 @@ function store<T extends { schemaVersion: 1; revision: number }>(name: Filename,
       fd = openSync(path, 'r'); const opened = fstatSync(fd)
       if (!same(entry, opened) || !opened.isFile()) throw new PlanningError('SOURCE_UNAUTHORIZED', '读取期间来源变化')
       assertPlanningBytes(opened.size)
-      const bytes = readFileSync(fd); assertPlanningBytes(bytes.length)
+      // Never let a concurrently growing file turn a bounded JSON read into an
+      // unbounded allocation; the extra byte detects growth before parsing.
+      const buffer = Buffer.alloc(opened.size + 1)
+      let length = 0
+      while (length < buffer.length) { const count = readSync(fd, buffer, length, buffer.length - length, null); if (!count) break; length += count }
+      const after = fstatSync(fd), bytes = buffer.subarray(0, length)
+      if (length !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) throw new PlanningError('SOURCE_UNAUTHORIZED', '读取期间来源变化')
+      if (!isUtf8(bytes)) throw new PlanningError('CORRUPT_DATA', '计划JSON不是有效UTF-8，原字节保留')
       pathFor(root, name)
-      if (!same(opened, stat(path))) throw new PlanningError('SOURCE_UNAUTHORIZED', '读取期间来源变化')
+      const current = stat(path)
+      if (!same(opened, current) || current!.size !== after.size || current!.mtimeMs !== after.mtimeMs || current!.ctimeMs !== after.ctimeMs) throw new PlanningError('SOURCE_UNAUTHORIZED', '读取期间来源变化')
       return parse(JSON.parse(bytes.toString('utf8')))
     } catch (error) {
       if (error instanceof PlanningError) throw error

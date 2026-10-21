@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createPlanningRepository } from '../../../electron/researchPlanning/repository'
 import { emptyPlanningDocument, parsePlanningDocument } from '../../../electron/researchPlanning/validation'
+import { emptyPlanningInput } from '../../../shared/researchPlanningDefaults'
 
 const roots: string[] = []
 function fixture() { const root = mkdtempSync(join(tmpdir(), 'mimir-planning-')); roots.push(root); return root }
@@ -55,6 +56,14 @@ it('16MiB以上文件明确拒绝，不截断或覆盖', () => {
   expect(() => repo.commit(root, 1, { ...next(), revision: 2 })).toThrow(/LIMIT_EXCEEDED/)
   expect(statSync(path).size).toBe(16 * 1024 * 1024 + 1)
 })
+it('无效UTF8不能静默变为替代字符并在后续保存中覆盖原字节', () => {
+  const root = fixture(), repo = createPlanningRepository(), doc = next(); doc.collections[0]!.name = 'X'; repo.commit(root, 0, doc)
+  const path = join(root, '.mimir/planning/planning.json'), bytes = readFileSync(path), marker = Buffer.from('"name":"X"'), position = bytes.indexOf(marker)
+  expect(position).toBeGreaterThanOrEqual(0)
+  bytes[position + Buffer.byteLength('"name":"')] = 0xff; writeFileSync(path, bytes)
+  expect(() => repo.read(root)).toThrow(/CORRUPT_DATA/)
+  expect(readFileSync(path)).toEqual(bytes)
+})
 it('被替换的外来临时文件不得发布或清理', () => {
   const root = fixture(), repo = createPlanningRepository(); repo.commit(root, 0, next())
   const folder = join(root, '.mimir/planning'), original = readFileSync(join(folder, 'planning.json'))
@@ -69,4 +78,12 @@ it('严格拒绝重复ID、非法关联、未知字段和较新版本', () => {
   expect(() => parsePlanningDocument({ ...doc, schemaVersion: 2 })).toThrow(/UNSUPPORTED_VERSION/)
   expect(() => parsePlanningDocument({ ...doc, collections: [...doc.collections, doc.collections[0]] })).toThrow()
   expect(() => parsePlanningDocument({ ...doc, hidden: true })).toThrow()
+})
+it('周期来源不能形成较长环；一万条有效历史链使用迭代检查而非递归', () => {
+  const doc = next(), date = '2026-10-21T00:00:00.000Z'
+  const item = { ...emptyPlanningInput('todo'), title: '周期历史', createdAt: date, updatedAt: date }
+  doc.items = [{ ...item, id: 'a', recurrenceParentId: 'b' }, { ...item, id: 'b', recurrenceParentId: 'a' }]
+  expect(() => parsePlanningDocument(doc)).toThrow(/CORRUPT_DATA/)
+  doc.items = Array.from({ length: 10_000 }, (_, i) => ({ ...item, id: `item${i}`, ...(i ? { recurrenceParentId: `item${i - 1}` } : {}) })).reverse()
+  expect(parsePlanningDocument(doc).items).toHaveLength(10_000)
 })

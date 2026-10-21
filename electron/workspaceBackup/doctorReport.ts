@@ -32,6 +32,7 @@ import { listResidualStagingRoots, scanResiduals } from './doctorResidual'
 // 归档目录收口为共享常量（I6 批次 3.5 · T01）：与 maintenanceMain / retention 同一事实源。
 import { archiveDirectory } from './directories'
 import { inspectResearchIntegrity } from '../library/research/integrity'
+import { inspectPlanningIntegrity } from '../researchPlanning/integrity'
 
 /** 汇总计数形状（`DoctorReport.summary` 的具名别名，供 `summarize` 返回值标注）。 */
 export type DoctorSummary = DoctorReport['summary']
@@ -211,6 +212,12 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   for (const space of researchSpaces ?? []) {
+    const planning = inspectPlanningIntegrity(space.path)
+    checks.push({ id: 'PLANNING_INTEGRITY', title: '科研计划完整性',
+      severity: planning.state === 'invalid' || planning.state === 'unsupported' ? 'error' : planning.state === 'warning' ? 'warning' : planning.state === 'unused' ? 'notice' : 'ok',
+      detail: `${redactText(space.name || space.id)}：${planning.state === 'unused' ? '尚未使用科研计划；如预期已有资料请核对备份' : planning.state === 'valid' ? '业务、草稿和提醒可解析' : planning.code ?? '存在失联关联，原记录保留'}；记录${planning.itemCount}，草稿${planning.draftCount}，提醒${planning.deliveryCount}，未解析${planning.unresolvedCount}。`,
+      facts: { items: planning.itemCount, drafts: planning.draftCount, deliveries: planning.deliveryCount, unresolved: planning.unresolvedCount }
+    })
     const result = inspectResearchIntegrity(space.path)
     const name = redactText(space.name || space.id)
     checks.push({

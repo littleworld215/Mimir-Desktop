@@ -58,6 +58,16 @@ export function parsePlanningDocument(value: unknown): PlanningDocument {
   }
   const parents = doc.items.flatMap(i => i.recurrenceParentId ? [i.recurrenceParentId] : [])
   if (new Set(parents).size !== parents.length) throw new PlanningError('CORRUPT_DATA', '同一任务重复派生下一期')
+  const resolved = new Set<string>()
+  for (const value of doc.items) {
+    const chain = new Set<string>()
+    let id: string | undefined = value.id
+    while (id && !resolved.has(id)) {
+      if (chain.has(id)) throw new PlanningError('CORRUPT_DATA', '周期历史来源形成循环')
+      chain.add(id); id = items.get(id)?.recurrenceParentId
+    }
+    for (const visited of chain) resolved.add(visited)
+  }
   return doc
 }
 export { emptyPlanningDocument, emptyPlanningInput } from '../../shared/researchPlanningDefaults'
