@@ -1,5 +1,9 @@
 # I10：科研计划整合进度
 
+## 2026-10-21后续修复
+
+2026-10-21 I10后续：普通编辑器保存/取消后按记录标识等待列表刷新并恢复焦点，记录被筛走时回退新建入口。专项13/13、完整2077通过/9既有跳过、类型及构建exit0，开发Electron4/4零重试。新目录包19/19零重试、exit0；配置/profile/旧快捷方式保护完成，真实空间备份被两个残留写锁阻止，等待用户隔离许可，日常安装尚未更新。本节优先于下方六批交付时的历史Minor状态。没有新增独立运行QA；系统人工验收保持。
+
 2026-10-20，状态：开发中，尚未完整交付。参考固定[Research-Workbench da1366ef](https://github.com/Layman-art/Research-Workbench/tree/da1366ef63966139325850f245770412ba6fb2a5)，MIT；当前独立适配重写，未直接复制其代码。来源项目[S-013/D-075与六批范围](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I10.md)。
 
 | 批次 | 状态 |
