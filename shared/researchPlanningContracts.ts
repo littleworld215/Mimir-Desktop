@@ -8,6 +8,14 @@ export type PlanningPriority = 'none' | 'low' | 'medium' | 'high'
 export interface PlanningScope { workspaceId: string; spaceEpoch: string }
 export type PlanningHostKind = 'paper' | 'libraryProject' | 'experiment'
 export interface PlanningHostReference { id: string; name: string; exists: boolean }
+export interface PlanningBackgroundInput { tray: boolean; startup: boolean; reminders: boolean }
+export interface PlanningBackgroundPreferences extends PlanningBackgroundInput { schemaVersion: 1; revision: number }
+export interface PlanningBackgroundState {
+  preferences: PlanningBackgroundPreferences; trayAvailable: boolean; trayActive: boolean; startupAvailable: boolean; startupRegistered: boolean | null; notificationsAvailable: boolean
+  reminderStatus?: { checkedAt: string | null; delivered: number; pending: number; errorCode: string | null }
+}
+export const PLANNING_NOTICE_CHANNEL = 'researchPlanning:openNotice'
+export interface PlanningNoticeTarget { scope: PlanningScope; itemId: string }
 export type PlanningExportFormat = 'json' | 'markdown' | 'csv' | 'html'
 export interface PlanningImportOptions { strategy: 'skip' | 'copy' | 'update'; collections: Record<string, string> }
 export interface PlanningImportSelection {
@@ -63,6 +71,8 @@ export type PlanningCommand =
   | { kind: 'completeTodo'; id: string; done: boolean }
   | { kind: 'planTodoDay'; id: string; date: string | null }
 export interface PlanningApi {
+  background(request: { scope: PlanningScope }): Promise<PlanningResult<{ state: PlanningBackgroundState }>>
+  saveBackground(request: { scope: PlanningScope; expectedRevision: number; input: PlanningBackgroundInput }): Promise<PlanningResult<{ state: PlanningBackgroundState }>>
   bootstrap(request: Record<string, never>): Promise<PlanningResult<PlanningState & { collections: PlanningCollection[]; types: PlanningType[]; total: number }>>
   list(request: { scope: PlanningScope; filter: PlanningFilter; page: number }): Promise<PlanningResult<PlanningState & { items: PlanningItem[]; total: number; page: number; pageSize: 50 }>>
   detail(request: { scope: PlanningScope; itemId: string }): Promise<PlanningResult<PlanningState & { item: PlanningItem }>>
@@ -82,5 +92,6 @@ export interface PlanningApi {
   saveExport(request: PlanningWrite & { previewToken: string }): Promise<PlanningResult<{ saved: boolean; canceled: boolean; fileName?: string }>>
 }
 export const PLANNING_CHANNELS: { [K in keyof PlanningApi]: `researchPlanning:${K}` } = {
+  background: 'researchPlanning:background', saveBackground: 'researchPlanning:saveBackground',
   bootstrap: 'researchPlanning:bootstrap', list: 'researchPlanning:list', detail: 'researchPlanning:detail', save: 'researchPlanning:save', mutate: 'researchPlanning:mutate', summary: 'researchPlanning:summary', calendar: 'researchPlanning:calendar', drafts: 'researchPlanning:drafts', saveDraft: 'researchPlanning:saveDraft', removeDraft: 'researchPlanning:removeDraft', references: 'researchPlanning:references', selectImport: 'researchPlanning:selectImport', previewImport: 'researchPlanning:previewImport', applyImport: 'researchPlanning:applyImport', importDifference: 'researchPlanning:importDifference', exportPreview: 'researchPlanning:exportPreview', saveExport: 'researchPlanning:saveExport'
 }

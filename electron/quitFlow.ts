@@ -2,6 +2,7 @@
 export function createQuitFlow(deps: { hasWindow: () => boolean; closeWindow: () => void; shutdown: () => Promise<void>; quit: () => void }) {
   let requested = false, shuttingDown = false, finished = false
   return {
+    isQuitting: () => requested || shuttingDown || finished,
     beforeQuit(event: { preventDefault(): void }) {
       if (finished) return
       event.preventDefault()

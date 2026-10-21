@@ -4,8 +4,23 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { ResearchPlanning } from '../../../src/components/modules/planning/ResearchPlanning'
 import { emptyPlanningDocument, emptyPlanningInput } from '../../../shared/researchPlanningDefaults'
 import { hasEvidenceWork, requestEvidenceLeave } from '../../../src/lib/evidenceEditGuard'
+import { rememberPlanningIntent } from '../../../src/lib/planningNavigation'
 
 afterEach(cleanup)
+it('当前代际通知直接打开不在当前页的待办，旧代际通知不读取详情', async () => {
+  const planning = api(), item = { ...emptyPlanningInput('todo'), id: 'not-on-page', title: '通知指定的待办', createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' }
+  const detail = vi.fn().mockResolvedValue({ ok: true, ...state, item })
+  window.electronAPI = { researchPlanning: { ...planning, detail } } as unknown as typeof window.electronAPI
+  rememberPlanningIntent({ workspaceId: state.scope.workspaceId, spaceEpoch: state.scope.spaceEpoch, kind: 'todo', todoView: 'all', itemId: item.id })
+  const view = render(<ResearchPlanning />)
+  expect(await screen.findByLabelText('标题')).toHaveProperty('value', item.title)
+  expect(detail).toHaveBeenCalledWith({ scope: state.scope, itemId: item.id })
+  view.unmount(); detail.mockClear()
+  rememberPlanningIntent({ workspaceId: state.scope.workspaceId, spaceEpoch: 'old', kind: 'todo', itemId: item.id })
+  render(<ResearchPlanning />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '刷新列表' })).toHaveProperty('disabled', false))
+  expect(detail).not.toHaveBeenCalled()
+})
 it('科研项目筛选不能使用会清理其他项目的整组已完成按钮', async () => {
   const planning = api(), item = { ...emptyPlanningInput('project'), id: 'project-filter', title: '限定课题', createdAt: '2026-10-21T00:00:00.000Z', updatedAt: '2026-10-21T00:00:00.000Z' }
   planning.list.mockImplementation(async request => ({ ok: true, ...state, items: request.filter.kind === 'project' ? [item] : [], total: request.filter.kind === 'project' ? 1 : 0, page: 1, pageSize: 50 }))

@@ -19,14 +19,26 @@ let root: string, current = true, closed = false
 let importPath: string | undefined, exportPath: string | undefined, beforeExport: (() => Promise<void>) | undefined
 const sender = Object.assign(new EventEmitter(), { mainFrame: {}, isDestroyed: () => closed })
 const event = { sender, senderFrame: sender.mainFrame }, scope = { workspaceId: 'space', spaceEpoch: 'epoch' }
+const backgroundState = { preferences: { schemaVersion: 1 as const, revision: 0, tray: false, startup: false, reminders: false }, trayAvailable: true, trayActive: false, startupAvailable: false, startupRegistered: null, notificationsAvailable: true }
+const background = { get: vi.fn(() => backgroundState), save: vi.fn((_expected: number, _input: unknown, assertCurrent: () => void) => { assertCurrent(); return backgroundState }) }
 beforeEach(() => {
+  background.get.mockClear(); background.save.mockClear()
   handlers.clear(); current = true; closed = false; importPath = undefined; exportPath = undefined; beforeExport = undefined
   root = mkdtempSync(join(tmpdir(), 'mimir-planning-'))
   const runtime = createPlanningRuntime({ gate: new WorkspaceOperationGate(), capture: () => ({ id: current ? 'space' : 'another', epoch: 'epoch', root }) })
-  registerResearchPlanningHandlers({ windowRef: { current: { webContents: sender, isDestroyed: () => closed } as unknown as BrowserWindow }, runtime, selectImportPath: async () => importPath, selectExportPath: async () => { await beforeExport?.(); return exportPath } })
+  registerResearchPlanningHandlers({ windowRef: { current: { webContents: sender, isDestroyed: () => closed } as unknown as BrowserWindow }, runtime, background, selectImportPath: async () => importPath, selectExportPath: async () => { await beforeExport?.(); return exportPath } })
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 const call = (name: keyof typeof PLANNING_CHANNELS, input: unknown, supplied: unknown = event) => handlers.get(PLANNING_CHANNELS[name])!(supplied, input)
+it('后台偏好仅主窗口当前代际可读写，拒绝路径、额外设置和旧空间，不能修改模型配置', async () => {
+  expect(await call('background', { scope })).toMatchObject({ ok: true, state: backgroundState })
+  const input = { tray: false, startup: false, reminders: true }
+  expect(await call('saveBackground', { scope, expectedRevision: 0, input })).toMatchObject({ ok: true })
+  expect(background.save).toHaveBeenCalledOnce()
+  for (const request of [{ scope, expectedRevision: 0, input: { ...input, apiKey: 'forbidden' } }, { scope, expectedRevision: 0, input, path: 'C:/arbitrary' }, { scope: { ...scope, spaceEpoch: 'old' }, expectedRevision: 0, input }]) expect(await call('saveBackground', request)).toMatchObject({ ok: false })
+  expect(await call('saveBackground', { scope, expectedRevision: 0, input }, { sender, senderFrame: {} })).toMatchObject({ ok: false })
+  expect(background.save).toHaveBeenCalledOnce()
+})
 it('固定白名单接口；启动不收路径，列表必须有当前scope', async () => {
   expect([...handlers.keys()].sort()).toEqual(Object.values(PLANNING_CHANNELS).sort())
   expect(await call('bootstrap', {})).toMatchObject({ ok: true, revision: 0, total: 0, scope })

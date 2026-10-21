@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +13,9 @@ import {
 import { FolderOpen, Loader2, Plus, Monitor, Moon, Sun, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sidebar, type ModuleId } from '@/components/layout/Sidebar'
-import { getSettingsSession } from '@/lib/settingsGuard'
+import { allowSettingsLeave } from '@/lib/settingsGuard'
+import { followPlanningNotice } from '@/lib/planningNoticeNavigation'
+import { rememberPlanningIntent } from '@/lib/planningNavigation'
 import { requestResearchLeave } from '@/lib/evidenceEditGuard'
 import { EvidenceLeaveDialog } from '@/components/modules/library/evidence/EvidenceLeaveDialog'
 import { AssetsLeaveDialog } from '@/components/modules/assets/AssetsLeaveDialog'
@@ -45,6 +47,8 @@ interface SpaceView {
 
 export default function App() {
   const [activeModule, setActiveModule] = useState<ModuleId>('chat')
+  const [planningNoticeVersion, setPlanningNoticeVersion] = useState(0), [planningNoticeError, setPlanningNoticeError] = useState('')
+  const noticeBusy = useRef(false)
   const [theme, setTheme] = useState('system')
   /** 本机基础信息里已有的模型摘要（引导里用于「已导入」提示与预填）。 */
   const [basicModels, setBasicModels] = useState<{ count: number; name: string }>({ count: 0, name: '' })
@@ -115,12 +119,7 @@ export default function App() {
       if (!await requestResearchLeave()) return
       // 与「切换模块」的离开守卫一致：在设置页且存在未保存更改时先询问保存，
       // 否则空间切换会重挂载主内容并静默丢弃设置编辑。
-      const session = getSettingsSession()
-      if (session !== null && session.isDirty()) {
-        const proceed = window.confirm('设置存在尚未保存的更改，是否保存后再切换科研空间？\n\n「确定」= 保存并切换；「取消」= 留在当前空间')
-        if (!proceed) return
-        await session.save()
-      }
+      if (!await allowSettingsLeave(() => window.confirm('设置存在尚未保存的更改，是否保存后再切换科研空间？\n\n「确定」= 保存并切换；「取消」= 留在当前空间'))) return
       const res = await api.switch(id)
       if (res.ok) {
         // 先做空间数据缓存收尾（会话 flush / 上下文作废），再推进 uiSpaceEpoch。
@@ -225,16 +224,21 @@ export default function App() {
     async (id: ModuleId) => {
       if (id === activeModule) return
       if (!await requestResearchLeave()) return
-      const session = getSettingsSession()
-      if (session !== null && session.isDirty()) {
-        const proceed = window.confirm('设置存在尚未保存的更改，是否保存后再切换？\n\n「确定」= 保存并切换；「取消」= 留在设置页')
-        if (!proceed) return
-        await session.save()
-      }
+      if (!await allowSettingsLeave()) return
       setActiveModule(id)
     },
     [activeModule]
   )
+
+  useEffect(() => window.electronAPI?.onPlanningNotice?.(target => {
+    if (noticeBusy.current) return
+    noticeBusy.current = true; setPlanningNoticeError('')
+    void followPlanningNotice(target, {
+      bootstrap: async () => { const api = window.electronAPI?.researchPlanning; if (!api) throw Error('桌面接口不可用'); return api.bootstrap({}) },
+      canLeave: async () => await requestResearchLeave() && await allowSettingsLeave(),
+      open: intent => { rememberPlanningIntent(intent); setPlanningNoticeVersion(v => v + 1); setActiveModule('planning') }
+    }).catch(() => setPlanningNoticeError('待办提醒未能打开，当前输入已保留。可在科研计划中查找该待办。')).finally(() => { noticeBusy.current = false })
+  }), [])
 
   // 跨模块「交给 Agent」：各模块 handoffToAgent() 后跳转到 Chat（经同一离开守卫）
   useEffect(() => {
@@ -381,7 +385,7 @@ export default function App() {
       case 'overview':
         return <Overview onNavigate={handleNavigate} />
       case 'planning':
-        return <Suspense fallback={<p role="status" className="p-6">正在加载科研计划…</p>}><ResearchPlanning key={activeSpaceId ?? 'no-space'} onNavigate={handleNavigate} /></Suspense>
+        return <Suspense fallback={<p role="status" className="p-6">正在加载科研计划…</p>}><ResearchPlanning key={`${activeSpaceId ?? 'no-space'}/${planningNoticeVersion}`} onNavigate={handleNavigate} /></Suspense>
       case 'paper':
         return <Paper rightSidebarCollapsed={rightSidebarCollapsed} onToggleRightSidebar={toggleRightSidebar} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
       case 'library':
@@ -429,6 +433,7 @@ export default function App() {
         onManageSpaces={() => handleNavigate('settings')}
       />
       <main className="relative flex-1 overflow-hidden">
+        {planningNoticeError && <p role="alert" className="relative z-10 bg-background p-3 text-destructive">{planningNoticeError}<Button variant="ghost" onClick={() => setPlanningNoticeError('')}>关闭提示</Button></p>}
         {/* 背景图 + 明暗遮罩（可读性），位于各模块内容之后 */}
         {wallpaper !== null && (
           <>

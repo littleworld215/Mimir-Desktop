@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, protocol, net, dialog, ipcMain } from 'electron'
+import { startPlanningBackground, stopPlanningBackground, shouldKeepPlanningWindow } from './researchPlanning/background'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { is } from '@electron-toolkit/utils'
@@ -86,6 +87,7 @@ if (!singleInstanceLock) {
     const win = mainWindow
     if (win !== null && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
+      win.show()
       win.focus()
     }
   })
@@ -161,6 +163,12 @@ function createWindow(): void {
 
   windowRef.current = mainWindow
 
+  mainWindow.on('close', event => {
+    if (maintenanceHandoff?.state !== 'idle' && maintenanceHandoff?.state !== undefined || quitFlow.isQuitting()) return
+    try { if (shouldKeepPlanningWindow()) { event.preventDefault(); mainWindow?.hide() } }
+    catch { /* An unreadable preference must leave normal close/unsaved checks in control. */ }
+  })
+
   mainWindow.webContents.on('will-prevent-unload', event => {
     if (!mainWindow) return
     const closingWindow = mainWindow
@@ -233,7 +241,7 @@ app.on('activate', () => {
   if (!singleInstanceLock) return
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
-  }
+  } else { mainWindow?.show(); mainWindow?.focus() }
 })
 
 app.whenReady().then(async () => {
@@ -354,6 +362,7 @@ app.whenReady().then(async () => {
     // Agent 轮次/工具/委派、资产 AI 的模型请求与发布、会议刷新定时器各自持有 supervisor；
     // 任一失败都会抛出，从而不授予交接（这是「失败交接」语义的落点）。
     stopProducers: async () => {
+      await stopPlanningBackground()
       await stopVenueDeadlineLoop()
       await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait(), stopEvidenceTasksAndWait(), stopResearchTasksAndWait(), stopPlanningTasksAndWait()])
     },
@@ -383,6 +392,9 @@ app.whenReady().then(async () => {
   })
 
   createWindow()
+  if (process.platform === 'win32') app.setAppUserModelId('com.mimir.desktop')
+  try { startPlanningBackground({ window: () => mainWindow, iconPath: join(__dirname, 'planning-icon.png') }) }
+  catch { log.warn('[planning-background] 后台初始化未完成；保持窗口可见，请检查科研计划设置') }
   if (process.argv.includes('--assets-mcp')) {
     const approve = createExternalApproval({ window: () => mainWindow, currentScope: () => assetsStoreManager.context(),
       preview: request => externalApprovalPreview(request, scope => assetsStoreManager.getForRequest(scope)),
@@ -493,6 +505,7 @@ const quitFlow = createQuitFlow({
   closeWindow: () => mainWindow?.close(),
   quit: () => app.quit(),
   shutdown: async () => {
+    try { await stopPlanningBackground() } catch { log.warn('[planning-background] 后台关闭失败，已等待任务收口') }
     // 等待真实证据读取结束；取消不提前释放任务或空间写锁。
     try { await stopEvidenceTasksAndWait() } catch { log.warn('[evidence] 退出时任务失败，已等待实际任务收口') }
     try { await stopResearchTasksAndWait() } catch { log.warn('[research] 退出时任务失败，已等待实际任务收口') }

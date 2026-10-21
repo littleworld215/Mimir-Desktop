@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks'
 import { captureWorkspaceOperation } from '../library/store'
 import { workspaceOperationGate, type OperationScope, type WorkspaceOperationGate } from '../workspaceBackup/operationGate'
 import { WorkspaceTaskSupervisor } from '../workspaceBackup/taskSupervisor'
@@ -6,9 +7,11 @@ import type { PlanningContext } from './service'
 
 export function createPlanningRuntime(options: { gate: WorkspaceOperationGate; capture(): OperationScope }) {
   const supervisor = new WorkspaceTaskSupervisor(options.gate, options.capture)
+  // Created at module initialization, outside IPC/control leases. Only trusted native
+  // producers may start fresh work; renderer requests retain their original lease.
+  const detached = new AsyncResource('planning-background')
   let accepting = true
-  return {
-    run: async <T>(fn: (ctx: PlanningContext) => Promise<T>, controller = new AbortController()): Promise<T> => {
+  const run = async <T>(fn: (ctx: PlanningContext) => Promise<T>, controller = new AbortController()): Promise<T> => {
       if (!accepting) throw new PlanningError('MAINTENANCE_BLOCKED', '科研计划入口已停止')
       const scope = { ...(options.gate.current() ?? options.capture()) }
       return supervisor.run(async signal => {
@@ -22,8 +25,11 @@ export function createPlanningRuntime(options: { gate: WorkspaceOperationGate; c
         assertCurrent()
         return fn({ scope, assertCurrent })
       }, controller)
-    },
-    stop: async () => { accepting = false; await supervisor.stop() }
+    }
+  return {
+    run,
+    runFresh: <T>(fn: (ctx: PlanningContext) => Promise<T>, controller = new AbortController()): Promise<T> => detached.runInAsyncScope(() => run(fn, controller)),
+    stop: async () => { accepting = false; try { await supervisor.stop() } finally { detached.emitDestroy() } }
   }
 }
 export type PlanningRuntime = ReturnType<typeof createPlanningRuntime>

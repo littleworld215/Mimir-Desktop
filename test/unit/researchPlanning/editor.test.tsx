@@ -64,6 +64,8 @@ it('输入法CtrlEnter不保存；自定义字段可保留空值，分栏预览�
   expect(screen.getByLabelText('字段1值')).toHaveProperty('value', '')
   fireEvent.change(screen.getByLabelText('正文'), { target: { value: '<img src="https://example.test/pixel">\n\n# 标题' } })
   fireEvent.click(screen.getByRole('button', { name: '分栏预览' }))
+  // Wait for the real lazy module graph; cold transforms may exceed DOM's default 1s.
+  await act(async () => { await vi.dynamicImportSettled() })
   await waitFor(() => expect(screen.getByRole('heading', { name: '标题' })).toBeTruthy())
   expect(document.querySelector('img')).toBeNull()
 })

@@ -28,3 +28,11 @@ export function registerSettingsSession(next: SettingsSession | null): void {
 export function getSettingsSession(): SettingsSession | null {
   return session
 }
+
+/** A resolved save may still have failed internally. Recheck dirtiness before leaving. */
+export async function allowSettingsLeave(confirm: () => boolean = () => window.confirm('设置存在尚未保存的更改，是否保存后再切换？\n\n「确定」= 保存并切换；「取消」= 留在设置页')) {
+  const current = session
+  if (!current?.isDirty()) return true
+  if (!confirm()) return false
+  try { await current.save(); return session === current && !current.isDirty() } catch { return false }
+}

@@ -25,3 +25,19 @@ it('维护停止等待已接受操作真正结束，取消不会提前释放空�
   expect(gate.pendingCount).toBe(0)
   await expect(runtime.run(async () => {})).rejects.toMatchObject({ code: 'MAINTENANCE_BLOCKED' })
 })
+it('可信后台新任务不继承已结束请求的代际，但不能绕过维护闸门或复活旧请求', async () => {
+  const gate = new WorkspaceOperationGate()
+  let scope = { id: 'old', epoch: 'old-epoch', root: 'synthetic-old' }
+  const runtime = createPlanningRuntime({ gate, capture: () => scope })
+  let stale!: () => Promise<string>, fresh!: () => Promise<string>
+  await runtime.run(async () => {
+    stale = gate.bind(() => runtime.run(async ctx => ctx.scope.id))
+    fresh = gate.bind(() => runtime.runFresh(async ctx => { ctx.assertCurrent(); return ctx.scope.id }))
+  })
+  scope = { id: 'new', epoch: 'new-epoch', root: 'synthetic-new' }
+  await expect(stale()).rejects.toThrow(/已结束/)
+  expect(await fresh()).toBe('new')
+  gate.stopAccepting()
+  await expect(fresh()).rejects.toThrow()
+  await runtime.stop()
+})

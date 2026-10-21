@@ -11,6 +11,7 @@ import {
 } from '../library/store'
 import type { AssertRendererPath } from './guards'
 import { assetsStoreManager } from '../assets/store'
+import { planningBackgroundSpaceChanged } from '../researchPlanning/background'
 
 /** 科研空间：列表 / 创建 / 重命名 / 移除 / 切换 / 设默认（`workspaces:*`）。 */
 export function registerWorkspacesHandlers(deps: { assertRendererPath: AssertRendererPath }): void {
@@ -47,6 +48,7 @@ export function registerWorkspacesHandlers(deps: { assertRendererPath: AssertRen
     }
     try {
       const workspace = createWorkspace(name, target)
+      planningBackgroundSpaceChanged()
       return { ok: true, workspace: { ...workspace } }
     } catch (error) {
       // 空间注册是全局写 + 空间层缓存的两步：失败不得假装成功（半切换对资产库是写错库）。
@@ -88,6 +90,7 @@ export function registerWorkspacesHandlers(deps: { assertRendererPath: AssertRen
       if (getActiveWorkspace()?.id !== workspace.id) {
         return { ok: false, message: '切换未生效：科研空间指针与内存状态不一致，请重启应用后重试。', inconsistent: true }
       }
+      planningBackgroundSpaceChanged()
       return { ok: true, workspace: { ...workspace } }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : '切换科研空间失败', inconsistent: true }

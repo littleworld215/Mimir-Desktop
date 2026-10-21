@@ -60,7 +60,7 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
       if (!bootstrap.ok) throw Error(bootstrap.message)
       if (intent && !checkedIntent.current) {
         checkedIntent.current = true
-        if (intent.workspaceId !== bootstrap.scope.workspaceId) { setKind('project'); setTodoView('today'); setAnchor(localPlanningDate()) }
+        if (intent.workspaceId !== bootstrap.scope.workspaceId || intent.spaceEpoch && intent.spaceEpoch !== bootstrap.scope.spaceEpoch) { setKind('project'); setTodoView('today'); setAnchor(localPlanningDate()) }
       }
       const queryFilter = { ...filter }
       let queryPage = page
@@ -98,6 +98,12 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
   useEffect(() => { if (editing || manager || recovery || deleteDraft || exchangeOpen || projectFilterPicker) return; void reload(); return () => { sequence.current++ } }, [reload, editing, manager, recovery, deleteDraft, exchangeOpen, projectFilterPicker])
   useEffect(() => { if (error) errorRef.current?.focus() }, [error])
   const locked = busy || loading || editing !== null || recovery !== null || deleteDraft !== null || exchangeOpen || projectFilterPicker
+  const noticeConsumed = useRef(false)
+  useEffect(() => {
+    if (!intent?.itemId || noticeConsumed.current || !meta || locked) return
+    noticeConsumed.current = true
+    if (intent.workspaceId === meta.scope.workspaceId && intent.spaceEpoch === meta.scope.spaceEpoch) void openItem(intent.itemId, true)
+  }, [intent, meta, locked])
   const hasQuickInput = quickTitle.length > 0
   function closeEditor() { setEditing(null); setTimeout(() => { if (lastFocus.current?.isConnected) lastFocus.current.focus() }, 0) }
   function begin(item?: PlanningItem, override?: Partial<PlanningInput>) {
@@ -107,7 +113,7 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
     const input = item ? inputOf(item) : { ...emptyPlanningInput(kind), ...(collectionId ? { collectionId } : {}), ...(typeId ? { typeId } : {}), ...(kind === 'todo' ? { myDay: todoView === 'today' ? localPlanningDate() : null, important: todoView === 'important' } : {}), ...(kind === 'schedule' ? { schedule: { date: selectedDay ?? anchor, start: null, end: null } } : {}), ...override }
     setEditing({ input, itemId: item?.id, scope: meta.scope, revision: meta.revision, draftId: crypto.randomUUID() })
   }
-  async function openItem(id: string) {
+  async function openItem(id: string, fromNotice = false) {
     if (!meta || locked) return
     const request = ++detailSequence.current, listing = sequence.current
     lastFocus.current = document.activeElement as HTMLElement
@@ -115,6 +121,7 @@ export function ResearchPlanning({ onNavigate }: { onNavigate?(id: 'library' | '
       const result = await planningApi().detail({ scope: meta.scope, itemId: id })
       if (request !== detailSequence.current || listing !== sequence.current) return
       if (!result.ok) throw Error(result.message)
+      if (fromNotice && result.item.deleted) throw Error('提醒所指待办已移入回收站，请在回收站中核对')
       setEditing({ input: inputOf(result.item), itemId: id, scope: result.scope, revision: result.revision, draftId: crypto.randomUUID() })
     } catch (failure) { if (request === detailSequence.current) setError(errorMessage(failure)) }
   }

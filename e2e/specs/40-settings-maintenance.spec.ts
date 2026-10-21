@@ -26,7 +26,7 @@ test('设置未保存时禁止进入维护，取消确认不关闭工作台', as
 
 test('取消原生关闭可再次进入；交接完成时写锁已释放且没有并行普通退出', async ({}, testInfo) => {
   const executablePath = process.env.MIMIR_E2E_PACKAGED
-  const ctx = await launchApp({ executablePath })
+  const ctx = await launchApp({ executablePath, transformSeed: seed => ({ ...seed, settings: { ...seed.settings, researchPlanningBackground: { schemaVersion: 1, revision: 1, tray: true, startup: false, reminders: false } } }) })
   let primaryFailure: unknown
   let maintenance: ElectronApplication | undefined
   try {

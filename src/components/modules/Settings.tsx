@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { registerSettingsSession } from '@/lib/settingsGuard'
+import { requestResearchLeave } from '@/lib/evidenceEditGuard'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
@@ -51,6 +52,7 @@ import { SettingsObservabilityCard } from './settings/SettingsObservability'
 import { SkillsDialogs } from './settings/SkillsDialogs'
 import { ModelDialog } from './settings/ModelDialog'
 import { SettingsBackupCard } from './settings/SettingsBackup'
+import { SettingsPlanningCard } from './settings/SettingsPlanning'
 
 interface ModelConfig {
   id: string
@@ -148,13 +150,14 @@ interface SettingsProps {
 }
 
 // ─── 设置分页 ────────────────────────────────────────────────────────────────
-type SettingsTab = 'models' | 'appearance' | 'agent' | 'permissions' | 'spaces' | 'resources' | 'about'
+type SettingsTab = 'models' | 'appearance' | 'agent' | 'permissions' | 'spaces' | 'planning' | 'resources' | 'about'
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ElementType; desc: string }[] = [
   { id: 'models', label: '模型', icon: Bot, desc: '管理可用的 LLM 模型配置与图像生成端点，点击选择当前使用的模型。' },
   { id: 'appearance', label: '外观', icon: Palette, desc: '选择应用主题与工作台背景。' },
   { id: 'agent', label: 'Agent', icon: Sparkles, desc: '技能路由、身份与默认值、长期记忆等 Agent 行为设置。' },
   { id: 'permissions', label: '权限与安全', icon: ShieldCheck, desc: '沙箱档位、已记住的免批准目录，以及 Agent 的文件访问审计日志。' },
   { id: 'spaces', label: '科研空间', icon: FolderKanban, desc: '每个科研空间是一个独立目录，承载论文、实验、图表、组会与对话等数据。' },
+  { id: 'planning', label: '科研计划', icon: Settings2, desc: '显式开启提醒、托盘驻留和开机启动，三项默认关闭。' },
   { id: 'resources', label: '语音与资源', icon: Mic, desc: '语音识别引擎与本地组件资源下载。' },
   { id: 'about', label: '关于', icon: Info, desc: '应用信息。' }
 ]
@@ -418,7 +421,10 @@ export function Settings({ autoOpenModelDialog = 0, guided = false, onModelStepD
       }
       setSaved(true)
       // 落盘成功后同步基线，避免保存完仍被判定为未保存
-      setBaselineKey(JSON.stringify({ models, selectedModelId, theme, speechEngine, imageGen, wallpaper }))
+      const persistedKey = JSON.stringify({ models, selectedModelId, theme, speechEngine, imageGen, wallpaper })
+      setBaselineKey(persistedKey)
+      // Leave guard resumes before React necessarily commits the state update.
+      dirtyRef.current = snapshotRef.current !== persistedKey
       onThemeSaved?.(theme)
       // 通知 App 立即刷新工作台背景（无需切模块）
       window.dispatchEvent(new Event('mimir:settings-saved'))
@@ -477,6 +483,7 @@ export function Settings({ autoOpenModelDialog = 0, guided = false, onModelStepD
     [models, selectedModelId, theme, speechEngine, imgGenBaseUrl, imgGenModelId, imgGenApiKey, wallpaperPath, wallpaperDim]
   )
   const dirty = baselineKey !== null && baselineKey !== snapshotKey
+  const snapshotRef = useRef(snapshotKey); snapshotRef.current = snapshotKey
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   const handleSaveRef = useRef(handleSave)
@@ -940,7 +947,7 @@ export function Settings({ autoOpenModelDialog = 0, guided = false, onModelStepD
             <button
               key={t.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => { if (t.id !== tab) void requestResearchLeave().then(allowed => { if (allowed) setTab(t.id) }) }}
               className={cn(
                 'flex h-7 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium transition-colors',
                 tab === t.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -1260,6 +1267,7 @@ export function Settings({ autoOpenModelDialog = 0, guided = false, onModelStepD
 
           {/* Permissions Section：沙箱档位 + 已记住目录 + 审计日志 */}
           {tab === 'permissions' && <SettingsPermissionsCard />}
+          {tab === 'planning' && <SettingsPlanningCard />}
 
           {/* Research Space Section */}
           {tab === 'spaces' && (<section className="space-y-3">

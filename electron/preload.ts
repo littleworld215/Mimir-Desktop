@@ -4,7 +4,7 @@ import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
 import { EVIDENCE_CHANNELS, type EvidenceApi } from '../shared/libraryEvidenceContracts'
 import { RESEARCH_CHANNELS, type ResearchApi } from '../shared/libraryResearchContracts'
-import { PLANNING_CHANNELS, type PlanningApi } from '../shared/researchPlanningContracts'
+import { PLANNING_CHANNELS, PLANNING_NOTICE_CHANNEL, type PlanningApi, type PlanningNoticeTarget } from '../shared/researchPlanningContracts'
 import { WORKSPACE_MAINTENANCE_ENTRY_CHANNEL, type WorkspaceMaintenanceEntryApi } from '../shared/workspaceBackupContracts'
 
 /**
@@ -122,6 +122,7 @@ export interface ElectronAPI {
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
   researchPlanning: PlanningApi
+  onPlanningNotice: (callback: (target: PlanningNoticeTarget) => void) => () => void
   workspaceBackup: WorkspaceMaintenanceEntryApi
 
   // Agent
@@ -458,6 +459,8 @@ let streamCallSeq = 0
 const electronAPI: ElectronAPI = {
   workspaceBackup: { enterMaintenance: () => ipcRenderer.invoke(WORKSPACE_MAINTENANCE_ENTRY_CHANNEL) },
   researchPlanning: {
+    background: req => ipcRenderer.invoke(PLANNING_CHANNELS.background, req),
+    saveBackground: req => ipcRenderer.invoke(PLANNING_CHANNELS.saveBackground, req),
     bootstrap: req => ipcRenderer.invoke(PLANNING_CHANNELS.bootstrap, req),
     list: req => ipcRenderer.invoke(PLANNING_CHANNELS.list, req),
     detail: req => ipcRenderer.invoke(PLANNING_CHANNELS.detail, req),
@@ -475,6 +478,11 @@ const electronAPI: ElectronAPI = {
     importDifference: req => ipcRenderer.invoke(PLANNING_CHANNELS.importDifference, req),
     exportPreview: req => ipcRenderer.invoke(PLANNING_CHANNELS.exportPreview, req),
     saveExport: req => ipcRenderer.invoke(PLANNING_CHANNELS.saveExport, req)
+  },
+  onPlanningNotice: callback => {
+    const listener = (_event: unknown, target: PlanningNoticeTarget) => callback(target)
+    ipcRenderer.on(PLANNING_NOTICE_CHANNEL, listener)
+    return () => { ipcRenderer.removeListener(PLANNING_NOTICE_CHANNEL, listener) }
   },
   libraryResearch: {
     overview: req => ipcRenderer.invoke(RESEARCH_CHANNELS.overview, req),

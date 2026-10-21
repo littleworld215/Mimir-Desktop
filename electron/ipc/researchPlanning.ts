@@ -12,6 +12,8 @@ import { createPlanningExchangeService } from '../researchPlanning/exchangeServi
 import { readSelectedPlanningFile, writeSelectedPlanningExport } from '../researchPlanning/exchangeFiles'
 import { planningCommandSchema } from '../researchPlanning/mutations'
 import { planningDate, planningDraftWriteSchema, planningId, planningInputSchema, planningRevision, planningScopeSchema, PlanningError } from '../researchPlanning/validation'
+import { planningBackgroundInputSchema } from '../researchPlanning/backgroundPreferences'
+import { planningBackground } from '../researchPlanning/background'
 
 const filterSchema = z.object({
   keyword: z.string().max(4000).optional(), kind: planningInputSchema.shape.kind.optional(), typeId: planningId.optional(), collectionId: planningId.optional(),
@@ -19,6 +21,8 @@ const filterSchema = z.object({
   deleted: z.boolean().optional(), important: z.boolean().optional(), done: z.boolean().optional(), myDay: planningDate.optional(), dateFrom: planningDate.optional(), dateTo: planningDate.optional(), dueBefore: planningDate.optional(), priority: planningInputSchema.shape.priority.optional()
 }).strict().refine(f => !f.dateFrom || !f.dateTo || f.dateFrom <= f.dateTo)
 const schemas = {
+  background: z.object({ scope: planningScopeSchema }).strict(),
+  saveBackground: z.object({ scope: planningScopeSchema, expectedRevision: planningRevision, input: planningBackgroundInputSchema }).strict(),
   bootstrap: z.object({}).strict(),
   list: z.object({ scope: planningScopeSchema, filter: filterSchema, page: z.number().int().min(1).max(1_000_000) }).strict(),
   detail: z.object({ scope: planningScopeSchema, itemId: planningId }).strict(),
@@ -39,6 +43,7 @@ const schemas = {
 }
 interface Options {
   windowRef: { current: BrowserWindow | null }; runtime?: PlanningRuntime
+  background?: typeof planningBackground
   selectImportPath?(win: BrowserWindow): Promise<string | undefined>
   selectExportPath?(win: BrowserWindow, format: PlanningExportFormat): Promise<string | undefined>
 }
@@ -51,7 +56,7 @@ async function nativeExportPath(win: BrowserWindow, format: PlanningExportFormat
   const result = await dialog.showSaveDialog(win, { title: '将科研计划保存为新文件', defaultPath: `Mimir-planning-${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}.${extension}`, filters: [{ name: `科研计划${format}`, extensions: [extension] }] })
   return result.canceled ? undefined : result.filePath
 }
-export function registerResearchPlanningHandlers({ windowRef, runtime = planningRuntime, selectImportPath = nativeImportPath, selectExportPath = nativeExportPath }: Options) {
+export function registerResearchPlanningHandlers({ windowRef, runtime = planningRuntime, background = planningBackground, selectImportPath = nativeImportPath, selectExportPath = nativeExportPath }: Options) {
   const exchange = createPlanningExchangeService(), watched = new WeakSet<object>()
   for (const name of Object.keys(schemas) as (keyof typeof schemas)[]) {
     ipcMain.handle(PLANNING_CHANNELS[name], async (event: IpcMainInvokeEvent, value: unknown) => {
@@ -70,6 +75,8 @@ export function registerResearchPlanningHandlers({ windowRef, runtime = planning
             if (scope.workspaceId !== ctx.scope.id || scope.spaceEpoch !== ctx.scope.epoch) throw new PlanningError('SPACE_CHANGED', '科研空间已变化，请保留输入并重新打开')
           }
           const service = createPlanningService(ctx)
+          if (name === 'background') return { ok: true, state: background.get() }
+          if (name === 'saveBackground') { const r = schemas.saveBackground.parse(value); return { ok: true, state: background.save(r.expectedRevision, r.input, ctx.assertCurrent) } }
           if (name === 'selectImport') {
             const path = await selectImportPath(win)
             ctx.assertCurrent()

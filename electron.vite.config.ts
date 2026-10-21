@@ -49,7 +49,14 @@ const BUNDLE_INSTEAD_OF_EXTERNAL = [
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: BUNDLE_INSTEAD_OF_EXTERNAL })],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLE_INSTEAD_OF_EXTERNAL }), {
+      name: 'planning-tray-icon',
+      generateBundle() {
+        // ?asset emits a CommonJS __dirname wrapper which this ESM entry cannot use.
+        // All main chunks stay in out/main; include the icon there in dev and ASAR.
+        this.emitFile({ type: 'asset', fileName: 'planning-icon.png', source: readFileSync(resolve(__dirname, 'build/icon.png')) })
+      }
+    }],
     build: {
       rollupOptions: {
         input: {
