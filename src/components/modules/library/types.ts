@@ -78,6 +78,9 @@ export interface ZoteroItem {
 /** 搜索结果统一视图（arXiv 或 Web） */
 export type SearchResult = ArxivEntry | WebSearchEntry
 
+/** 明确区分业务保存失败与已保存，编辑器不能把正常返回当作成功。 */
+export interface PaperSaveResult { ok: boolean; message?: string }
+
 export function isArxivEntry(entry: SearchResult): entry is ArxivEntry {
   return 'id' in entry && 'published' in entry
 }
@@ -87,17 +90,21 @@ export function pdfUrlOf(arxivId: string): string {
   return `mimir-pdf://paper/${encodeURIComponent(arxivId)}.pdf`
 }
 
-/** 解析 notes 中的带时间戳阅读笔记 */
-export function parseReadingNotes(notes: string): { at: string; text: string }[] {
-  const entries: { at: string; text: string }[] = []
-  const header = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\n/
-  for (const block of notes.split(/\n{2,}/)) {
-    const match = header.exec(block)
-    if (match === null || match[1] === undefined) continue
-    entries.push({ at: match[1], text: block.slice(match[0].length) })
+/** 只派生显示数据，保留自由笔记前缀及每条记录内部的全部空行。 */
+export function readingNotesView(notes: string): { plain: string; entries: { at: string; text: string }[] } {
+  const headers = [...notes.matchAll(/(?:^|\n{2,})\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\n/g)]
+  if (!headers.length) return { plain: notes, entries: [] }
+  return {
+    plain: notes.slice(0, headers[0]!.index),
+    entries: headers.map((header, index) => ({
+      at: header[1]!,
+      text: notes.slice(header.index! + header[0].length, headers[index + 1]?.index ?? notes.length)
+    }))
   }
-  return entries
 }
+
+/** 保留原有调用契约；每条记录现在包含完整多段正文。 */
+export function parseReadingNotes(notes: string): { at: string; text: string }[] { return readingNotesView(notes).entries }
 
 /** 追加一条带时间戳的阅读笔记 */
 export function appendReadingNote(notes: string, text: string, now: Date): string {

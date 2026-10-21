@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -20,8 +20,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { isSubmitEnter } from '@/lib/keyboard'
-import type { PaperRecord, ProjectRecord } from './types'
-import { formatDate, parseReadingNotes } from './types'
+import type { PaperRecord, PaperSaveResult, ProjectRecord } from './types'
+import { usePaperEditGuard } from './usePaperEditGuard'
+import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
+import { formatDate, readingNotesView } from './types'
 
 interface PaperCardProps {
   paper: PaperRecord
@@ -32,7 +34,7 @@ interface PaperCardProps {
     tags?: string[]
     projectIds?: string[]
     notes?: string
-  }) => Promise<void>
+  }) => Promise<PaperSaveResult>
   onRemove: (arxivId: string) => void
   onDownloadPdf: (arxivId: string) => Promise<void>
   onOpenPdf: (paper: PaperRecord) => void
@@ -67,29 +69,60 @@ export function PaperCard({
   const [scoring, setScoring] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [togglingProject, setTogglingProject] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const savingRef = useRef(false)
 
   const relevance = selectedProjectId ? paper.relevance?.[selectedProjectId] : undefined
-  const readingNotes = parseReadingNotes(paper.notes)
+  const { plain: plainNotes, entries: readingNotes } = readingNotesView(paper.notes)
 
-  const saveTags = async () => {
-    const tags = tagText.split(',').map((t) => t.trim()).filter(Boolean)
-    await onUpdate({ arxivId: paper.arxivId, tags })
-    setEditingTags(false)
+  const notesDirty = editingNotes && noteText !== paper.notes
+  const tagsDirty = editingTags && tagText !== paper.tags.join(', ')
+  const discard = () => {
+    setNoteText(paper.notes); setTagText(paper.tags.join(', '))
+    setEditingNotes(false); setEditingTags(false); setSaveError('')
   }
-
-  const saveNotes = async () => {
-    await onUpdate({ arxivId: paper.arxivId, notes: noteText })
-    setEditingNotes(false)
+  const persist = async (mode: 'notes' | 'tags' | 'all'): Promise<boolean> => {
+    if (savingRef.current) return false
+    const notes = mode === 'notes' || (mode === 'all' && notesDirty)
+    const tags = mode === 'tags' || (mode === 'all' && tagsDirty)
+    if (!notes && !tags) return true
+    savingRef.current = true
+    setSaving(true); setSaveError('')
+    try {
+      const result = await onUpdate({
+        arxivId: paper.arxivId,
+        ...(notes ? { notes: noteText } : {}),
+        ...(tags ? { tags: tagText.split(',').map(t => t.trim()).filter(Boolean) } : {})
+      })
+      if (!result.ok) { setSaveError(result.message || '保存失败，输入已保留'); return false }
+      if (notes) setEditingNotes(false)
+      if (tags) setEditingTags(false)
+      return true
+    } catch (failure) {
+      setSaveError(failure instanceof Error ? failure.message : '保存失败，输入已保留')
+      return false
+    } finally { savingRef.current = false; setSaving(false) }
   }
+  usePaperEditGuard({ isDirty: () => notesDirty || tagsDirty, isBusy: () => savingRef.current || togglingProject,
+    save: () => persist('all'), discard })
 
   const toggleProject = async (projectId: string) => {
-    setTogglingProject(true)
+    if (savingRef.current) return
+    if (projectId === selectedProjectId && paper.projectIds.includes(projectId) && !await requestEvidenceLeave()) return
+    if (savingRef.current) return
+    savingRef.current = true
+    setTogglingProject(true); setSaveError('')
     try {
       const next = paper.projectIds.includes(projectId)
         ? paper.projectIds.filter((id) => id !== projectId)
         : [...paper.projectIds, projectId]
-      await onUpdate({ arxivId: paper.arxivId, projectIds: next })
+      const result = await onUpdate({ arxivId: paper.arxivId, projectIds: next })
+      if (!result.ok) setSaveError(result.message || '关联更新失败')
+    } catch (failure) {
+      setSaveError(failure instanceof Error ? failure.message : '关联更新失败')
     } finally {
+      savingRef.current = false
       setTogglingProject(false)
     }
   }
@@ -269,6 +302,8 @@ export function PaperCard({
         </div>
       </div>
 
+      {saveError && <p role="alert" className="mt-2 text-xs text-destructive whitespace-pre-wrap">{saveError}</p>}
+      {saving && <p role="status" className="mt-2 text-xs text-muted-foreground">保存中…</p>}
       {expanded && (
         <div className="mt-3 pt-3 border-t border-border space-y-3">
           <p className="text-[12px] text-muted-foreground leading-relaxed">{paper.summary}</p>
@@ -285,7 +320,7 @@ export function PaperCard({
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-muted-foreground">标签</span>
               {!editingTags && (
-                <button onClick={() => { setEditingTags(true); setTagText(paper.tags.join(', ')) }} className="text-[10px] text-primary hover:underline">
+                <button disabled={saving || togglingProject} onClick={() => { setSaveError(''); setEditingTags(true); setTagText(paper.tags.join(', ')) }} className="text-[10px] text-primary hover:underline">
                   {paper.tags.length > 0 ? '编辑' : '添加标签'}
                 </button>
               )}
@@ -293,15 +328,16 @@ export function PaperCard({
             {editingTags ? (
               <div className="flex gap-1.5">
                 <Input
+                  disabled={saving || togglingProject}
                   value={tagText}
                   onChange={(e) => setTagText(e.target.value)}
                   placeholder="逗号分隔，如 survey, llm"
                   className="h-7 text-[11px] flex-1"
                   autoFocus
-                  onKeyDown={(e) => isSubmitEnter(e) && saveTags()}
+                  onKeyDown={(e) => isSubmitEnter(e) && void persist('tags')}
                 />
-                <Button size="sm" className="h-7 text-[10px]" onClick={saveTags}>保存</Button>
-                <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setEditingTags(false)}>取消</Button>
+                <Button disabled={saving || togglingProject} size="sm" className="h-7 text-[10px]" onClick={() => void persist('tags')}>保存</Button>
+                <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => { setTagText(paper.tags.join(', ')); setEditingTags(false); setSaveError('') }}>取消</Button>
               </div>
             ) : (
               paper.tags.length > 0 && (
@@ -322,7 +358,7 @@ export function PaperCard({
                 <button
                   key={project.id}
                   onClick={() => toggleProject(project.id)}
-                  disabled={togglingProject}
+                    disabled={togglingProject || saving}
                   className={cn(
                     'rounded px-1.5 py-0.5 text-[10px] transition-colors',
                     paper.projectIds.includes(project.id)
@@ -341,7 +377,7 @@ export function PaperCard({
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-muted-foreground">阅读笔记</span>
               {!editingNotes && (
-                <button onClick={() => { setEditingNotes(true); setNoteText(paper.notes) }} className="text-[10px] text-primary hover:underline">
+                <button disabled={saving || togglingProject} onClick={() => { setSaveError(''); setEditingNotes(true); setNoteText(paper.notes) }} className="text-[10px] text-primary hover:underline">
                   {paper.notes ? '编辑' : '添加笔记'}
                 </button>
               )}
@@ -349,6 +385,7 @@ export function PaperCard({
             {editingNotes ? (
               <div className="space-y-1.5">
                 <Textarea
+                  disabled={saving || togglingProject}
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   placeholder="写下你的阅读笔记..."
@@ -356,12 +393,13 @@ export function PaperCard({
                   autoFocus
                 />
                 <div className="flex gap-1.5">
-                  <Button size="sm" className="h-6 text-[10px]" onClick={saveNotes}>保存</Button>
-                  <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setEditingNotes(false)}>取消</Button>
+                  <Button disabled={saving || togglingProject} size="sm" className="h-6 text-[10px]" onClick={() => void persist('notes')}>保存</Button>
+                  <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => { setNoteText(paper.notes); setEditingNotes(false); setSaveError('') }}>取消</Button>
                 </div>
               </div>
-            ) : (
-              readingNotes.length > 0 ? (
+            ) : (<>
+              {plainNotes && <p className="text-[11px] text-muted-foreground/80 leading-relaxed whitespace-pre-wrap">{plainNotes}</p>}
+              {readingNotes.length > 0 && (
                 <div className="space-y-2">
                   {readingNotes.map((note, index) => (
                     <div key={index} className="rounded-md bg-muted/40 p-2">
@@ -370,10 +408,8 @@ export function PaperCard({
                     </div>
                   ))}
                 </div>
-              ) : paper.notes ? (
-                <p className="text-[11px] text-muted-foreground/80 leading-relaxed whitespace-pre-wrap">{paper.notes}</p>
-              ) : null
-            )}
+              )}
+            </>)}
           </div>
 
           {paper.pdfPath && (

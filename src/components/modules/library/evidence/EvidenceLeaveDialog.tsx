@@ -15,7 +15,7 @@ export function EvidenceLeaveDialog() {
     return () => { remove(); delete window.mimirRequestEvidenceLeave; pending.current?.('cancel'); pending.current = null; window.removeEventListener('beforeunload', closing) }
   }, [])
   return <Dialog open={open} onOpenChange={value => { if (!value) answer('cancel') }}><DialogContent>
-    <DialogHeader><DialogTitle>存在未保存的研究资料编辑</DialogTitle><DialogDescription>证据、问题分组、写作素材和科研计划保存成功后才能离开；失败或冲突时保留全部输入。丢弃只放弃本次未保存的编辑。</DialogDescription></DialogHeader>
+    <DialogHeader><DialogTitle>存在未保存的研究资料编辑</DialogTitle><DialogDescription>文献笔记、标签、证据、问题分组、写作素材和科研计划保存成功后才能离开；失败或冲突时保留全部输入。丢弃只放弃本次未保存的编辑。</DialogDescription></DialogHeader>
     <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => answer('cancel')}>留在这里</Button><Button variant="destructive" onClick={() => answer('discard')}>丢弃后离开</Button><Button onClick={() => answer('save')}>保存后离开</Button></div>
   </DialogContent></Dialog>
 }

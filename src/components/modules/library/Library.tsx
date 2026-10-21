@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { Bookmark, Loader2, Settings2, Database, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,6 +45,7 @@ export function Library() {
 
   // 论文
   const [papers, setPapers] = useState<PaperRecord[]>([])
+  const currentPapers = useRef<PaperRecord[]>([])
   const [loadingPapers, setLoadingPapers] = useState(true)
   const [localKeyword, setLocalKeyword] = useState('')
 
@@ -84,10 +85,11 @@ export function Library() {
   }, [])
 
   const loadPapers = useCallback(async () => {
-    setLoadingPapers(true)
+    // 首次加载由初始状态显示占位；刷新不能卸载其它卡片中的未保存编辑。
     try {
       const res = await api.library.listPapers()
       if (res.ok && res.papers) {
+        currentPapers.current = res.papers as PaperRecord[]
         setPapers(res.papers as PaperRecord[])
       } else if (res.message) {
         setGlobalError(res.message)
@@ -179,6 +181,7 @@ export function Library() {
   }
 
   const handleRemove = async (arxivId: string) => {
+    if (!await requestEvidenceLeave()) return
     if (!window.confirm('从文献库移除这篇论文？')) return
     const res = await api.library.removePaper(arxivId)
     if (res.ok) {
@@ -189,11 +192,19 @@ export function Library() {
   }
 
   const handleUpdate = async (request: { arxivId: string; tags?: string[]; projectIds?: string[]; notes?: string }) => {
-    const res = await api.library.updatePaper(request)
-    if (res.ok) {
-      await loadPapers()
-    } else {
-      setGlobalError(res.message || '更新失败')
+    try {
+      const res = await api.library.updatePaper(request)
+      if (!res.ok) return { ok: false, message: res.message || '更新失败，请重试' }
+      // 使用已确认的业务返回，避免“保存后刷新”卸载同卡片或其它卡片的草稿。
+      const apply = (paper: PaperRecord) => paper.arxivId === request.arxivId
+        ? (res.paper as PaperRecord | undefined) ?? { ...paper, ...request }
+        : paper
+      currentPapers.current = currentPapers.current.map(apply)
+      setPapers(currentPapers.current)
+      setReaderPaper(previous => previous ? apply(previous) : null)
+      return { ok: true }
+    } catch (failure) {
+      return { ok: false, message: failure instanceof Error ? failure.message : '更新失败，请重试' }
     }
   }
 
@@ -206,13 +217,18 @@ export function Library() {
     }
   }
 
-  const handleOpenPdf = (paper: PaperRecord) => {
-    if (!paper.pdfPath) {
+  const openReader = async (paperId: string, tab: 'notes' | 'evidence', requirePdf = false) => {
+    if (!await requestEvidenceLeave()) return
+    // 离开守卫可能刚保存了卡片；点击时的对象已过期，必须重新取已确认的数据。
+    const paper = currentPapers.current.find(candidate => candidate.arxivId === paperId)
+    if (!paper) { setGlobalError('文献已不在当前库中，请重新选择'); return }
+    if (requirePdf && !paper.pdfPath) {
       setGlobalError('请先下载 PDF')
       return
     }
-    setReaderTab('notes'); setReaderPaper(paper)
+    setReaderTab(tab); setReaderPaper(paper)
   }
+  const handleOpenPdf = (paper: PaperRecord) => openReader(paper.arxivId, 'notes', true)
 
   const handleScoreRelevance = async (paper: PaperRecord) => {
     if (!selectedProjectId) {
@@ -534,7 +550,7 @@ export function Library() {
                   onRemove={handleRemove}
                   onDownloadPdf={handleDownloadPdf}
                   onOpenPdf={handleOpenPdf}
-                  onEvidence={async paper => { if (await requestEvidenceLeave()) { setReaderTab('evidence'); setReaderPaper(paper) } }}
+                  onEvidence={paper => openReader(paper.arxivId, 'evidence')}
                   onOpenExternal={handleOpenExternal}
                   onScoreRelevance={handleScoreRelevance}
                   onExportBib={handleExportBib}
@@ -566,10 +582,7 @@ export function Library() {
           projects={projects}
           papers={papers}
           onClose={() => setReaderPaper(null)}
-          onUpdateNotes={async (arxivId, notes) => {
-            await handleUpdate({ arxivId, notes })
-            setReaderPaper((prev) => (prev ? { ...prev, notes } : prev))
-          }}
+          onUpdateNotes={(arxivId, notes) => handleUpdate({ arxivId, notes })}
           onOpenExternal={handleOpenExternal}
         />
       )}

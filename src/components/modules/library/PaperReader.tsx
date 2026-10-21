@@ -3,8 +3,9 @@ import { X, Maximize2, Minimize2, BookOpen, ExternalLink, Loader2, Plus } from '
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import type { PaperRecord } from './types'
-import { pdfUrlOf, parseReadingNotes, appendReadingNote } from './types'
+import type { PaperRecord, PaperSaveResult } from './types'
+import { usePaperEditGuard } from './usePaperEditGuard'
+import { pdfUrlOf, readingNotesView, appendReadingNote } from './types'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { EvidencePanel, evidenceSourceLabels } from './evidence/EvidencePanel'
 import type { ProjectRecord } from './types'
@@ -13,7 +14,7 @@ import type { SourceOpenResult } from '../../../../shared/libraryEvidenceContrac
 interface PaperReaderProps {
   paper: PaperRecord
   onClose: () => void
-  onUpdateNotes: (arxivId: string, notes: string) => Promise<void>
+  onUpdateNotes: (arxivId: string, notes: string) => Promise<PaperSaveResult>
   onOpenExternal: (url: string) => void
   initialTab?: 'notes' | 'evidence'
   projectId?: string
@@ -26,6 +27,8 @@ export function PaperReader({ paper, onClose, onUpdateNotes, onOpenExternal, ini
   const [addingNote, setAddingNote] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const savingRef = useRef(false)
   const [tab, setTab] = useState(initialTab), [pdfUrl, setPdfUrl] = useState(pdfUrlOf(paper.arxivId)), [source, setSource] = useState<SourceOpenResult>()
   const container = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -36,20 +39,31 @@ export function PaperReader({ paper, onClose, onUpdateNotes, onOpenExternal, ini
   async function close() { if (await requestEvidenceLeave()) onClose() }
   async function changeTab(next: 'notes' | 'evidence') { if (tab !== next && await requestEvidenceLeave()) setTab(next) }
 
-  const readingNotes = parseReadingNotes(paper.notes)
+  const { plain: plainNotes, entries: readingNotes } = readingNotesView(paper.notes)
 
-  const saveNote = async () => {
-    if (!noteText.trim() || saving) return
-    setSaving(true)
+  const saveNote = async (): Promise<boolean> => {
+    if (savingRef.current) return false
+    if (!noteText.trim()) return true
+    savingRef.current = true
+    setSaving(true); setSaveError('')
     try {
       const next = appendReadingNote(paper.notes, noteText, new Date())
-      await onUpdateNotes(paper.arxivId, next)
+      const result = await onUpdateNotes(paper.arxivId, next)
+      if (!result.ok) { setSaveError(result.message || '保存失败，输入已保留'); return false }
       setNoteText('')
       setAddingNote(false)
+      return true
+    } catch (failure) {
+      setSaveError(failure instanceof Error ? failure.message : '保存失败，输入已保留')
+      return false
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
+
+  usePaperEditGuard({ isDirty: () => addingNote && noteText.trim() !== '', isBusy: () => savingRef.current,
+    save: saveNote, discard: () => { setNoteText(''); setAddingNote(false); setSaveError('') } })
 
   return (
     <div
@@ -125,16 +139,19 @@ export function PaperReader({ paper, onClose, onUpdateNotes, onOpenExternal, ini
               variant="ghost"
               size="sm"
               className="h-6 px-1.5 text-[10px] text-primary hover:text-primary"
-              onClick={() => setAddingNote(true)}
+              disabled={saving || addingNote}
+              onClick={() => { setSaveError(''); setAddingNote(true) }}
             >
               <Plus className="h-3 w-3 mr-0.5" />
               添加
             </Button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {saveError && <p role="alert" className="text-xs text-destructive whitespace-pre-wrap">{saveError}</p>}
             {addingNote && (
               <div className="space-y-1.5">
                 <Textarea
+                  disabled={saving}
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   placeholder="记录阅读心得、关键公式、待办..."
@@ -146,15 +163,16 @@ export function PaperReader({ paper, onClose, onUpdateNotes, onOpenExternal, ini
                     {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
                     保存
                   </Button>
-                  <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setAddingNote(false)}>
+                  <Button disabled={saving} size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => { setNoteText(''); setAddingNote(false); setSaveError('') }}>
                     取消
                   </Button>
                 </div>
               </div>
             )}
-            {readingNotes.length === 0 && !addingNote && (
+            {readingNotes.length === 0 && !plainNotes && !addingNote && (
               <p className="text-[11px] text-muted-foreground/60">暂无阅读笔记。阅读时记录要点，笔记会自动带时间戳。</p>
             )}
+            {plainNotes && <p className="text-[11px] text-muted-foreground/90 leading-relaxed whitespace-pre-wrap">{plainNotes}</p>}
             {readingNotes.map((note, index) => (
               <div key={index} className="rounded-md bg-muted/40 p-2">
                 <span className="text-[9px] text-muted-foreground/60">{note.at}</span>
