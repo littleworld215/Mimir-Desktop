@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import { Bookmark, Loader2, Settings2, Database, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -46,6 +46,7 @@ export function Library() {
   // 论文
   const [papers, setPapers] = useState<PaperRecord[]>([])
   const [loadingPapers, setLoadingPapers] = useState(true)
+  const [localKeyword, setLocalKeyword] = useState('')
 
   // 搜索
   const [query, setQuery] = useState('')
@@ -400,9 +401,19 @@ export function Library() {
 
   // ─── 过滤与展示 ──────────────────────────────────────────────────
   const savedIds = new Set(papers.map((p) => p.arxivId))
-  const filteredPapers = selectedProjectId
-    ? papers.filter((p) => p.projectIds.includes(selectedProjectId))
-    : papers
+  const projectPapers = useMemo(() => selectedProjectId
+    ? papers.filter(p => p.projectIds.includes(selectedProjectId))
+    : papers, [papers, selectedProjectId])
+  const filteredPapers = useMemo(() => {
+    const terms = localKeyword.normalize('NFKC').toLowerCase().split(/\s+/u).filter(Boolean)
+    if (!terms.length) return projectPapers
+    return projectPapers.filter(paper => {
+      const text = [paper.title, paper.arxivId, ...paper.authors, paper.summary, paper.notes, ...paper.tags]
+        .join('\n').normalize('NFKC').toLowerCase()
+      return terms.every(term => text.includes(term))
+    })
+  }, [projectPapers, localKeyword])
+  const visiblePaperIds = useMemo(() => new Set(filteredPapers.map(paper => paper.arxivId)), [filteredPapers])
 
   const handleOpenExternal = (url: string) => {
     window.open(url, '_blank')
@@ -416,7 +427,7 @@ export function Library() {
           <span className="text-[11px] text-muted-foreground">{papers.length} 篇论文</span>
           {selectedProjectId && (
             <span className="text-[11px] text-primary">
-              {filteredPapers.length} 篇 · {projects.find((p) => p.id === selectedProjectId)?.title}
+              {projectPapers.length} 篇 · {projects.find((p) => p.id === selectedProjectId)?.title}
             </span>
           )}
         </div>
@@ -473,6 +484,16 @@ export function Library() {
         onOpenExternal={handleOpenExternal}
       />
 
+      {libraryView === 'papers' && <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-border px-5 py-2">
+        <label htmlFor="library-local-keyword" className="text-xs font-medium">库内检索</label>
+        <Input id="library-local-keyword" type="search" aria-label="库内检索" maxLength={1000}
+          value={localKeyword} onChange={event => setLocalKeyword(event.target.value)}
+          placeholder="标题、作者、标识、摘要、笔记、标签（不联网）"
+          className="h-8 min-w-0 flex-1 basis-64 text-xs" />
+        {localKeyword && <Button variant="outline" size="sm" onClick={() => setLocalKeyword('')}>清除库内检索</Button>}
+        <span role="status" className="text-xs text-muted-foreground">{filteredPapers.length} / {projectPapers.length} 篇</span>
+      </div>}
+
       {/* 论文列表 */}
       <div className="flex-1 overflow-y-auto px-5 py-3">
         {globalError && (
@@ -489,37 +510,40 @@ export function Library() {
             <Loader2 className="h-6 w-6 animate-spin mb-2" />
             <p className="text-[12px]">加载文献库...</p>
           </div>
-        ) : filteredPapers.length === 0 ? (
+        ) : (<>
+          {filteredPapers.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Bookmark className="h-8 w-8 opacity-30 mb-3" />
             <p className="text-[12px] font-medium">
-              {selectedProjectId ? '该项目暂无论文' : '文献库为空'}
+              {localKeyword.trim() ? '当前筛选没有匹配的文献' : selectedProjectId ? '该项目暂无论文' : '文献库为空'}
             </p>
             <p className="text-[11px] mt-0.5 opacity-70">
-              {selectedProjectId ? '在上方搜索并导入论文，或从其他项目关联' : '搜索 arXiv / Web 并导入论文'}
+              {localKeyword.trim() ? '尝试减少关键词、清除库内检索或切换项目；上方联网搜索仍单独使用。' : selectedProjectId ? '在上方搜索并导入论文，或从其他项目关联' : '搜索 arXiv / Web 并导入论文'}
             </p>
           </div>
-        ) : (
+          )}
           <div className="space-y-2">
-            {filteredPapers.map((paper) => (
-              <PaperCard
-                key={paper.arxivId}
-                paper={paper}
-                projects={projects}
-                selectedProjectId={selectedProjectId}
-                onUpdate={handleUpdate}
-                onRemove={handleRemove}
-                onDownloadPdf={handleDownloadPdf}
-                onOpenPdf={handleOpenPdf}
-                onEvidence={async paper => { if (await requestEvidenceLeave()) { setReaderTab('evidence'); setReaderPaper(paper) } }}
-                onOpenExternal={handleOpenExternal}
-                onScoreRelevance={handleScoreRelevance}
-                onExportBib={handleExportBib}
-                onHandoffToAgent={handleHandoffToAgent}
-              />
+            {/* 临时关键词筛选只隐藏卡片，不能卸载其中尚未保存的笔记/标签。 */}
+            {projectPapers.map((paper) => (
+              <div key={paper.arxivId} hidden={!visiblePaperIds.has(paper.arxivId)}>
+                <PaperCard
+                  paper={paper}
+                  projects={projects}
+                  selectedProjectId={selectedProjectId}
+                  onUpdate={handleUpdate}
+                  onRemove={handleRemove}
+                  onDownloadPdf={handleDownloadPdf}
+                  onOpenPdf={handleOpenPdf}
+                  onEvidence={async paper => { if (await requestEvidenceLeave()) { setReaderTab('evidence'); setReaderPaper(paper) } }}
+                  onOpenExternal={handleOpenExternal}
+                  onScoreRelevance={handleScoreRelevance}
+                  onExportBib={handleExportBib}
+                  onHandoffToAgent={handleHandoffToAgent}
+                />
+              </div>
             ))}
           </div>
-        )}
+        </>)}
       </div>
 
       {/* PDF 阅读器 */}
