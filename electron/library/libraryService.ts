@@ -630,14 +630,7 @@ export async function exportZoteroCollectionToBib(
 // ─── 阅读笔记工具 ──────────────────────────────────────────────────
 
 /** 追加一条带时间戳的阅读笔记到论文 notes */
-export function appendReadingNote(notes: string, text: string, now: Date): string {
-  const body = text.trim()
-  if (body === '') return notes
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
-  const entry = `[${stamp}]\n${body}`
-  return notes.trimEnd() === '' ? entry : `${notes.trimEnd()}\n\n${entry}`
-}
+export { appendReadingNote } from '../../shared/appendReadingNote'
 
 /** 解析 notes 中的带时间戳阅读笔记条目 */
 export function parseReadingNotes(notes: string): { at: string; text: string }[] {
