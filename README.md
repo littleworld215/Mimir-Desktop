@@ -2,6 +2,8 @@
 
 ## 当前安装与使用
 
+操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。文献编辑的崩溃恢复草稿仍未实现；正常保存和离开保护的范围见[笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。
+
 2026-10-22：文献优化产品276aba3已部署到独立目录，桌面/开始菜单入口已切换并通过Windows Shell可见启动。候选包和实际安装分别36/36、旧新版互斥1/1，均零重试exit0；完整类型/测试/构建exit0（2154通过/9既有跳过）。原配置/profile/整空间和快捷方式已备份，原资料与注册表只读核对不变，旧版可回退。文献库新增日期来源及回收恢复现可使用；无模型调用或T2I实验。[使用与回退](docs/LIBRARY-DEPLOYMENT.md)。下方保留各批次历史状态，不将旧“安装未更新”当作当前状态。
 
 2026-10-22 文献回收站源码验证完成：移除/恢复先预览关联，保留原标识、PDF、笔记和证据/素材历史；重导入不自动复活，活动候选排除回收条目。下载实际寿命内阻止回收，磁盘失败回滚缓存；整空间恢复保留并校验回收/日期元信息。完整三闸门exit0（2154通过/9既有跳过，253文件2163项），补强下载成功断言后全量复跑一致；真实桌面组合24/24零重试exit0，含SQLite/WAL维护恢复。新上下文静态两项Important已修复复查；安装未更新，不称独立运行QA。[操作与边界](docs/LIBRARY-RECYCLE.md)。
