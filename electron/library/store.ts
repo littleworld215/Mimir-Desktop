@@ -475,8 +475,14 @@ export function setStoreValue<T>(key: string, value: T): void {
     saveGlobal()
     return
   }
+  const existed = Object.prototype.hasOwnProperty.call(spaceStore, key)
+  const previous = spaceStore[key]
   spaceStore[key] = value
-  saveSpace()
+  try { saveSpace() } catch (error) {
+    if (existed) spaceStore[key] = previous
+    else delete spaceStore[key]
+    throw error
+  }
 }
 
 export function getStorePath(): string {

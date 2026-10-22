@@ -28,6 +28,7 @@ export interface PaperRelevance {
 }
 
 export interface PaperRecord {
+  removedAt?: string
   dates?: PaperDates
   arxivId: string
   title: string

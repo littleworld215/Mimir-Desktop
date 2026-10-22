@@ -18,6 +18,8 @@ import { SearchPanel, type SearchSource } from './SearchPanel'
 import { SubscriptionsBar } from './SubscriptionsBar'
 import { PaperCard } from './PaperCard'
 import { PaperReader } from './PaperReader'
+import { PaperLifecycleDialog, PaperTrashDialog, type PaperLifecycleRequest } from './PaperLifecycleDialogs'
+import type { PaperLifecycleScope } from '../../../../shared/libraryLifecycle'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { consumePlanningHostIntent, samePlanningHostScope } from '@/lib/planningHostNavigation'
 import { EvidenceMatrix } from './evidence/EvidenceMatrix'
@@ -46,6 +48,10 @@ export function Library() {
   // 论文
   const [papers, setPapers] = useState<PaperRecord[]>([])
   const currentPapers = useRef<PaperRecord[]>([])
+  const paperScope = useRef<PaperLifecycleScope | null>(null)
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [lifecycleRequest, setLifecycleRequest] = useState<PaperLifecycleRequest | null>(null)
+  const [lifecycleStatus, setLifecycleStatus] = useState('')
   const [loadingPapers, setLoadingPapers] = useState(true)
   const [localKeyword, setLocalKeyword] = useState('')
 
@@ -89,6 +95,7 @@ export function Library() {
     try {
       const res = await api.library.listPapers()
       if (res.ok && res.papers) {
+        paperScope.current = res.scope ?? null
         currentPapers.current = res.papers as PaperRecord[]
         setPapers(res.papers as PaperRecord[])
       } else if (res.message) {
@@ -182,13 +189,8 @@ export function Library() {
 
   const handleRemove = async (arxivId: string) => {
     if (!await requestEvidenceLeave()) return
-    if (!window.confirm('从文献库移除这篇论文？')) return
-    const res = await api.library.removePaper(arxivId)
-    if (res.ok) {
-      await loadPapers()
-    } else {
-      setGlobalError(res.message || '删除失败')
-    }
+    if (!paperScope.current) { setGlobalError('当前空间信息未加载，请重新打开文献库'); return }
+    setLifecycleRequest({ scope: paperScope.current, arxivId, action: 'trash' })
   }
 
   const handleUpdate = async (request: { arxivId: string; tags?: string[]; projectIds?: string[]; notes?: string }) => {
@@ -448,6 +450,7 @@ export function Library() {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={async () => { if (await requestEvidenceLeave()) setTrashOpen(true) }}>文献回收站</Button>
           <Button
             variant="ghost"
             size="sm"
@@ -512,6 +515,7 @@ export function Library() {
 
       {/* 论文列表 */}
       <div className="flex-1 overflow-y-auto px-5 py-3">
+        {lifecycleStatus && <p role="status" className="mb-3 text-sm text-muted-foreground">{lifecycleStatus}</p>}
         {globalError && (
           <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[11px] text-primary flex items-center justify-between">
             <span>{globalError}</span>
@@ -563,6 +567,21 @@ export function Library() {
       </div>
 
       {/* PDF 阅读器 */}
+      {trashOpen && <PaperTrashDialog onClose={() => setTrashOpen(false)} onRestore={(arxivId, scope) => {
+        setTrashOpen(false); setLifecycleRequest({ arxivId, scope, action: 'restore' })
+      }} />}
+      {lifecycleRequest && <PaperLifecycleDialog key={lifecycleRequest.action + ':' + lifecycleRequest.arxivId}
+        request={lifecycleRequest} onClose={() => setLifecycleRequest(null)} onApplied={request => {
+          setLifecycleRequest(null)
+          setLifecycleStatus(request.action === 'trash' ? '文献已移入回收站，可从文献回收站恢复。' : '文献已恢复；原标识及历史保留。')
+          if (request.action === 'trash') {
+            currentPapers.current = currentPapers.current.filter(p => p.arxivId !== request.arxivId)
+            setPapers(currentPapers.current)
+            if (readerPaper?.arxivId === request.arxivId) setReaderPaper(null)
+          }
+          void loadPapers().catch(() => setGlobalError('操作已完成，活动列表刷新失败，请重新打开文献库'))
+          queueMicrotask(() => document.getElementById('library-local-keyword')?.focus())
+        }} />}
       {webMatch.match && <PaperMatchDialog
         key={webMatch.match.generation}
         source={webMatch.match.source}

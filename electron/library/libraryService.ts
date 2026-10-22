@@ -4,6 +4,7 @@
  */
 import { randomUUID } from 'crypto'
 import { mergePaperDates } from '../../shared/libraryDates'
+import { isPaperTrashed } from '../../shared/libraryLifecycle'
 import { mkdir, writeFile, readFile, access } from 'fs/promises'
 import { join, dirname } from 'path'
 import { app } from 'electron'
@@ -26,6 +27,8 @@ import type {
 const PAPERS_KEY = 'library:papers'
 const PROJECTS_KEY = 'library:projects'
 const SUBSCRIPTIONS_KEY = 'library:subscriptions'
+const activePaperFiles = new Set<string>()
+const paperFileKey = (id: string) => JSON.stringify([currentSpaceEpoch(), id])
 const ARXIV_FETCH_TIMEOUT_MS = 15_000
 const ARXIV_PDF_FETCH_TIMEOUT_MS = 60_000
 const ARXIV_SEARCH_DEFAULT_MAX_RESULTS = 10
@@ -78,7 +81,21 @@ async function writeBytesAtomic(filePath: string, bytes: Uint8Array): Promise<vo
 
 /** 列出所有论文，最近添加的在前 */
 export function listPapers(): PaperRecord[] {
-  return Object.values(papersTable()).sort((a, b) => b.addedAt.localeCompare(a.addedAt))
+  return Object.values(papersTable()).filter(p => !isPaperTrashed(p)).sort((a, b) => b.addedAt.localeCompare(a.addedAt))
+}
+
+export function listTrashedPapers(): PaperRecord[] {
+  return Object.values(papersTable()).filter(isPaperTrashed).sort((a, b) => String(b.removedAt).localeCompare(String(a.removedAt)))
+}
+function assertActivePaper(paper: PaperRecord | undefined, id: string): asserts paper is PaperRecord {
+  if (!paper) throw new Error(`paper-not-found: ${id}`)
+  if (isPaperTrashed(paper)) throw new Error('文献已在回收站，请先显式恢复')
+}
+export function restorePaper(arxivId: string): void {
+  const table = papersTable(), previous = table[arxivId]
+  if (!previous || !isPaperTrashed(previous)) throw new Error('文献不在回收站')
+  const { removedAt: _removedAt, ...paper } = previous
+  savePapersTable({ ...table, [arxivId]: paper })
 }
 
 /** 搜索 arXiv */
@@ -118,6 +135,7 @@ export async function importPaper(entry: ArxivEntry, projectId?: string): Promis
   }
   const table = papersTable()
   const existing = table[arxivId]
+  if (existing && isPaperTrashed(existing)) throw new Error('文献已在回收站，请先显式恢复；重新导入不会恢复')
   const dates = mergePaperDates(existing?.dates, entry)
   const record: PaperRecord = {
     arxivId,
@@ -139,17 +157,16 @@ export async function importPaper(entry: ArxivEntry, projectId?: string): Promis
     addedAt: existing?.addedAt ?? new Date().toISOString(),
     ...(dates ? { dates } : {}),
   }
-  table[arxivId] = record
-  savePapersTable(table)
+  savePapersTable({ ...table, [arxivId]: record })
   return { imported: existing === undefined }
 }
 
-/** 删除一篇论文 */
+/** 进入回收站，不删除PDF、原记录或任何历史。UI必须先取得影响预览。 */
 export async function removePaper(arxivId: string): Promise<void> {
   const table = papersTable()
-  if (table[arxivId] === undefined) throw new Error(`paper-not-found: ${arxivId}`)
-  delete table[arxivId]
-  savePapersTable(table)
+  assertActivePaper(table[arxivId], arxivId)
+  if (activePaperFiles.has(paperFileKey(arxivId))) throw new Error('PDF任务正在处理中，请等待实际完成后再移入回收站')
+  savePapersTable({ ...table, [arxivId]: { ...table[arxivId]!, removedAt: new Date().toISOString() } })
 }
 
 /** 部分更新一篇论文的组织字段（tags / projectIds / notes / relevance） */
@@ -162,7 +179,7 @@ export async function updatePaper(request: {
 }): Promise<PaperRecord> {
   const table = papersTable()
   const existing = table[request.arxivId]
-  if (existing === undefined) throw new Error(`paper-not-found: ${request.arxivId}`)
+  assertActivePaper(existing, request.arxivId)
   if (request.projectIds !== undefined) {
     const known = new Set(projectsList().map((p) => p.id))
     for (const projectId of request.projectIds) {
@@ -196,8 +213,7 @@ export async function updatePaper(request: {
       },
     }),
   }
-  table[request.arxivId] = next
-  savePapersTable(table)
+  savePapersTable({ ...table, [request.arxivId]: next })
   return next
 }
 
@@ -268,28 +284,26 @@ export async function fetchPaperPdf(arxivId: string): Promise<PaperRecord> {
   const epoch = currentSpaceEpoch()
   const table = papersTable()
   const existing = table[arxivId]
-  if (existing === undefined) throw new Error(`paper-not-found: ${arxivId}`)
-
-  const { bytes, source } = await downloadPaperBytes(existing)
-  // 下载期间用户可能切换了科研空间：写盘与写回前校验，避免把旧空间数据写进新空间
-  assertSpaceUnchanged(epoch)
-  const dir = papersDir()
-  await mkdir(dir, { recursive: true })
-  const filePath = join(dir, paperPdfFileName(arxivId))
-  await writeBytesAtomic(filePath, bytes)
-  assertSpaceUnchanged(epoch)
-  const currentTable = papersTable()
-  const current = currentTable[arxivId]
-  if (current === undefined) throw new Error(`paper-not-found: ${arxivId}（科研空间已切换）`)
-  const next: PaperRecord = {
-    ...current,
-    pdfPath: filePath,
-    // 记录本次实际命中的通道，便于排障「这篇到底从哪下的」
-    ...(source !== undefined ? { pdfSource: source } : {}),
-  }
-  currentTable[arxivId] = next
-  savePapersTable(currentTable)
-  return next
+  assertActivePaper(existing, arxivId)
+  const key = paperFileKey(arxivId)
+  if (activePaperFiles.has(key)) throw new Error('PDF任务正在处理中，请等待实际完成')
+  activePaperFiles.add(key)
+  try {
+    const { bytes, source } = await downloadPaperBytes(existing)
+    assertSpaceUnchanged(epoch)
+    assertActivePaper(papersTable()[arxivId], arxivId)
+    const dir = papersDir()
+    await mkdir(dir, { recursive: true })
+    assertSpaceUnchanged(epoch)
+    const filePath = join(dir, paperPdfFileName(arxivId))
+    await writeBytesAtomic(filePath, bytes)
+    assertSpaceUnchanged(epoch)
+    const currentTable = papersTable(), current = currentTable[arxivId]
+    assertActivePaper(current, arxivId)
+    const next: PaperRecord = { ...current, pdfPath: filePath, ...(source !== undefined ? { pdfSource: source } : {}) }
+    savePapersTable({ ...currentTable, [arxivId]: next })
+    return next
+  } finally { activePaperFiles.delete(key) }
 }
 
 // ─── 项目 CRUD ─────────────────────────────────────────────────────
@@ -337,10 +351,10 @@ export function updateProject(id: string, patch: { title?: string; paperDir?: st
 /** 删除项目（同时从论文的 projectIds 中移除） */
 export function deleteProject(id: string): void {
   saveProjectsList(projectsList().filter((p) => p.id !== id))
-  const table = papersTable()
+  const table = { ...papersTable() }
   let changed = false
   for (const [arxivId, paper] of Object.entries(table)) {
-    if (paper.projectIds.includes(id)) {
+    if (!isPaperTrashed(paper) && paper.projectIds.includes(id)) {
       table[arxivId] = { ...paper, projectIds: paper.projectIds.filter((pid) => pid !== id) }
       changed = true
     }
@@ -363,7 +377,7 @@ export async function importPapersToBib(
   const table = papersTable()
   const entries = arxivIds.map((id) => {
     const paper = table[id]
-    if (paper === undefined) throw new Error(`paper-not-found: ${id}`)
+    assertActivePaper(paper, id)
     return entryFromPaper(paper)
   })
   const dir = project.paperDir

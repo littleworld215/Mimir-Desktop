@@ -33,6 +33,7 @@ import { listResidualStagingRoots, scanResiduals } from './doctorResidual'
 import { archiveDirectory } from './directories'
 import { inspectResearchIntegrity } from '../library/research/integrity'
 import { inspectPlanningIntegrity } from '../researchPlanning/integrity'
+import { inspectLibraryIntegrity } from '../library/integrity'
 
 /** 汇总计数形状（`DoctorReport.summary` 的具名别名，供 `summarize` 返回值标注）。 */
 export type DoctorSummary = DoctorReport['summary']
@@ -212,6 +213,12 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   for (const space of researchSpaces ?? []) {
+    const library = inspectLibraryIntegrity(space.path)
+    checks.push({ id: 'LIBRARY_INTEGRITY', title: '文献日期与回收站',
+      severity: library.state === 'invalid' ? 'error' : library.state === 'unused' ? 'notice' : 'ok',
+      detail: `${redactText(space.name || space.id)}：${library.state === 'invalid' ? '文献元信息损坏或不兼容，原资料保留' : library.state === 'unused' ? '尚无文献数据' : '日期与回收状态可解析'}；活动${library.active}，回收${library.trashed}。`,
+      facts: { active: library.active, trashed: library.trashed }
+    })
     const planning = inspectPlanningIntegrity(space.path)
     checks.push({ id: 'PLANNING_INTEGRITY', title: '科研计划完整性',
       severity: planning.state === 'invalid' || planning.state === 'unsupported' ? 'error' : planning.state === 'warning' ? 'warning' : planning.state === 'unused' ? 'notice' : 'ok',

@@ -7,6 +7,7 @@ import { mkdir, readdir, stat, unlink } from 'fs/promises'
 import { basename, extname, join } from 'path'
 import { getStoreValue, setStoreValue, spaceRoot, currentSpaceEpoch, assertSpaceUnchanged } from '../library/store'
 import { buildDeckModel, renderDeck } from './deck'
+import { isPaperTrashed } from '../../shared/libraryLifecycle'
 import { enhanceDeck } from './enhance'
 import { coverPrompt, figureAbsPath, generateDeckImage, paperArtPrompt, readImageGenConfig } from '../figures/imageGen'
 import type {
@@ -30,6 +31,7 @@ const MEETINGS_INDEX_KEY = 'meetings:index'
 const DECK_SLIDES_CAP = 60
 
 interface PaperRecordLite {
+  readonly removedAt?: string
   readonly arxivId: string
   readonly title: string
   readonly authors: readonly string[]
@@ -113,7 +115,7 @@ function writeIndex(index: Record<string, { title: string; slides: number; creat
 /** 从 store 读论文表。 */
 function loadPapers(): PaperRecordLite[] {
   const table = getStoreValue<Record<string, PaperRecordLite>>(PAPERS_KEY) ?? {}
-  return Object.values(table)
+  return Object.values(table).filter(paper => !isPaperTrashed(paper))
 }
 
 /** 从 store 读项目列表。 */

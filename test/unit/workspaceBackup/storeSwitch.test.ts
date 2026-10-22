@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path'
 import { WorkspaceWriterSession } from '../../../electron/workspaceBackup/writerSession'
 import { WorkspaceOperationGate } from '../../../electron/workspaceBackup/operationGate'
 
-const state = vi.hoisted(() => ({ home: '', elapsed: 0, failRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, slowTemp: false, slowRead: false, checkWrites: false, copies: [] as string[] }))
+const state = vi.hoisted(() => ({ home: '', elapsed: 0, failRename: false, failBusinessRename: false, failUnlink: false, failOldUnlink: false, failCopy: false, failReadDir: false, slowTemp: false, slowRead: false, checkWrites: false, copies: [] as string[] }))
 // 只在指定IO边界推进单调时钟，避免10ms预算先被无关磁盘调度耗尽。
 vi.mock('node:perf_hooks', async original => {
   const actual = await original<typeof import('node:perf_hooks')>()
@@ -46,6 +46,7 @@ vi.mock('node:fs', async original => {
       if (!fs.existsSync(lock)) throw Error('BUSINESS_WRITE_BEFORE_LOCK')
     }
     if (state.failRename && b === join(state.home, '.mimir/store.json')) { state.failRename = false; throw Error('synthetic pointer write failure') }
+    if (state.failBusinessRename && b === join(state.home, 'a/.mimir/store.json')) { state.failBusinessRename = false; throw Error('synthetic business write failure') }
     fs.renameSync(a, b)
   }, unlinkSync: (path: string) => {
     if (state.failOldUnlink && path === join(state.home, 'a/.mimir/workspace.writer-lock')) { state.failOldUnlink = false; throw Error('synthetic commit failure') }
@@ -56,6 +57,7 @@ vi.mock('node:fs', async original => {
 let session: WorkspaceWriterSession | undefined
 afterEach(() => {
   state.elapsed = 0
+  state.failBusinessRename = false
   state.failRename = false; state.failUnlink = false; state.failOldUnlink = false
   state.checkWrites = false
   state.failCopy = false
@@ -88,6 +90,16 @@ async function fixture(install = true) {
   if (install) store.installWorkspaceSwitchProtection(session)
   return result
 }
+it('业务保存失败不将未落盘的回收标记留在内存，原文件逐字不变', async () => {
+  const { store, first } = await fixture()
+  const previous = { paper: { removedAt: undefined, notes: 'keep' } }
+  store.setStoreValue('library:papers', previous)
+  const before = readFileSync(join(first, '.mimir/store.json'), 'utf8')
+  state.failBusinessRename = true
+  expect(() => store.setStoreValue('library:papers', { paper: { notes: 'keep', removedAt: '2026-01-01T00:00:00Z' } })).toThrow('business write failure')
+  expect(store.getStoreValue('library:papers')).toEqual(previous)
+  expect(readFileSync(join(first, '.mimir/store.json'), 'utf8')).toBe(before)
+})
 it('真实store指针保存失败还原缓存/代际，保留旧锁并回滚新锁', async () => {
   const { store, first, second, registry } = await fixture()
   const bytes = readFileSync(registry, 'utf8'), epoch = store.currentSpaceEpoch()

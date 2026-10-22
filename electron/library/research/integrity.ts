@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { evidencePath, readEvidence } from '../evidence/repository'
 import { RestoreError } from '../../workspaceBackup/restoreContracts'
 import { readResearch, researchPath } from './repository'
+import { isPaperTrashed } from '../../../shared/libraryLifecycle'
+import { assertPaperMetadata } from '../integrity'
 
 export interface ResearchIntegrity {
   state: 'unused' | 'valid' | 'warning' | 'invalid' | 'unsupported'
@@ -31,7 +33,8 @@ export function inspectResearchIntegrity(root: string): ResearchIntegrity {
         if (!papers || typeof papers !== 'object' || Array.isArray(papers)) throw Error('CORRUPT_DATA')
         for (const [id, paper] of Object.entries(papers)) {
           if (!paper || typeof paper !== 'object' || Array.isArray(paper) || typeof paper.arxivId !== 'string' || paper.arxivId !== id) throw Error('CORRUPT_DATA')
-          paperIds.add(id)
+          assertPaperMetadata(paper)
+          if (!isPaperTrashed(paper)) paperIds.add(id)
         }
       }
     }

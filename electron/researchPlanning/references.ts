@@ -1,5 +1,6 @@
 import type { PlanningHostKind, PlanningInput } from '../../shared/researchPlanningContracts'
 import { PlanningError } from './validation'
+import { isPaperTrashed } from '../../shared/libraryLifecycle'
 
 export type PlanningHostReader = <T>(key: string) => T | undefined
 const sources = { paper: { key: 'library:papers', id: 'arxivId', name: 'title' }, libraryProject: { key: 'library:projects', id: 'id', name: 'title' }, experiment: { key: 'experiments:list', id: 'id', name: 'name' } } as const
@@ -19,6 +20,7 @@ function catalog(read: PlanningHostReader, kind: PlanningHostKind) {
   for (const value of rows) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PlanningError('CORRUPT_DATA', '宿主关联条目异常，原资料保留')
     const row = value as Record<string, unknown>, id = row[source.id], name = row[source.name]
+    if (kind === 'paper' && isPaperTrashed(row)) continue
     if (typeof id !== 'string' || !id || id.length > 1000 || typeof name !== 'string' || name.length > 10_000 || items.has(id)) throw new PlanningError('CORRUPT_DATA', '宿主关联标识或名称异常，请在原模块核对')
     items.set(id, name)
   }

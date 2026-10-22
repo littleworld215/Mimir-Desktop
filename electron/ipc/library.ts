@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import * as library from '../library/libraryService'
+import { captureWorkspaceOperation } from '../library/store'
 import { agentService } from '../agent/agentService'
 import type { AssertRendererPath } from './guards'
 
@@ -9,7 +10,8 @@ export function registerLibraryHandlers(deps: { assertRendererPath: AssertRender
 
   ipcMain.handle('library:listPapers', async () => {
     try {
-      return { ok: true, papers: library.listPapers() }
+      const current = captureWorkspaceOperation()
+      return { ok: true, papers: library.listPapers(), scope: { workspaceId: current.id, spaceEpoch: current.epoch } }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : '读取文献库失败' }
     }
@@ -42,14 +44,8 @@ export function registerLibraryHandlers(deps: { assertRendererPath: AssertRender
     }
   })
 
-  ipcMain.handle('library:removePaper', async (_event, arxivId: string) => {
-    try {
-      await library.removePaper(arxivId)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : '删除论文失败' }
-    }
-  })
+  // Legacy callers must not bypass the scoped impact confirmation.
+  ipcMain.handle('library:removePaper', async () => ({ ok: false, message: '请通过文献影响预览移入回收站' }))
 
   ipcMain.handle('library:updatePaper', async (_event, request: unknown) => {
     try {

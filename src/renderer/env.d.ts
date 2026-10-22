@@ -189,7 +189,10 @@ interface ElectronAPI {
     }[]>
   }
   library: {
-    listPapers: () => Promise<{ ok: boolean; papers?: unknown[]; message?: string }>
+    paperTrash: import('../../shared/libraryLifecycle').LibraryLifecycleApi['paperTrash']
+    previewPaperLifecycle: import('../../shared/libraryLifecycle').LibraryLifecycleApi['previewPaperLifecycle']
+    applyPaperLifecycle: import('../../shared/libraryLifecycle').LibraryLifecycleApi['applyPaperLifecycle']
+    listPapers: () => Promise<{ ok: boolean; papers?: unknown[]; scope?: import('../../shared/libraryLifecycle').PaperLifecycleScope; message?: string }>
     searchArxiv: (query: string, maxResults?: number, sortBy?: 'relevance' | 'submittedDate') => Promise<{ ok: boolean; entries?: unknown[]; message?: string }>
     searchWeb: (query: string, maxResults?: number) => Promise<{ ok: boolean; entries?: unknown[]; message?: string }>
     importPaper: (entry: unknown, projectId?: string) => Promise<{ ok: boolean; imported?: boolean; message?: string }>

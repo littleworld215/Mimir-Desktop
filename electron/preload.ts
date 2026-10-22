@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { LibraryLifecycleApi, PaperLifecycleScope } from '../shared/libraryLifecycle'
 import type { ServerDraft, ServerPatch, ServerRecord } from './servers/types'
 import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
 import { ASSETS_CHANNELS, type AssetsApi } from '../shared/assetsContracts'
@@ -311,7 +312,10 @@ export interface ElectronAPI {
 
   // ─── 文献库（Library）────────────────────────────────────────────
   library: {
-    listPapers: () => Promise<{ ok: boolean; papers?: unknown[]; message?: string }>
+    paperTrash: LibraryLifecycleApi['paperTrash']
+    previewPaperLifecycle: LibraryLifecycleApi['previewPaperLifecycle']
+    applyPaperLifecycle: LibraryLifecycleApi['applyPaperLifecycle']
+    listPapers: () => Promise<{ ok: boolean; papers?: unknown[]; scope?: PaperLifecycleScope; message?: string }>
     searchArxiv: (query: string, maxResults?: number, sortBy?: 'relevance' | 'submittedDate') => Promise<{ ok: boolean; entries?: unknown[]; message?: string }>
     searchWeb: (query: string, maxResults?: number) => Promise<{ ok: boolean; entries?: unknown[]; message?: string }>
     importPaper: (entry: unknown, projectId?: string) => Promise<{ ok: boolean; imported?: boolean; message?: string }>
@@ -792,6 +796,9 @@ const electronAPI: ElectronAPI = {
   },
 
   library: {
+    paperTrash: () => ipcRenderer.invoke('library:paperTrash'),
+    previewPaperLifecycle: request => ipcRenderer.invoke('library:previewPaperLifecycle', request),
+    applyPaperLifecycle: request => ipcRenderer.invoke('library:applyPaperLifecycle', request),
     listPapers: () => ipcRenderer.invoke('library:listPapers'),
     searchArxiv: (query, maxResults, sortBy) => ipcRenderer.invoke('library:searchArxiv', query, maxResults, sortBy),
     searchWeb: (query, maxResults) => ipcRenderer.invoke('library:searchWeb', query, maxResults),

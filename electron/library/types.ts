@@ -42,6 +42,8 @@ export interface PaperRelevance {
 
 /** 文献库中的论文记录 */
 export interface PaperRecord {
+  /** 可恢复移除；不删除原记录、PDF或关联历史。 */
+  removedAt?: string
   dates?: PaperDates
   /** 裸 arXiv id（可带版本后缀，如 2103.00020v2）；非 arXiv 出版物为 `doi:xxx` */
   arxivId: string

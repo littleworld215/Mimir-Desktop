@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import { RestoreError } from './restoreContracts'
 import { assertRestoredResearchIntegrity } from '../library/research/integrity'
 import { assertRestoredPlanningIntegrity } from '../researchPlanning/integrity'
+import { assertRestoredLibraryIntegrity } from '../library/integrity'
 import { planRestore } from './restorePlan'
 import { verifyBackup } from './verify'
 import { cleanupStagingRoot, createStagingRoot } from './stagingRoot'
@@ -189,6 +190,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async recheck(_input: RestoreInput, stagingRoot: string) {
+      assertRestoredLibraryIntegrity(stagingRoot)
       assertRestoredPlanningIntegrity(stagingRoot)
       assertRestoredResearchIntegrity(stagingRoot)
       // ① 空间层配置：**存在才需要**校验可解析（remap 刚写过就再读一次确认落盘成立）。
