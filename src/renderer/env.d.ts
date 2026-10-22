@@ -2,6 +2,7 @@
 
 import type { AgentStreamEvent } from '../../electron/agent/streamProtocol'
 import type { AssetsApi } from '../../shared/assetsContracts'
+import type { LibraryEditingApi } from '../../shared/libraryEditingContracts'
 import type { EvidenceApi } from '../../shared/libraryEvidenceContracts'
 import type { ResearchApi } from '../../shared/libraryResearchContracts'
 import type { PlanningApi, PlanningNoticeTarget } from '../../shared/researchPlanningContracts'
@@ -16,6 +17,7 @@ interface ElectronAPI {
   assets: AssetsApi
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  libraryEditing: LibraryEditingApi
   researchPlanning: PlanningApi
   onPlanningNotice: (callback: (target: PlanningNoticeTarget) => void) => () => void
   workspaceBackup: WorkspaceMaintenanceEntryApi

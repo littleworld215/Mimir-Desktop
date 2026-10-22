@@ -15,6 +15,7 @@ import { resolveEvidencePdfRequest } from './library/evidence/source'
 import { stopEvidenceTasksAndWait } from './library/evidence/runtime'
 import { stopResearchTasksAndWait } from './library/research/runtime'
 import { stopPlanningTasksAndWait } from './researchPlanning/runtime'
+import { stopEditingTasksAndWait } from './libraryEditing/runtime'
 import { figureFilePath } from './figures/figuresService'
 import { loadStore, getStoreValue, spaceRoot, captureWorkspaceOperation, installWorkspaceOperationProtection } from './library/store'
 import { workspaceOperationGate } from './workspaceBackup/operationGate'
@@ -364,7 +365,7 @@ app.whenReady().then(async () => {
     stopProducers: async () => {
       await stopPlanningBackground()
       await stopVenueDeadlineLoop()
-      await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait(), stopEvidenceTasksAndWait(), stopResearchTasksAndWait(), stopPlanningTasksAndWait()])
+      await Promise.all([stopAllAgentTasksAndWait(), stopAllAssetsAiTasksAndWait(), stopEvidenceTasksAndWait(), stopResearchTasksAndWait(), stopPlanningTasksAndWait(), stopEditingTasksAndWait()])
     },
     closeMcp: async () => { assetsMcpAbort?.abort(); await (await assetsMcpStartup)?.close() },
     closeManagedProcesses: async () => { disposeIpcResources() },
@@ -510,6 +511,7 @@ const quitFlow = createQuitFlow({
     try { await stopEvidenceTasksAndWait() } catch { log.warn('[evidence] 退出时任务失败，已等待实际任务收口') }
     try { await stopResearchTasksAndWait() } catch { log.warn('[research] 退出时任务失败，已等待实际任务收口') }
     try { await stopPlanningTasksAndWait() } catch { log.warn('[planning] 退出时任务失败，已等待实际任务收口') }
+    try { await stopEditingTasksAndWait() } catch { log.warn('[library-editing] 退出时任务失败，已等待实际任务收口') }
     assetsMcpAbort?.abort()
     // 先撤销外部请求和原生批准，再排空唯一writer；启动中的ACL操作也必须收口。
     try { await (await assetsMcpStartup)?.close() } catch { log.warn('[assets-mcp] 退出清理失败，凭据残留须确认后手动处理。') }

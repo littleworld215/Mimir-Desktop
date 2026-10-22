@@ -47,6 +47,7 @@ import { registerLibraryLifecycleHandlers } from './libraryLifecycle'
 import { registerLibraryEvidenceHandlers } from './libraryEvidence'
 import { registerLibraryResearchHandlers } from './libraryResearch'
 import { registerResearchPlanningHandlers } from './researchPlanning'
+import { registerLibraryEditingHandlers } from './libraryEditing'
 import { registerMeetingsHandlers } from './meetings'
 import { registerFiguresHandlers } from './figures'
 import { registerWorkspacesHandlers } from './workspaces'
@@ -745,6 +746,7 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   registerLibraryEvidenceHandlers({ windowRef: winRef })
   registerLibraryResearchHandlers({ windowRef: winRef })
   registerResearchPlanningHandlers({ windowRef: winRef })
+  registerLibraryEditingHandlers({ windowRef: winRef })
   registerMeetingsHandlers()
   registerFiguresHandlers({ assertProjectDirs })
   registerWorkspacesHandlers({ assertRendererPath })

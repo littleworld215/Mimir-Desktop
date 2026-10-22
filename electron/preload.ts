@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { LibraryEditingApi } from '../shared/libraryEditingContracts'
 import type { LibraryLifecycleApi, PaperLifecycleScope } from '../shared/libraryLifecycle'
 import type { ServerDraft, ServerPatch, ServerRecord } from './servers/types'
 import { checkSeq, type AgentStreamEvent } from './agent/streamProtocol'
@@ -122,6 +123,7 @@ export interface ElectronAPI {
   assets: AssetsApiSubset
   libraryEvidence: EvidenceApi
   libraryResearch: ResearchApi
+  libraryEditing: LibraryEditingApi
   researchPlanning: PlanningApi
   onPlanningNotice: (callback: (target: PlanningNoticeTarget) => void) => () => void
   workspaceBackup: WorkspaceMaintenanceEntryApi
@@ -462,6 +464,16 @@ let streamCallSeq = 0
 
 const electronAPI: ElectronAPI = {
   workspaceBackup: { enterMaintenance: () => ipcRenderer.invoke(WORKSPACE_MAINTENANCE_ENTRY_CHANNEL) },
+  libraryEditing: {
+    list: req => ipcRenderer.invoke('libraryEditing:list', req),
+    detail: req => ipcRenderer.invoke('libraryEditing:detail', req),
+    open: req => ipcRenderer.invoke('libraryEditing:open', req),
+    saveDraft: req => ipcRenderer.invoke('libraryEditing:saveDraft', req),
+    commit: req => ipcRenderer.invoke('libraryEditing:commit', req),
+    discard: req => ipcRenderer.invoke('libraryEditing:discard', req),
+    close: req => ipcRenderer.invoke('libraryEditing:close', req),
+    saveWithoutRecovery: req => ipcRenderer.invoke('libraryEditing:saveWithoutRecovery', req)
+  },
   researchPlanning: {
     background: req => ipcRenderer.invoke(PLANNING_CHANNELS.background, req),
     saveBackground: req => ipcRenderer.invoke(PLANNING_CHANNELS.saveBackground, req),

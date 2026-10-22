@@ -12,3 +12,15 @@ export interface SessionWrite { sessionId: string; expectedRevision: number; seq
 export interface CommitReply { paper: PaperRecord; state: 'saved' | 'already-saved'; cleanup: 'done' | 'pending'; warning?: string }
 export type EditingErrorCode = 'BAD_REQUEST' | 'CONFLICT' | 'CORRUPT_DATA' | 'UNSUPPORTED_VERSION' | 'LIMIT_EXCEEDED' | 'SOURCE_UNAUTHORIZED' | 'WRITE_FAILED' | 'SPACE_CHANGED' | 'SESSION_CLOSED' | 'MAINTENANCE_BLOCKED' | 'CANCELED'
 export type EditingResult<T> = ({ ok: true } & T) | { ok: false; code: EditingErrorCode; message: string }
+export interface EditingOpenReply { base: EditingFields; existing: DraftSummary[]; sessionId?: string; revision: number }
+export interface EditingFallbackRequest { paperId: string; base: EditingFields; fields?: EditingFields; appendInput?: string }
+export interface LibraryEditingApi {
+  list(request?: Record<string, never>): Promise<EditingResult<{ scope: EditingScope; drafts: DraftSummary[] }>>
+  detail(request: { scope: EditingScope; id: string }): Promise<EditingResult<{ draft: EditingDraft; status: EditingStatus }>>
+  open(request: { scope: EditingScope; paperId: string; kind: EditingKind; resume?: { draftId: string; revision: number } }): Promise<EditingResult<EditingOpenReply>>
+  saveDraft(request: { scope: EditingScope; write: SessionWrite }): Promise<EditingResult<{ draft: EditingDraft }>>
+  commit(request: { scope: EditingScope; writes: SessionWrite[] }): Promise<EditingResult<CommitReply>>
+  discard(request: { scope: EditingScope; id: string; revision: number; sessionId?: string }): Promise<EditingResult<Record<string, never>>>
+  close(request: { scope: EditingScope; sessionId: string }): Promise<EditingResult<Record<string, never>>>
+  saveWithoutRecovery(request: { scope: EditingScope } & EditingFallbackRequest): Promise<EditingResult<{ paper: PaperRecord }>>
+}
