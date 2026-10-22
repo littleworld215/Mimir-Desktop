@@ -42,6 +42,8 @@ export function parseArxivFeed(xml: string): ArxivEntry[] {
       authors,
       summary: firstTag(block, 'summary'),
       published: firstTag(block, 'published'),
+      updated: firstTag(block, 'updated'),
+      source: 'arxiv',
       url: `https://arxiv.org/abs/${id}`,
     })
   }

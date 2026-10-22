@@ -2,6 +2,8 @@
  * 文献库领域类型定义（对齐 Mimir 的 PaperRecord / ProjectRecord 模型）
  */
 
+import type { PaperDates } from '../../shared/libraryDates'
+
 /** 一篇 arXiv 论文条目（搜索结果 / 订阅新论文共用） */
 export interface ArxivEntry {
   /** 主键：裸 arXiv id（如 1512.03385）；非 arXiv 出版物为 `doi:xxx` */
@@ -10,6 +12,8 @@ export interface ArxivEntry {
   authors: string[]
   summary: string
   published: string
+  /** arXiv Atom updated，不能与 published 或正式出版混为一谈。 */
+  updated?: string
   url: string
   /** 来源标识（统一访问层填充：openalex / semantic-scholar / arxiv），展示与排障用 */
   source?: 'openalex' | 'semantic-scholar' | 'arxiv'
@@ -38,6 +42,7 @@ export interface PaperRelevance {
 
 /** 文献库中的论文记录 */
 export interface PaperRecord {
+  dates?: PaperDates
   /** 裸 arXiv id（可带版本后缀，如 2103.00020v2）；非 arXiv 出版物为 `doi:xxx` */
   arxivId: string
   title: string

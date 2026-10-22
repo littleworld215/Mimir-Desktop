@@ -181,7 +181,8 @@ describe('bibKeyOf / entryFromPaper', () => {
     })
     expect(entry.type).toBe('misc')
     expect(entry.fields.author).toBe('Kaiming He and Xiangyu Zhang')
-    expect(entry.fields.year).toBe('2020')
+    // 入库时间不是论文年份，来源日期缺失时不猜填。
+    expect(entry.fields.year).toBeUndefined()
     expect(entry.fields.url).toBe('https://arxiv.org/abs/1512.03385')
   })
 })

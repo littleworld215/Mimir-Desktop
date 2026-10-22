@@ -70,6 +70,18 @@ afterEach(() => {
 })
 
 describe('paperSearch：统一文献检索访问层', () => {
+  it('OpenAlex只有年份时不编造一月一日', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ results: [{ ...openAlexWork, publication_date: null, publication_year: 2024 }] }))
+    expect((await searchPapers('year only', 1))[0]?.published).toBe('2024')
+  })
+
+  it('S2只有年份时不编造一月一日', async () => {
+    fetchMock.mockImplementation(async (url: string) => String(url).includes('openalex')
+      ? jsonResponse({ results: [] })
+      : jsonResponse({ data: [{ title: 'Year only', year: 2023, externalIds: { DOI: '10.1000/year' } }] }))
+    expect((await searchPapers('year only s2', 1))[0]?.published).toBe('2023')
+  })
+
   it('关键词检索走 OpenAlex（title_and_abstract.search 过滤），并归一成库形状', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ results: [openAlexWork] }))
 

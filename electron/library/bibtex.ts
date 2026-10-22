@@ -156,7 +156,7 @@ export function entryFromPaper(paper: PaperRecord): BibEntry {
     author: paper.authors.join(' and '),
     title: paper.title,
   }
-  const year = Number(paper.addedAt.slice(0, 4))
+  const year = Number((paper.dates?.sourcePublished?.value ?? paper.dates?.arxivSubmitted?.value ?? '').slice(0, 4))
   if (Number.isInteger(year) && year > 1900 && year < 3000) fields.year = String(year)
   fields.eprint = paper.arxivId
   fields.archivePrefix = 'arXiv'

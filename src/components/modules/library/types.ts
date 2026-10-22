@@ -1,4 +1,5 @@
 /** 前端文献库类型（与 electron/library/types.ts 对齐） */
+import type { PaperDates } from '../../../../shared/libraryDates'
 
 export interface ArxivEntry {
   id: string
@@ -6,6 +7,7 @@ export interface ArxivEntry {
   authors: string[]
   summary: string
   published: string
+  updated?: string
   url: string
   source?: 'openalex' | 'semantic-scholar' | 'arxiv'
 }
@@ -26,6 +28,7 @@ export interface PaperRelevance {
 }
 
 export interface PaperRecord {
+  dates?: PaperDates
   arxivId: string
   title: string
   authors: string[]
@@ -117,8 +120,11 @@ export function appendReadingNote(notes: string, text: string, now: Date): strin
 }
 
 export function formatDate(dateStr: string): string {
+  if (!dateStr) return '未知'
+  if (/^[1-9]\d{3}$/.test(dateStr)) return dateStr + '年（仅年份）'
   try {
     const d = new Date(dateStr)
+    if (!Number.isFinite(d.getTime())) return '未知'
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'short' })
   } catch {
     return dateStr

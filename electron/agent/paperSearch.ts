@@ -186,7 +186,7 @@ function toEntryFromOpenAlex(work: OpenAlexWork): ArxivEntry {
     title,
     authors,
     summary: rebuildAbstract(work.abstract_inverted_index),
-    published: work.publication_date ?? (work.publication_year !== undefined ? `${work.publication_year}-01-01` : ''),
+    published: work.publication_date || (work.publication_year != null ? String(work.publication_year) : ''),
     url: arxivId !== null ? `https://arxiv.org/abs/${arxivId}` : work.doi ?? work.id ?? '',
     source: 'openalex',
     ...(oaPdf !== '' && arxivId === null ? { pdfUrl: oaPdf, pdfSource: 'openalex-oa' } : {})
@@ -316,7 +316,7 @@ function toEntryFromS2(p: S2Paper): ArxivEntry | null {
     title,
     authors: (p.authors ?? []).map((a) => a.name ?? '').filter((n) => n !== ''),
     summary: (p.abstract ?? '').replace(/\s+/g, ' '),
-    published: p.publicationDate ?? (p.year !== undefined ? `${p.year}-01-01` : ''),
+    published: p.publicationDate || (p.year != null ? String(p.year) : ''),
     url: arxivId !== null ? `https://arxiv.org/abs/${arxivId}` : p.url ?? doi ?? '',
     source: 'semantic-scholar'
   }

@@ -3,6 +3,7 @@
  * 数据持久化在 store.json（library:papers / library:projects / library:subscriptions）。
  */
 import { randomUUID } from 'crypto'
+import { mergePaperDates } from '../../shared/libraryDates'
 import { mkdir, writeFile, readFile, access } from 'fs/promises'
 import { join, dirname } from 'path'
 import { app } from 'electron'
@@ -117,6 +118,7 @@ export async function importPaper(entry: ArxivEntry, projectId?: string): Promis
   }
   const table = papersTable()
   const existing = table[arxivId]
+  const dates = mergePaperDates(existing?.dates, entry)
   const record: PaperRecord = {
     arxivId,
     title: entry.title,
@@ -135,6 +137,7 @@ export async function importPaper(entry: ArxivEntry, projectId?: string): Promis
     ...(existing?.relevance === undefined ? {} : { relevance: existing.relevance }),
     ...(existing?.pdfPath === undefined ? {} : { pdfPath: existing.pdfPath }),
     addedAt: existing?.addedAt ?? new Date().toISOString(),
+    ...(dates ? { dates } : {}),
   }
   table[arxivId] = record
   savePapersTable(table)

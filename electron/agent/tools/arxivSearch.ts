@@ -9,6 +9,7 @@ interface ArxivAtomEntry {
   authors: string[]
   summary: string
   published: string
+  updated?: string
   link: string
   source?: 'arxiv'
 }
@@ -377,7 +378,7 @@ export async function fetchArxivEntriesByIds(ids: string[]): Promise<LibraryEntr
   const cleanIds = ids.map(normalizeArxivId).filter((id) => id !== '')
   if (cleanIds.length === 0) return []
   const slots: Array<LibraryEntry | null> = cleanIds.map(() => null)
-  await Promise.all(
+  const pending = Promise.all(
     cleanIds.map((id, index) =>
       new Promise<void>((resolve) => {
         const pendings = fetchRequests.get(id) ?? []
@@ -398,6 +399,7 @@ export async function fetchArxivEntriesByIds(ids: string[]): Promise<LibraryEntr
       void flushFetchBatch()
     }, FETCH_BATCH_WINDOW_MS)
   }
+  await pending
   return slots.filter((e): e is LibraryEntry => e !== null)
 }
 
@@ -421,7 +423,7 @@ function formatSearchResults(entries: Array<LibraryEntry & { source?: string }>)
 
 /** Atom 条目 → 统一返回形状（link → url）。 */
 function toLibraryEntry(e: ArxivAtomEntry): LibraryEntry {
-  return { id: e.id, title: e.title, authors: e.authors, summary: e.summary, published: e.published, url: e.link, source: 'arxiv' }
+  return { id: e.id, title: e.title, authors: e.authors, summary: e.summary, published: e.published, updated: e.updated, url: e.link, source: 'arxiv' }
 }
 
 /**
@@ -560,7 +562,7 @@ function parseArxivXml(xml: string): ArxivAtomEntry[] {
       authors.push(authorMatch[1].trim())
     }
 
-    entries.push({ id, title, authors, summary, published, link: id, source: 'arxiv' })
+    entries.push({ id, title, authors, summary, published, updated: getTag('updated'), link: id, source: 'arxiv' })
   }
 
   return entries

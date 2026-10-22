@@ -24,6 +24,7 @@ import type { PaperRecord, PaperSaveResult, ProjectRecord } from './types'
 import { usePaperEditGuard } from './usePaperEditGuard'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { formatDate, readingNotesView } from './types'
+import { paperDateLabels } from '../../../../shared/libraryDates'
 
 interface PaperCardProps {
   paper: PaperRecord
@@ -197,8 +198,13 @@ export function PaperCard({
               </span>
               <span className="flex items-center gap-1 shrink-0">
                 <Calendar className="h-3 w-3" />
-                {formatDate(paper.addedAt)}
+                入库：{formatDate(paper.addedAt)}
               </span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              {paperDateLabels(paper.dates).length === 0
+                ? <span>来源日期：未知</span>
+                : paperDateLabels(paper.dates).map(date => <span key={date.text} title={date.title}>{date.text}</span>)}
             </div>
             {!expanded && (
               <p className="text-[11px] text-muted-foreground/70 mt-1.5 line-clamp-2 leading-relaxed">
