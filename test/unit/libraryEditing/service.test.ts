@@ -118,3 +118,7 @@ it('owner close cancels every session, roots and epochs cannot be reused', () =>
   expect(() => s.service.save({ ...s.ctx, scope: { ...s.ctx.scope, epoch: '2' } }, 7, w)).toThrow(/SPACE_CHANGED/)
   s.service.closeOwner(7); expect(() => s.service.save(s.ctx, 7, w)).toThrow(/SESSION_CLOSED/)
 })
+it('retains the existing comma-only tag rule instead of reinterpreting Chinese commas or newlines', async () => {
+  const s = setup(); await s.service.commit(s.ctx, 7, [s.write('tags', '  a，b\nc, a，b\nc  ')])
+  expect(s.paper().tags).toEqual(['a，b\nc'])
+})

@@ -17,7 +17,7 @@ const clone = <T>(v: T): T => structuredClone(v)
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const matches = (paper: PaperRecord, fields: EditingFields) => (fields.notes === undefined || fields.notes === paper.notes) && (fields.tags === undefined || equal(fields.tags, paper.tags))
 const field = (kind: EditingKind) => kind === 'tags' ? 'tags' : 'notes'
-const tagsOf = (text: string) => [...new Set(text.split(/[,，\n]/).map(v => v.trim()).filter(Boolean))]
+const tagsOf = (text: string) => [...new Set(text.split(',').map(v => v.trim()).filter(Boolean))]
 const parse = <T>(schema: z.ZodType<T>, input: unknown): T => { const result = schema.safeParse(input); if (!result.success) throw new EditingError('BAD_REQUEST'); return result.data }
 
 export function createEditingService({ repository = createEditingRepository(), host, now = () => new Date(), newId = randomUUID }: { repository?: ReturnType<typeof createEditingRepository>; host: EditingHost; now?: () => Date; newId?: () => string }) {

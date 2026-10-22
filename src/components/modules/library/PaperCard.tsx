@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -25,8 +25,14 @@ import { usePaperEditGuard } from './usePaperEditGuard'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { formatDate, readingNotesView } from './types'
 import { paperDateLabels } from '../../../../shared/libraryDates'
+import type { EditingDraft, EditingScope } from '../../../../shared/libraryEditingContracts'
+import { usePaperRecoveryDraft } from './usePaperRecoveryDraft'
+import { PaperDraftChoices } from './PaperDraftRecovery'
 
 interface PaperCardProps {
+  scope?: EditingScope
+  onConfirmedPaper?: (paper: PaperRecord) => void
+  recoverySelection?: EditingDraft
   paper: PaperRecord
   projects: ProjectRecord[]
   selectedProjectId: string | null
@@ -48,6 +54,7 @@ interface PaperCardProps {
 }
 
 export function PaperCard({
+  scope, onConfirmedPaper, recoverySelection,
   paper,
   projects,
   selectedProjectId,
@@ -72,14 +79,23 @@ export function PaperCard({
   const [togglingProject, setTogglingProject] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [saveWarning, setSaveWarning] = useState('')
   const savingRef = useRef(false)
+  const boundary = useRef({ alive: true, key: '' })
+  boundary.current.key = `${scope?.workspaceId}:${scope?.spaceEpoch}:${paper.arxivId}`
+  useEffect(() => { boundary.current.alive = true; return () => { boundary.current.alive = false } }, [])
 
   const relevance = selectedProjectId ? paper.relevance?.[selectedProjectId] : undefined
   const { plain: plainNotes, entries: readingNotes } = readingNotesView(paper.notes)
 
   const notesDirty = editingNotes && noteText !== paper.notes
   const tagsDirty = editingTags && tagText !== paper.tags.join(', ')
-  const discard = () => {
+  const noteRecovery = usePaperRecoveryDraft({ scope: editingNotes ? scope : undefined, paperId: paper.arxivId, kind: 'notes', base: { notes: paper.notes }, input: noteText, onRestore: setNoteText, onConfirmedPaper })
+  const tagRecovery = usePaperRecoveryDraft({ scope: editingTags ? scope : undefined, paperId: paper.arxivId, kind: 'tags', base: { tags: paper.tags }, input: tagText, onRestore: setTagText, onConfirmedPaper })
+  useEffect(() => { if (!recoverySelection) return; setExpanded(true); if (recoverySelection.kind === 'tags') { setTagText(paper.tags.join(', ')); setEditingTags(true) } else { setNoteText(paper.notes); setEditingNotes(true) } }, [recoverySelection?.id])
+  const discard = async () => {
+    try { if (scope) { if (editingNotes) await noteRecovery.discard(); if (editingTags) await tagRecovery.discard() } }
+    catch (e) { setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留'); throw e }
     setNoteText(paper.notes); setTagText(paper.tags.join(', '))
     setEditingNotes(false); setEditingTags(false); setSaveError('')
   }
@@ -89,24 +105,62 @@ export function PaperCard({
     const tags = mode === 'tags' || (mode === 'all' && tagsDirty)
     if (!notes && !tags) return true
     savingRef.current = true
+    const key = boundary.current.key
     setSaving(true); setSaveError('')
     try {
-      const result = await onUpdate({
+      if (scope) {
+        const writes = []
+        if (notes) writes.push(await noteRecovery.save())
+        if (tags) writes.push(await tagRecovery.save())
+        const result = await window.electronAPI!.libraryEditing.commit({ scope, writes })
+        if (!boundary.current.alive || key !== boundary.current.key) return false
+        if (!result.ok) throw Error(result.message)
+        if (notes) noteRecovery.acceptCommit(result)
+        if (tags) tagRecovery.acceptCommit(result)
+        setSaveWarning(result.warning ?? '')
+      } else {
+        const result = await onUpdate({
         arxivId: paper.arxivId,
         ...(notes ? { notes: noteText } : {}),
         ...(tags ? { tags: tagText.split(',').map(t => t.trim()).filter(Boolean) } : {})
       })
       if (!result.ok) { setSaveError(result.message || '保存失败，输入已保留'); return false }
+      }
       if (notes) setEditingNotes(false)
       if (tags) setEditingTags(false)
       return true
     } catch (failure) {
+      if (!boundary.current.alive || key !== boundary.current.key) return false
       setSaveError(failure instanceof Error ? failure.message : '保存失败，输入已保留')
       return false
     } finally { savingRef.current = false; setSaving(false) }
   }
   usePaperEditGuard({ isDirty: () => notesDirty || tagsDirty, isBusy: () => savingRef.current || togglingProject,
     save: () => persist('all'), discard })
+
+  async function fallback() {
+    if (!scope || savingRef.current || noteRecovery.existing.length || tagRecovery.existing.length) return
+    savingRef.current = true; setSaving(true); setSaveError('')
+    const key = boundary.current.key
+    try {
+      await Promise.all([noteRecovery.pause(), tagRecovery.pause()])
+      if (!boundary.current.alive || key !== boundary.current.key) return
+      const base = { ...(notesDirty ? noteRecovery.base : {}), ...(tagsDirty ? tagRecovery.base : {}) }
+      const fields = { ...(notesDirty ? { notes: noteText } : {}), ...(tagsDirty ? { tags: tagText.split(',').map(t => t.trim()).filter(Boolean) } : {}) }
+      const result = await window.electronAPI!.libraryEditing.saveWithoutRecovery({ scope, paperId: paper.arxivId, base, fields })
+      if (!boundary.current.alive || key !== boundary.current.key) return
+      if (!result.ok) throw Error(result.message)
+      const reply = { paper: result.paper, state: 'saved' as const, cleanup: 'pending' as const, warning: '已使用普通保存；原恢复草稿保留，未声明恢复保护' }
+      if (notesDirty) { noteRecovery.acceptCommit(reply); setEditingNotes(false) }
+      if (tagsDirty) { tagRecovery.acceptCommit(reply); setEditingTags(false) }
+      setSaveWarning(reply.warning)
+    } catch (e) { setSaveError(e instanceof Error ? e.message : '保存失败，输入保留') }
+    finally { savingRef.current = false; setSaving(false) }
+  }
+  async function cancelField(kind: 'notes' | 'tags') {
+    try { if (scope) await (kind === 'notes' ? noteRecovery : tagRecovery).discard(); if (kind === 'notes') { setNoteText(paper.notes); setEditingNotes(false) } else { setTagText(paper.tags.join(', ')); setEditingTags(false) }; setSaveError('') }
+    catch (e) { setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留') }
+  }
 
   const toggleProject = async (projectId: string) => {
     if (savingRef.current) return
@@ -309,6 +363,11 @@ export function PaperCard({
       </div>
 
       {saveError && <p role="alert" className="mt-2 text-xs text-destructive whitespace-pre-wrap">{saveError}</p>}
+      {saveWarning && <p role="status" className="mt-2 text-xs whitespace-pre-wrap">{saveWarning}</p>}
+      {scope && (noteRecovery.error || tagRecovery.error) && <p role="alert" className="text-xs whitespace-pre-wrap">{noteRecovery.error || tagRecovery.error} · 暂存未完成，当前输入保留，可复制或显式普通保存。</p>}
+      {scope && (saveError || noteRecovery.error || tagRecovery.error) && <div className="flex flex-wrap gap-2">{notesDirty && <Button variant="outline" onClick={() => { void navigator.clipboard.writeText(noteText).then(() => setSaveWarning('已复制当前笔记输入'), () => setSaveError('复制失败，输入保留')) }}>复制当前笔记输入</Button>}{tagsDirty && <Button variant="outline" onClick={() => { void navigator.clipboard.writeText(tagText).then(() => setSaveWarning('已复制当前标签输入'), () => setSaveError('复制失败，输入保留')) }}>复制当前标签输入</Button>}</div>}
+      {scope && (saveError || noteRecovery.error || tagRecovery.error) && !noteRecovery.existing.length && !tagRecovery.existing.length && (notesDirty || tagsDirty) && <Button disabled={saving} variant="outline" onClick={() => void fallback()}>不使用恢复保护保存当前修改</Button>}
+      {scope && [noteRecovery, tagRecovery].some(r => r.status === 'saved') && <p role="status" className="text-xs">恢复草稿已暂存（尚未正式保存文献）</p>}
       {saving && <p role="status" className="mt-2 text-xs text-muted-foreground">保存中…</p>}
       {expanded && (
         <div className="mt-3 pt-3 border-t border-border space-y-3">
@@ -322,6 +381,7 @@ export function PaperCard({
           )}
 
           {/* 标签编辑 */}
+          {scope && editingTags && tagRecovery.existing.length > 0 && <PaperDraftChoices scope={scope} existing={tagRecovery.existing} current={{ tags: paper.tags }} onRestore={tagRecovery.restore} onDiscard={tagRecovery.discardExisting} />}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-muted-foreground">标签</span>
@@ -343,7 +403,7 @@ export function PaperCard({
                   onKeyDown={(e) => isSubmitEnter(e) && void persist('tags')}
                 />
                 <Button disabled={saving || togglingProject} size="sm" className="h-7 text-[10px]" onClick={() => void persist('tags')}>保存</Button>
-                <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => { setTagText(paper.tags.join(', ')); setEditingTags(false); setSaveError('') }}>取消</Button>
+                <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => void cancelField('tags')}>取消</Button>
               </div>
             ) : (
               paper.tags.length > 0 && (
@@ -379,6 +439,7 @@ export function PaperCard({
           </div>
 
           {/* 阅读笔记 */}
+          {scope && editingNotes && noteRecovery.existing.length > 0 && <PaperDraftChoices scope={scope} existing={noteRecovery.existing} current={{ notes: paper.notes }} onRestore={noteRecovery.restore} onDiscard={noteRecovery.discardExisting} />}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-muted-foreground">阅读笔记</span>
@@ -400,7 +461,7 @@ export function PaperCard({
                 />
                 <div className="flex gap-1.5">
                   <Button disabled={saving || togglingProject} size="sm" className="h-6 text-[10px]" onClick={() => void persist('notes')}>保存</Button>
-                  <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => { setNoteText(paper.notes); setEditingNotes(false); setSaveError('') }}>取消</Button>
+                  <Button disabled={saving || togglingProject} size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => void cancelField('notes')}>取消</Button>
                 </div>
               </div>
             ) : (<>

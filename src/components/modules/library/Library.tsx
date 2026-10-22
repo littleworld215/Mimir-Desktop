@@ -20,6 +20,7 @@ import { PaperCard } from './PaperCard'
 import { PaperReader } from './PaperReader'
 import { PaperLifecycleDialog, PaperTrashDialog, type PaperLifecycleRequest } from './PaperLifecycleDialogs'
 import type { PaperLifecycleScope } from '../../../../shared/libraryLifecycle'
+import type { EditingDraft } from '../../../../shared/libraryEditingContracts'
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { consumePlanningHostIntent, samePlanningHostScope } from '@/lib/planningHostNavigation'
 import { EvidenceMatrix } from './evidence/EvidenceMatrix'
@@ -36,6 +37,7 @@ import type {
 } from './types'
 
 const ResearchWorkspace = lazy(() => import('./research/ResearchWorkspace').then(module => ({ default: module.ResearchWorkspace })))
+const PaperDraftListDialog = lazy(() => import('./PaperDraftListDialog').then(module => ({ default: module.PaperDraftListDialog })))
 
 export function Library() {
   const api = window.electronAPI!
@@ -50,6 +52,8 @@ export function Library() {
   const currentPapers = useRef<PaperRecord[]>([])
   const paperScope = useRef<PaperLifecycleScope | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [draftsOpen, setDraftsOpen] = useState(false)
+  const [recoverySelection, setRecoverySelection] = useState<EditingDraft>()
   const [lifecycleRequest, setLifecycleRequest] = useState<PaperLifecycleRequest | null>(null)
   const [lifecycleStatus, setLifecycleStatus] = useState('')
   const [loadingPapers, setLoadingPapers] = useState(true)
@@ -193,6 +197,12 @@ export function Library() {
     setLifecycleRequest({ scope: paperScope.current, arxivId, action: 'trash' })
   }
 
+  const applyConfirmedPaper = (confirmed: PaperRecord) => {
+    const apply = (paper: PaperRecord) => paper.arxivId === confirmed.arxivId ? confirmed : paper
+    currentPapers.current = currentPapers.current.map(apply)
+    setPapers(currentPapers.current)
+    setReaderPaper(previous => previous ? apply(previous) : null)
+  }
   const handleUpdate = async (request: { arxivId: string; tags?: string[]; projectIds?: string[]; notes?: string }) => {
     try {
       const res = await api.library.updatePaper(request)
@@ -450,6 +460,7 @@ export function Library() {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={async () => { if (await requestEvidenceLeave()) setDraftsOpen(true) }}>恢复草稿</Button>
           <Button variant="outline" size="sm" onClick={async () => { if (await requestEvidenceLeave()) setTrashOpen(true) }}>文献回收站</Button>
           <Button
             variant="ghost"
@@ -547,6 +558,9 @@ export function Library() {
             {projectPapers.map((paper) => (
               <div key={paper.arxivId} hidden={!visiblePaperIds.has(paper.arxivId)}>
                 <PaperCard
+                  scope={paperScope.current ?? undefined}
+                  onConfirmedPaper={applyConfirmedPaper}
+                  recoverySelection={recoverySelection?.paperId === paper.arxivId && recoverySelection.kind !== 'append' ? recoverySelection : undefined}
                   paper={paper}
                   projects={projects}
                   selectedProjectId={selectedProjectId}
@@ -567,6 +581,13 @@ export function Library() {
       </div>
 
       {/* PDF 阅读器 */}
+      {draftsOpen && paperScope.current && <Suspense fallback={<p role="status">正在打开恢复草稿…</p>}><PaperDraftListDialog scope={paperScope.current} onClose={() => setDraftsOpen(false)} onRestore={async draft => {
+        if (!await requestEvidenceLeave()) return
+        const paper = currentPapers.current.find(p => p.arxivId === draft.paperId)
+        if (!paper) { setGlobalError('文献不在活动库中，仍可在草稿列表查看复制'); return }
+        setSelectedProjectId(null); setLocalKeyword(''); setLibraryView('papers'); setDraftsOpen(false); setRecoverySelection(draft)
+        if (draft.kind === 'append') { setReaderTab('notes'); setReaderPaper(paper) }
+      }} /></Suspense>}
       {trashOpen && <PaperTrashDialog onClose={() => setTrashOpen(false)} onRestore={(arxivId, scope) => {
         setTrashOpen(false); setLifecycleRequest({ arxivId, scope, action: 'restore' })
       }} />}
@@ -594,6 +615,9 @@ export function Library() {
       />}
       {readerPaper && (
         <PaperReader
+          scope={paperScope.current ?? undefined}
+          onConfirmedPaper={applyConfirmedPaper}
+          recoverySelection={recoverySelection?.paperId === readerPaper.arxivId && recoverySelection.kind === 'append' ? recoverySelection : undefined}
           key={`${readerPaper.arxivId}:${readerTab}`}
           paper={readerPaper}
           initialTab={readerTab}
