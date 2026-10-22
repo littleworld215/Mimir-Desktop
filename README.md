@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+## 当前安装与使用
+
+2026-10-22：文献优化产品276aba3已部署到独立目录，桌面/开始菜单入口已切换并通过Windows Shell可见启动。候选包和实际安装分别36/36、旧新版互斥1/1，均零重试exit0；完整类型/测试/构建exit0（2154通过/9既有跳过）。原配置/profile/整空间和快捷方式已备份，原资料与注册表只读核对不变，旧版可回退。文献库新增日期来源及回收恢复现可使用；无模型调用或T2I实验。[使用与回退](docs/LIBRARY-DEPLOYMENT.md)。下方保留各批次历史状态，不将旧“安装未更新”当作当前状态。
+
 2026-10-22 文献回收站源码验证完成：移除/恢复先预览关联，保留原标识、PDF、笔记和证据/素材历史；重导入不自动复活，活动候选排除回收条目。下载实际寿命内阻止回收，磁盘失败回滚缓存；整空间恢复保留并校验回收/日期元信息。完整三闸门exit0（2154通过/9既有跳过，253文件2163项），补强下载成功断言后全量复跑一致；真实桌面组合24/24零重试exit0，含SQLite/WAL维护恢复。新上下文静态两项Important已修复复查；安装未更新，不称独立运行QA。[操作与边界](docs/LIBRARY-RECYCLE.md)。
 
 2026-10-22 文献日期源码批次完成：分别保留arXiv提交/更新、来源出版及入库时间，年份不补月日，旧记录不猜填；BibTeX不再误用入库年份。完整三闸门exit0（2133通过/9既有跳过，246文件2142项），合成空间开发Electron18/18零重试，深浅主题实拍复核。新上下文静态发现的Agent解析遗漏及实际回归复现的批量请求等待环已修复；未更新日常安装，不称独立运行QA。[说明](docs/LIBRARY-DATES.md)。
@@ -20,7 +24,7 @@
 
 2026-10-18 I9完成Windows x64源码与隔离目录包交付验证：问题分组/比较、固定版本写作素材、差异更新、Markdown导出、健康/恢复及共用退出保护。最终类型检查/原始测试/构建均exit0：1945通过、9既有跳过（211文件1954项）；开发Electron13/13、新目录包14/14，均零重试。包审计26,075项及193辅助文件通过。一次非作者静态复核后集中修复并重新完整验证，不称独立运行QA。现有I8安装版未替换，真实课题及I5/I6原待验不变；全部项目范围的问题默认选项已知限制见下文。
 
-下方记录按日期保留历史状态；当前安装以2026-10-20维护入口部署续验为准。原I9的[部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i9-20261019.md)和[前一轮验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)保留当时结果。
+下方记录按日期保留历史状态；当前安装以2026-10-22文献优化部署记录为准。原I9的[部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i9-20261019.md)和[前一轮验证报告](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i9-20261018.md)保留当时结果。
 
 2026-10-18 I9第五批：文献库新增“研究问题与写作素材”入口，支持分组比较、跨页选卡、素材排序与固定历史、差异更新和完整Markdown预览。复用未保存保护，冲突保留输入；启动失败可重试，新建/删除课题不能绕过保护。类型检查与原始全量1931通过、9既有跳过（210文件1940项）exit0；真实Electron、整空间恢复和新目录包待Task6，当前安装版保持I8。
 
