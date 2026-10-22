@@ -11,6 +11,8 @@ import { planningReferences } from '../../electron/researchPlanning/references'
 import { inspectResearchIntegrity } from '../../electron/library/research/integrity'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { createEditingRepository } from '../../electron/libraryEditing/repository'
 
 const cleaners: (() => void)[] = []
 afterEach(() => { vi.restoreAllMocks(); while (cleaners.length) cleaners.pop()!() })
@@ -84,4 +86,16 @@ it('回收后计划选择和研究自检均视为来源暂不可用，而非健�
   expect(planningReferences(store.getStoreValue, 'paper', '', 1, [f.id]).items[0]?.exists).toBe(false)
   writeFileSync(join(f.root, '.mimir/store.json'), JSON.stringify({ 'library:papers': store.getStoreValue('library:papers'), 'library:projects': f.projects }))
   expect(inspectResearchIntegrity(f.root).state).toBe('warning')
+})
+it('editing drafts count in the preview and changed draft bytes invalidate the old token', async () => {
+  const f = setup(), repo = createEditingRepository(), draft = { id: randomUUID(), paperId: f.id, kind: 'notes' as const, base: { notes: f.papers[0].notes }, input: 'keep', revision: 1, updatedAt: '2026-10-23T00:00:00.000Z' }
+  repo.commit(f.root, 0, { schemaVersion: 1, revision: 1, drafts: [draft] }, () => {})
+  const p = f.controller.preview(f.scope, f.id, 'trash'); expect(p.counts).toHaveProperty('editingDrafts', 1)
+  repo.commit(f.root, 1, { schemaVersion: 1, revision: 2, drafts: [{ ...draft, revision: 2, input: 'later' }] }, () => {})
+  await expect(f.controller.apply(f.scope, p.token)).rejects.toThrow(/重新预览/); expect(listPapers()).toEqual(f.papers)
+})
+it('corrupt drafts block the impact preview instead of reporting zero', () => {
+  const f = setup(), repo = createEditingRepository(); repo.commit(f.root, 0, { schemaVersion: 1, revision: 1, drafts: [] }, () => {})
+  const path = join(f.root, '.mimir/library-editing/drafts.json'); writeFileSync(path, '{')
+  expect(() => f.controller.preview(f.scope, f.id, 'trash')).toThrow(); expect(readFileSync(path, 'utf8')).toBe('{')
 })

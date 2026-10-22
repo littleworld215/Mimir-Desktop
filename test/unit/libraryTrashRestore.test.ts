@@ -14,6 +14,9 @@ import { emptyPlanningDocument, emptyPlanningInput } from '../../shared/research
 import { createPlanningRepository, createPlanningDraftRepository } from '../../electron/researchPlanning/repository'
 import { evidencePath } from '../../electron/library/evidence/repository'
 import { researchPath } from '../../electron/library/research/repository'
+import { randomUUID } from 'node:crypto'
+import { createEditingRepository } from '../../electron/libraryEditing/repository'
+import { inspectEditingIntegrity } from '../../electron/libraryEditing/integrity'
 
 const clean: (() => void)[] = [], stamp = '2026-10-22T00:00:00.000Z'
 afterEach(() => { while (clean.length) clean.pop()!() })
@@ -39,6 +42,7 @@ function fixture() {
   doc.revision = 1; doc.items.push({ ...input, id: 'planned-paper', createdAt: stamp, updatedAt: stamp })
   createPlanningRepository().commit(f.root, 0, doc)
   createPlanningDraftRepository().commit(f.root, 0, { schemaVersion: 1, revision: 1, drafts: [{ id: 'draft', itemId: null, baseRevision: 1, input, updatedAt: stamp }] })
+  createEditingRepository().commit(f.root, 0, { schemaVersion: 1, revision: 1, drafts: [{ id: randomUUID(), paperId: paper.arxivId, kind: 'notes', base: { notes: paper.notes }, input: '草稿完整保留', revision: 1, updatedAt: stamp }] }, () => {})
   return { ...f, base, home, target, registry, paper }
 }
 async function roundtrip(f: ReturnType<typeof fixture>) {
@@ -57,6 +61,8 @@ it('真实ZIP恢复保留回收状态、日期精度、PDF和全部证据素材/
   expect(createPlanningRepository().read(f.target).items[0]?.literature?.paperId).toBe(f.paper.arxivId)
   expect(createPlanningDraftRepository().read(f.target).drafts).toHaveLength(1)
   expect(inspectLibraryIntegrity(f.target)).toEqual({ state: 'valid', active: 0, trashed: 1 })
+  expect(inspectEditingIntegrity(f.target)).toMatchObject({ state: 'warning', draftCount: 1, unresolvedCount: 1 })
+  expect(readFileSync(join(f.target, '.mimir/library-editing/drafts.json'))).toEqual(readFileSync(join(f.root, '.mimir/library-editing/drafts.json')))
   expect(hashes(f.root)).toEqual(before)
 })
 it.each([{ removedAt: null }, { dates: { sourcePublished: { value: '2024', precision: 'day', source: 'openalex' } } }])('损坏回收/日期元数据不发布恢复目录或追加注册', async patch => {

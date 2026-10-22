@@ -8,6 +8,7 @@ import { readEvidence } from './evidence/repository'
 import { readResearch } from './research/repository'
 import { createPlanningRepository, createPlanningDraftRepository } from '../researchPlanning/repository'
 import { assertPaperMetadata } from './integrity'
+import { createEditingRepository } from '../libraryEditing/repository'
 
 function scopeOf(current: ReturnType<typeof captureWorkspaceOperation>): PaperLifecycleScope {
   return { workspaceId: current.id, spaceEpoch: current.epoch }
@@ -22,6 +23,7 @@ function snapshot(arxivId: string) {
   // Existing repositories validate paths, sizes and complete histories. Failure blocks the preview.
   const evidence = readEvidence(current.root), research = readResearch(current.root)
   const planning = createPlanningRepository().read(current.root), drafts = createPlanningDraftRepository().read(current.root)
+  const editing = createEditingRepository().read(current.root)
   const cardIds = new Set(evidence.cards.filter(c => c.versions.some(v => v.paperId === arxivId)).map(c => c.id))
   const counts = {
     evidenceCards: cardIds.size,
@@ -29,9 +31,10 @@ function snapshot(arxivId: string) {
     questions: research.questions.filter(q => q.versions.some(v => v.evidenceCardIds.some(id => cardIds.has(id)))).length,
     packs: research.packs.filter(p => p.versions.some(v => v.items.some(i => cardIds.has(i.cardId)))).length,
     planningItems: planning.items.filter(i => i.literature?.paperId === arxivId).length,
-    planningDrafts: drafts.drafts.filter(d => d.input.literature?.paperId === arxivId).length
+    planningDrafts: drafts.drafts.filter(d => d.input.literature?.paperId === arxivId).length,
+    editingDrafts: editing.drafts.filter(d => d.paperId === arxivId).length
   }
-  const fingerprint = createHash('sha256').update(JSON.stringify({ current, papers, projects, evidence, research, planning, drafts })).digest('hex')
+  const fingerprint = createHash('sha256').update(JSON.stringify({ current, papers, projects, evidence, research, planning, drafts, editing })).digest('hex')
   return { current, paper, projects, counts, fingerprint }
 }
 /** One main-window controller; opaque previews are scoped, bounded, short-lived and single-use. */

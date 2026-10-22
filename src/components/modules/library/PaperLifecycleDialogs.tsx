@@ -45,6 +45,7 @@ export function PaperLifecycleDialog({ request, onClose, onApplied }: {
         <p>关联项目：{preview.projectNames.join('、') || '无'}</p>
         <p>证据卡 {preview.counts.evidenceCards} 张（历史 {preview.counts.evidenceVersions} 版）；研究问题 {preview.counts.questions} 组；写作素材包 {preview.counts.packs} 个。</p>
         <p>科研计划 {preview.counts.planningItems} 条；计划恢复草稿 {preview.counts.planningDrafts} 条。包含归档及历史引用，均保留。</p>
+        <p>文献编辑恢复草稿 {preview.counts.editingDrafts} 条，包含笔记、标签和阅读器追加；回收或恢复均保留原输入。</p>
         {preview.missingProjectIds.length > 0 && <p className="rounded border border-border p-2">原项目已失联：{preview.missingProjectIds.join('、')}。保留这些关联标识，恢复不会重建或替换项目。</p>}
       </div>}
       {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}

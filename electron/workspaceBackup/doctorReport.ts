@@ -34,6 +34,7 @@ import { archiveDirectory } from './directories'
 import { inspectResearchIntegrity } from '../library/research/integrity'
 import { inspectPlanningIntegrity } from '../researchPlanning/integrity'
 import { inspectLibraryIntegrity } from '../library/integrity'
+import { inspectEditingIntegrity } from '../libraryEditing/integrity'
 
 /** 汇总计数形状（`DoctorReport.summary` 的具名别名，供 `summarize` 返回值标注）。 */
 export type DoctorSummary = DoctorReport['summary']
@@ -213,6 +214,12 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   for (const space of researchSpaces ?? []) {
+    const editing = inspectEditingIntegrity(space.path)
+    checks.push({ id: 'LIBRARY_EDITING_INTEGRITY', title: '文献编辑恢复草稿',
+      severity: editing.state === 'invalid' || editing.state === 'unsupported' ? 'error' : editing.state === 'warning' ? 'warning' : editing.state === 'unused' ? 'notice' : 'ok',
+      detail: `${redactText(space.name || space.id)}：${editing.state === 'unused' ? '尚无恢复草稿' : editing.state === 'valid' ? '恢复草稿可解析' : editing.code ?? '存在失联或回收文献关联，输入保留'}；草稿${editing.draftCount}，未解析${editing.unresolvedCount}。`,
+      facts: { drafts: editing.draftCount, unresolved: editing.unresolvedCount }
+    })
     const library = inspectLibraryIntegrity(space.path)
     checks.push({ id: 'LIBRARY_INTEGRITY', title: '文献日期与回收站',
       severity: library.state === 'invalid' ? 'error' : library.state === 'unused' ? 'notice' : 'ok',
