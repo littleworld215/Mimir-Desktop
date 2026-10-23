@@ -2,6 +2,8 @@
 
 ## 当前安装与使用
 
+测试设施续项（2026-10-23）：普通Vitest的真实日志出口已定向唯一临时目录，保留文件和控制台日志；3项反例通过，一次静态复核Important已修正并复查，最终完整类型/测试/构建均exit0，2235通过/9既有跳过（262文件2244项），日志哨兵摘要不变。生产代码、日常安装6645129及科研资料不变。开发验证约定见[日志隔离](DEVELOPMENT.md#vitest日志隔离2026-10-23)。
+
 2026-10-23当前部署：恢复草稿6645129已部署到独立版本目录，两处快捷方式已切换，Windows Shell正常启动及同主实例核对通过。候选和实际安装各44/44、旧新版互斥1/1，均零重试exit0；完整2232通过/9既有跳过，类型/构建exit0。配置、用户环境、空间原始副本、旧入口与23条目正式备份均保留；仅按用户授权隔离两把原残留锁。业务资料和注册表不变，运行日志、备份审计及会议缓存时间变化单列；正常Shell启动像素可见性未核验。[证据与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-library-drafts-deployment-20261023.md)。
 
 操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。2026-10-23文献恢复草稿六批源码及隔离目录包验证完成：三类输入显式恢复、冲突/失败保护及备份关联已接通；完整2232通过/9既有跳过，类型/构建exit0，开发/包内各16/16零重试。一次非作者静态复核3项Important已按反例修复，不称独立运行QA；日常版本现为6645129；源码交付记录与部署记录分别保存。见[恢复草稿说明](docs/LIBRARY-RECOVERY-DRAFTS.md)及[原笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。

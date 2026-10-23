@@ -12,6 +12,8 @@
  * 这里统一在 `afterEach` 收口，而不是让每个测试文件各自 `beforeEach` 重置——
  * 后者依赖「下一条用例会替上一条善后」的隐式约定，新增文件一漏就复发。
  */
+// 必须先于下面的业务依赖初始化，避免它们在收集阶段写入真实用户日志。
+import './isolateLogs'
 import { afterEach } from 'vitest'
 // 必须**经 vitest alias 相同的路径**导入 stub，否则会拿到另一个模块实例，
 // 清空的是「空壳」而真正的 store 仍留有上个用例的数据（跨用例污染）。

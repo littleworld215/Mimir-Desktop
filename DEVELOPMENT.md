@@ -1,5 +1,13 @@
 # 开发文档（DEVELOPMENT）
 
+## Vitest日志隔离（2026-10-23）
+
+普通Vitest先经`test/setup/resetState.ts`加载`isolateLogs.ts`，再加载业务依赖。electron-log的CJS内部加载不会经过Electron别名，因此须在首次文件访问前将真实file transport定向独立系统临时目录`mimir-test-logs-*/main.log`；不关闭日志、不模拟生产logger、不修改HOME/TEMP，临时目录失败直接阻止setup。日志保留作诊断，控制台照常输出。
+
+运行`pnpm exec vitest run test/unit/loggerIsolation.test.ts`检查候选路径先验、异常出口零文件访问、普通和作用域日志真实落盘。此约定只覆盖普通Vitest，E2E、独立CLI和自定义轨迹须各自隔离；生产日志策略及日常安装不受影响。
+
+普通Vitest的真实日志出口已定向唯一临时目录，保留文件和控制台日志；3项反例通过，一次静态复核Important已修正并复查，最终完整类型/测试/构建均exit0，2235通过/9既有跳过（262文件2244项），日志哨兵摘要不变。生产代码、日常安装6645129及科研资料不变。[详细证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-test-log-isolation-20261023.md)。
+
 I10第二批：科研计划懒加载入口、独立分组/类型管理和判别mutate命令、项目看板/方向/记录/Markdown、批量与回收站，复用既有未保存守卫，实体身份与保存基线保持。底座身份校验改用Map/Set避免平方扫描。完整三闸门exit0（1986通过/9既有跳过），专项30项、隔离开发Electron6/6零重试；目录包及后续业务另验。[当前交付状态](docs/I10-DELIVERY.md)。
 
 2026-10-18 I9完成Windows x64源码与隔离目录包交付验证：问题分组/比较、固定版本写作素材、差异更新、Markdown导出、健康/恢复及共用退出保护。最终类型检查/原始测试/构建均exit0：1945通过、9既有跳过（211文件1954项）；开发Electron13/13、新目录包14/14，均零重试。包审计26,075项及193辅助文件通过。一次非作者静态复核后集中修复并重新完整验证，不称独立运行QA。现有I8安装版未替换，真实课题及I5/I6原待验不变；全部项目范围的问题默认选项已知限制见下文。
