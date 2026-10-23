@@ -1,11 +1,13 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-24 G-01补强：已修复来源变化仍成功发布/新增资料遗漏，临时包独立验包及真实关闭、最终来源/目录/临时包身份重验通过后才同卷硬链接原子发布，晚到目标不覆盖。[当前逻辑和限制](I6-BACKUP-CONSISTENCY.md)及[实际验证记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-consistency-20261024.md)。下文原rename/未调用验包等为早期实现记录；不能据六批落盘宣布I6全范围通过。日常安装仍6645129，本轮不部署。
+
 > 2026-10-17本机部署补充：I8新目录包及实际安装目录均已运行17/36/37，安装目录7/7零重试通过；真实登记空间维护备份成功且排除0，部署前后字节核对不变。日常快捷方式已切换新版、旧程序保留。下文“安装版未更新”是此前批次状态；不因此消除其它I6待验或把启动检查视为真实科研验收。[部署与回退记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-i8-20261017.md)。
 
 > 2026-10-16接管补充：下文是原批次交付的历史记录。固定SDK及helper已恢复，本轮真实闭环另发现并修复运行锁误归档、维护打包原生环境漏接、恢复校验资产库路径错误。当前运行结果、目录包参数及未验边界见[最新验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-takeover-20261016.md)；旧“SDK缺失/manifest缺失”不能再当成本机现状，也不把六批落盘等同于所有验收完成。安装版未更新，I5待验保持。
 
 本文是 I6（整科研空间**离线备份**与**新空间恢复**）的实施交付记录，对应
-[`INTEGRATION-PLAN-I6.md`](../../docs/INTEGRATION-PLAN-I6.md) 的第 6 批
+[`INTEGRATION-PLAN-I6.md`](https://github.com/littleworld215/research-asset-library/blob/main/docs/INTEGRATION-PLAN-I6.md) 的第 6 批
 「文档与目录包验证：合成全模块开发/打包闭环及旧安装版互斥；源码交付与安装版替换分开」。
 
 定位：这是一份**如实陈述**的交付说明，不是验收报告。凡「已验证」与「未验证」均逐条标注，

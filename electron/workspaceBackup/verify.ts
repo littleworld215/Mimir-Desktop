@@ -11,10 +11,12 @@
  */
 
 import { createHash } from 'node:crypto'
+import { open, close } from 'node:fs'
+import type { EventEmitter } from 'node:events'
 import { resolve } from 'node:path'
 import yauzl from 'yauzl'
 import { validateArchivePaths, type ArchivePath } from './archivePaths'
-import { MANIFEST_IN_ARCHIVE, BACKUP_FORMAT_VERSION, type ArchiveManifest } from './packer'
+import { MANIFEST_IN_ARCHIVE, BACKUP_FORMAT_VERSION, type ArchiveManifest } from './archiveFormat'
 import type { ManifestEntry } from './manifest'
 
 export interface VerifyResult {
@@ -27,15 +29,35 @@ class VerifyError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
 }
 
-/** 打开归档并逐条读取（yauzl 回调风格包成 async）。 */
-function openArchive(path: string, limits: { maxEntries: number }): Promise<yauzl.ZipFile> {
+interface OpenArchive { zip: yauzl.ZipFile; close(): Promise<void> }
+
+/** fromFd保留解析失败时的所有权；正常/异常都必须等真实关闭，不能以end代替。 */
+function openArchive(path: string, limits: { maxEntries: number }): Promise<OpenArchive> {
   return new Promise((resolveOpen, reject) => {
-    yauzl.open(path, { lazyEntries: true, autoClose: true, decodeStrings: true }, (error, zipfile) => {
-      if (error || !zipfile) reject(new VerifyError('OPEN_FAILED', `无法打开归档：${error?.message ?? '未知错误'}`))
-      else if (zipfile.entryCount > limits.maxEntries) {
-        zipfile.close()
-        reject(new VerifyError('ENTRY_LIMIT', `归档条目数 ${zipfile.entryCount} 超过上限 ${limits.maxEntries}`))
-      } else resolveOpen(zipfile)
+    open(path, 'r', (openError, fd) => {
+      if (openError) { reject(new VerifyError('OPEN_FAILED', `无法打开归档：${openError.message}`)); return }
+      yauzl.fromFd(fd, { lazyEntries: true, autoClose: false, decodeStrings: true }, (error, zipfile) => {
+        if (error || !zipfile) {
+          close(fd, closeError => reject(new VerifyError('OPEN_FAILED', `无法打开归档：${closeError?.message ?? error?.message ?? '未知错误'}`)))
+          return
+        }
+        // 锁定的yauzl3.4.0在底层关闭失败时只发reader.error，不发close。
+        // 此处观察真实reader的关闭结果；Promise先收敛为值，避免迟到拒绝未观察。
+        const closed = new Promise<Error | undefined>(resolveClosed => {
+          zipfile.once('close', () => resolveClosed(undefined))
+          const reader = (zipfile as yauzl.ZipFile & { reader: EventEmitter }).reader
+          reader.once('error', error => resolveClosed(error))
+        })
+        zipfile.on('error', () => {})
+        const handle: OpenArchive = { zip: zipfile, async close() {
+          zipfile.close()
+          const closeError = await closed
+          if (closeError) throw new VerifyError('READ_FAILED', `关闭归档失败：${closeError.message}`)
+        } }
+        if (zipfile.entryCount > limits.maxEntries) {
+          void handle.close().then(() => reject(new VerifyError('ENTRY_LIMIT', `归档条目数 ${zipfile.entryCount} 超过上限 ${limits.maxEntries}`)), reject)
+        } else resolveOpen(handle)
+      })
     })
   })
 }
@@ -98,13 +120,14 @@ export async function verifyBackup(
   archivePath: string,
   maxEntries = 100_000
 ): Promise<VerifyResult> {
-  const zipfile = await openArchive(archivePath, { maxEntries })
+  const first = await openArchive(archivePath, { maxEntries })
+  const zipfile = first.zip
 
   const entries = new Map<string, { kind: 'file' | 'directory'; size: number }>()
   let manifestBuffer: Buffer | null = null
   let totalBytes = 0
 
-  await new Promise<void>((resolveAll, rejectAll) => {
+  try { await new Promise<void>((resolveAll, rejectAll) => {
     zipfile.on('entry', (entry: yauzl.Entry) => {
       void (async () => {
         try {
@@ -128,7 +151,7 @@ export async function verifyBackup(
     zipfile.on('end', () => resolveAll())
     zipfile.on('error', (error: Error) => rejectAll(new VerifyError('READ_FAILED', `归档读取失败：${error.message}`)))
     zipfile.readEntry()
-  })
+  }) } finally { await first.close() }
 
   if (!manifestBuffer) throw new VerifyError('MANIFEST_MISSING', `归档缺少清单 ${MANIFEST_IN_ARCHIVE}`)
 
@@ -161,8 +184,9 @@ export async function verifyBackup(
   }
 
   // 逐文件字节数与 SHA256 复核（只读，不解压到磁盘）。
-  const zip2 = await openArchive(archivePath, { maxEntries })
-  await new Promise<void>((resolveAll, rejectAll) => {
+  const second = await openArchive(archivePath, { maxEntries })
+  const zip2 = second.zip
+  try { await new Promise<void>((resolveAll, rejectAll) => {
     zip2.on('entry', (entry: yauzl.Entry) => {
       void (async () => {
         try {
@@ -185,7 +209,7 @@ export async function verifyBackup(
     zip2.on('end', () => resolveAll())
     zip2.on('error', (error: Error) => rejectAll(new VerifyError('READ_FAILED', `归档读取失败：${error.message}`)))
     zip2.readEntry()
-  })
+  }) } finally { await second.close() }
 
   return { entries: manifest.entries.length, totalBytes, formatVersion: manifest.version }
 }
@@ -208,5 +232,5 @@ export function assertArchivePathWithinRoot(entryPath: string, root: string): vo
 export { VerifyError }
 /** 只读探测：归档是否可打开（不逐条校验内容）。 */
 export async function canOpenBackup(archivePath: string): Promise<boolean> {
-  try { (await openArchive(archivePath, { maxEntries: 100_000 })).close(); return true } catch { return false }
+  try { await (await openArchive(archivePath, { maxEntries: 100_000 })).close(); return true } catch { return false }
 }

@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-24 G-01备份一致性补强：来源两次流式观察、遍历末复核、临时包同步/独立验包及实际关闭、输出身份重验、同卷原子不覆盖发布。[逻辑与限制](docs/I6-BACKUP-CONSISTENCY.md)及[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-consistency-20261024.md)分别登记。源码修复不自动更新日常6645129安装，I6其它欠项与I5待验保持。
+
 ## 当前安装与使用
 
 测试设施续项（2026-10-23）：普通Vitest的真实日志出口已定向唯一临时目录，保留文件和控制台日志；3项反例通过，一次静态复核Important已修正并复查，最终完整类型/测试/构建均exit0，2235通过/9既有跳过（262文件2244项），日志哨兵摘要不变。生产代码、日常安装6645129及科研资料不变。开发验证约定见[日志隔离](DEVELOPMENT.md#vitest日志隔离2026-10-23)。

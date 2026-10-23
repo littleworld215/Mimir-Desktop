@@ -48,13 +48,16 @@ test('真实系统重启进入同profile维护，备份合成空间并释放维�
     const original = await electron.launch({ executablePath: executable,
       args: [...(packaged ? [] : [mainEntry]), `--user-data-dir=${temp.userData}`, `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], cwd: repoRoot, env })
     const child = original.process()
+    child.stdout?.on('data', data => output.push(Buffer.from(data)))
+    child.stderr?.on('data', data => output.push(Buffer.from(data)))
+    // 与通用launch夹具一致，先等真实窗口建立；过早请求主进程上下文可能在启动切换中被回收。
+    // 这里只等待真实生命周期，不替换维护重启/退出或任何产品接口。
+    await original.firstWindow()
     const actualPaths = await original.evaluate(({ app }) => ({ home: process.getBuiltinModule('os').homedir(), userData: app.getPath('userData'), exe: process.execPath, packaged: app.isPackaged }))
     expect(realpathSync(actualPaths.home)).toBe(realpathSync(temp.home))
     expect(realpathSync(actualPaths.userData)).toBe(realpathSync(temp.userData))
     expect(realpathSync(actualPaths.exe)).toBe(realpathSync(executable))
     expect(actualPaths.packaged).toBe(Boolean(packaged))
-    child.stdout?.on('data', data => output.push(Buffer.from(data)))
-    child.stderr?.on('data', data => output.push(Buffer.from(data)))
     let spawnError: Error | undefined
     child.once('error', error => { spawnError = error })
     // 成功路径隔离外网：原有“在途刷新取消/失败即阻断”规则由producerStop回归保留。

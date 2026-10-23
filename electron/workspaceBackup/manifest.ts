@@ -121,7 +121,7 @@ const RUNTIME_LOCK_PATHS = new Set(['.mimir/workspace.writer-lock', '.mimir/asse
  * 1. **前缀**：`EXCLUDED_PREFIXES`（过程产物**目录**，需以 `/` 补齐后比前缀）。
  * 2. **精确路径**：受管写锁与资产库旁文件（大小写不敏感），其它同名资料保留。
  */
-function isExcluded(relPath: string): boolean {
+export function isExcludedFromBackup(relPath: string): boolean {
   const withSlash = `${relPath}/`
   if (EXCLUDED_PREFIXES.some(prefix => withSlash.startsWith(prefix))) return true
   // 大小写不敏感：Windows 上 `ASSETS.DB-WAL` 也可能出现（NTFS 默认不区分大小写）。
@@ -171,7 +171,7 @@ async function walk(
     if (stat.isSymbolicLink()) throw new ManifestError('UNEXPECTED_LINK', `备份不跟随符号链接或联接：${relPrefix}`)
 
     const posixRel = relPrefix
-    if (posixRel !== '' && isExcluded(posixRel)) return
+    if (posixRel !== '' && isExcludedFromBackup(posixRel)) return
     if (posixRel !== '' && overrides?.omit?.has(posixRel)) return
 
     if (stat.isDirectory()) {
