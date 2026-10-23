@@ -2,9 +2,11 @@
 
 ## 当前安装与使用
 
-操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。2026-10-23文献恢复草稿六批源码及隔离目录包验证完成：三类输入显式恢复、冲突/失败保护及备份关联已接通；完整2232通过/9既有跳过，类型/构建exit0，开发/包内各16/16零重试。一次非作者静态复核3项Important已按反例修复，不称独立运行QA；日常276aba3未更新。见[恢复草稿说明](docs/LIBRARY-RECOVERY-DRAFTS.md)及[原笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。
+2026-10-23当前部署：恢复草稿6645129已部署到独立版本目录，两处快捷方式已切换，Windows Shell正常启动及同主实例核对通过。候选和实际安装各44/44、旧新版互斥1/1，均零重试exit0；完整2232通过/9既有跳过，类型/构建exit0。配置、用户环境、空间原始副本、旧入口与23条目正式备份均保留；仅按用户授权隔离两把原残留锁。业务资料和注册表不变，运行日志、备份审计及会议缓存时间变化单列；正常Shell启动像素可见性未核验。[证据与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-library-drafts-deployment-20261023.md)。
 
-2026-10-22：文献优化产品276aba3已部署到独立目录，桌面/开始菜单入口已切换并通过Windows Shell可见启动。候选包和实际安装分别36/36、旧新版互斥1/1，均零重试exit0；完整类型/测试/构建exit0（2154通过/9既有跳过）。原配置/profile/整空间和快捷方式已备份，原资料与注册表只读核对不变，旧版可回退。文献库新增日期来源及回收恢复现可使用；无模型调用或T2I实验。[使用与回退](docs/LIBRARY-DEPLOYMENT.md)。下方保留各批次历史状态，不将旧“安装未更新”当作当前状态。
+操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。2026-10-23文献恢复草稿六批源码及隔离目录包验证完成：三类输入显式恢复、冲突/失败保护及备份关联已接通；完整2232通过/9既有跳过，类型/构建exit0，开发/包内各16/16零重试。一次非作者静态复核3项Important已按反例修复，不称独立运行QA；日常版本现为6645129；源码交付记录与部署记录分别保存。见[恢复草稿说明](docs/LIBRARY-RECOVERY-DRAFTS.md)及[原笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。
+
+上一版安装记录（2026-10-22）：文献优化产品276aba3已部署到独立目录，桌面/开始菜单入口已切换并通过Windows Shell可见启动。候选包和实际安装分别36/36、旧新版互斥1/1，均零重试exit0；完整类型/测试/构建exit0（2154通过/9既有跳过）。原配置/profile/整空间和快捷方式已备份，原资料与注册表只读核对不变，旧版可回退。文献库新增日期来源及回收恢复现可使用；无模型调用或T2I实验。[使用与回退](docs/LIBRARY-DEPLOYMENT.md)。下方保留各批次历史状态，不将旧“安装未更新”当作当前状态。
 
 2026-10-22 文献回收站源码验证完成：移除/恢复先预览关联，保留原标识、PDF、笔记和证据/素材历史；重导入不自动复活，活动候选排除回收条目。下载实际寿命内阻止回收，磁盘失败回滚缓存；整空间恢复保留并校验回收/日期元信息。完整三闸门exit0（2154通过/9既有跳过，253文件2163项），补强下载成功断言后全量复跑一致；真实桌面组合24/24零重试exit0，含SQLite/WAL维护恢复。新上下文静态两项Important已修复复查；安装未更新，不称独立运行QA。[操作与边界](docs/LIBRARY-RECYCLE.md)。
 
