@@ -12,7 +12,7 @@ const row = (input = 'raw'): EditingDraft => ({ id: 'draft', paperId: 'p', kind:
 function bridge() {
   let revision = 0
   const api = {
-    open: vi.fn(async () => ({ ok: true, base: { notes: 'base' }, existing: [], sessionId: 'session', revision: 0 })),
+    open: vi.fn(async (r?: { kind: string }) => ({ ok: true, base: r?.kind === 'tags' ? { tags: ['old'] } : { notes: 'base' }, existing: [], sessionId: 'session', revision: 0 })),
     saveDraft: vi.fn(async (r: any) => ({ ok: true, draft: { ...row(r.write.input), revision: ++revision } })),
     detail: vi.fn(async () => ({ ok: true, draft: row(), status: 'editable' })),
     close: vi.fn(async () => ({ ok: true })), discard: vi.fn(async () => ({ ok: true })),
@@ -121,4 +121,77 @@ it('discard waits in-flight save, then discards its confirmed revision without a
   expect(done).toBe(false); expect(api.discard).not.toHaveBeenCalled()
   await act(async () => { finish({ ok: true, draft: { ...row('new'), revision: 7 } }); await discard })
   expect(api.discard).toHaveBeenCalledWith({ scope, id: 'draft', revision: 7 }); await act(() => vi.advanceTimersByTimeAsync(1000)); expect(api.saveDraft).toHaveBeenCalledOnce()
+})
+it('a changed formal baseline before open cannot silently authorize stale displayed input or fallback', async () => {
+  vi.useFakeTimers(); const api = bridge()
+  api.open.mockResolvedValue({ ok: true, base: { notes: 'newer formal content' }, existing: [], sessionId: 'session', revision: 0 })
+  const { result, rerender } = renderHook(({ input, base }) => usePaperRecoveryDraft({ scope, paperId: 'p', kind: 'notes', base: { notes: base }, input, onRestore: vi.fn() }), { initialProps: { input: 'base', base: 'base' } })
+  await flush(); rerender({ input: 'base edited', base: 'newer formal content' }); await act(() => vi.advanceTimersByTimeAsync(600))
+  expect(api.saveDraft).not.toHaveBeenCalled(); expect(result.current.status).toBe('conflict')
+  await expect(result.current.save()).rejects.toThrow()
+  expect(result.current.base).toEqual({ notes: 'base' })
+  await act(async () => { await result.current.saveWithoutRecovery() })
+  expect(api.saveWithoutRecovery.mock.calls[0][0].base).toEqual({ notes: 'base' })
+})
+it.each(['edit', 'discard'] as const)('formal failure reconciles prepared revision before %s without losing input', async next => {
+  const api = bridge(); let revision = 0, sequence = 0, persisted = row('new')
+  api.saveDraft.mockImplementation(async r => {
+    if (r.write.expectedRevision !== revision || r.write.sequence <= sequence) return { ok: false, code: 'CONFLICT', message: 'CONFLICT: stale revision' } as never
+    sequence = r.write.sequence; persisted = { ...row(r.write.input), revision: ++revision }; return { ok: true, draft: persisted }
+  })
+  api.commit.mockImplementationOnce(async r => {
+    sequence = r.writes[0].sequence; persisted = { ...persisted, revision: ++revision }
+    return { ok: false, code: 'WRITE_FAILED', message: 'formal failed after prepare' } as never
+  })
+  api.detail.mockImplementation(async () => ({ ok: true, draft: persisted, status: 'editable' }))
+  api.discard.mockImplementation(async r => r.revision === revision ? { ok: true } : { ok: false, code: 'CONFLICT', message: 'CONFLICT: stale discard' } as never)
+  render(<PaperCard {...props} />); const card = cardEdit(); await flush()
+  fireEvent.click(within(card).getByRole('button', { name: '保存', exact: true }))
+  await screen.findByText('formal failed after prepare'); expect(screen.getByDisplayValue('new')).toBeTruthy()
+  if (next === 'edit') {
+    fireEvent.change(screen.getByPlaceholderText('写下你的阅读笔记...'), { target: { value: 'revised after failure' } })
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(2))
+    expect(persisted.input).toBe('revised after failure')
+  } else {
+    let left = false; await act(async () => { left = await requestEvidenceLeave('discard') }); expect(left).toBe(true)
+    expect(api.discard.mock.calls[0][0].revision).toBe(revision)
+  }
+})
+it('a second field staging failure releases the first field so it can be saved alone', async () => {
+  const api = bridge(), normalSave = api.saveDraft.getMockImplementation()!
+  api.saveDraft.mockImplementation(async r => r.write.input === 'tag failure' ? { ok: false, code: 'WRITE_FAILED', message: 'tag stage failed' } as never : normalSave(r))
+  render(<PaperCard {...props} />); const card = cardEdit()
+  fireEvent.click(within(card).getAllByRole('button', { name: '编辑', exact: true })[0]); fireEvent.change(screen.getByPlaceholderText('逗号分隔，如 survey, llm'), { target: { value: 'tag failure' } }); await flush()
+  await act(async () => { await requestEvidenceLeave('save') }); expect(api.commit).not.toHaveBeenCalled()
+  fireEvent.click(within(card).getAllByRole('button', { name: '保存', exact: true }).at(-1)!)
+  await waitFor(() => expect(api.commit).toHaveBeenCalledOnce())
+  expect(screen.getByPlaceholderText('逗号分隔，如 survey, llm')).toBeTruthy()
+})
+it('a late discard response cannot clear a new-space session', async () => {
+  const api = bridge(); let finish!: (r: any) => void
+  api.discard.mockImplementationOnce(() => new Promise(r => { finish = r }))
+  const { result, rerender } = renderHook(({ epoch, input }) => usePaperRecoveryDraft({ scope: { ...scope, spaceEpoch: epoch }, paperId: 'p', kind: 'notes', base: { notes: 'base' }, input, onRestore: vi.fn() }), { initialProps: { epoch: '1', input: 'base' } })
+  await flush(); rerender({ epoch: '1', input: 'old pending' }); await act(async () => { await result.current.save() })
+  let discard!: Promise<void>; act(() => { discard = result.current.discard().catch(() => {}) })
+  await waitFor(() => expect(api.discard).toHaveBeenCalledOnce())
+  rerender({ epoch: '2', input: 'new space input' }); await flush(); expect(result.current.write).not.toBeNull()
+  await act(async () => { finish({ ok: true }); await discard })
+  rerender({ epoch: '2', input: 'new space further edit' }); await flush()
+  expect(result.current.write).not.toBeNull(); expect(result.current.write!.input).toBe('new space further edit')
+})
+it('card cancel is busy and its late response cannot close or reset a new-space editor', async () => {
+  const api = bridge(); let finish!: (r: any) => void
+  api.discard.mockImplementationOnce(() => new Promise(r => { finish = r }))
+  const { rerender } = render(<PaperCard {...props} />); const card = cardEdit(); await flush()
+  fireEvent.click(within(card).getByRole('button', { name: '保存', exact: true })); await waitFor(() => expect(api.commit).toHaveBeenCalledOnce())
+  fireEvent.click(within(card).getAllByRole('button', { name: '编辑', exact: true }).at(-1)!)
+  fireEvent.change(screen.getByPlaceholderText('写下你的阅读笔记...'), { target: { value: 'second pending' } })
+  await waitFor(() => expect(api.saveDraft).toHaveBeenCalledTimes(2))
+  const cancel = within(card).getByRole('button', { name: '取消', exact: true }); fireEvent.click(cancel)
+  expect(cancel.hasAttribute('disabled')).toBe(true)
+  await waitFor(() => expect(api.discard).toHaveBeenCalledOnce())
+  rerender(<PaperCard {...props} scope={{ ...scope, spaceEpoch: '2' }} />); await flush()
+  fireEvent.change(screen.getByPlaceholderText('写下你的阅读笔记...'), { target: { value: 'new-space edit must remain' } })
+  await act(async () => { finish({ ok: true }) }); await flush()
+  expect((screen.getByPlaceholderText('写下你的阅读笔记...') as HTMLTextAreaElement).value).toBe('new-space edit must remain')
 })

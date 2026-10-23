@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import type { DraftSummary, EditingDraft, EditingFields, EditingScope, EditingStatus } from '../../../../shared/libraryEditingContracts'
-import { editingKindLabel, PaperDraftRecovery } from './PaperDraftRecovery'
+import { editingKindLabel, editingStatusLabel, PaperDraftRecovery } from './PaperDraftRecovery'
 import type { PaperRecord } from './types'
 export function PaperDraftListDialog({ scope, onClose, onRestore }: { scope: EditingScope; onClose(): void; onRestore(draft: EditingDraft): void | Promise<void> }) {
   const [rows, setRows] = useState<DraftSummary[]>([]), [detail, setDetail] = useState<{ draft: EditingDraft; status: EditingStatus }>(), [current, setCurrent] = useState<EditingFields>({}), [error, setError] = useState(''), [busy, setBusy] = useState(true)
@@ -22,7 +22,7 @@ export function PaperDraftListDialog({ scope, onClose, onRestore }: { scope: Edi
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}><DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>文献恢复草稿</DialogTitle><DialogDescription>按需查看原始输入；不会自动恢复、覆盖或清空。失联及已回收文献仍可复制。</DialogDescription></DialogHeader>
     {busy && <p role="status">读取中…</p>}{error && <p role="alert">{error}<Button onClick={() => void load()}>重试</Button></p>}
     {!busy && !error && !rows.length && <p>暂无恢复草稿。</p>}
-    <div className="max-h-64 space-y-1 overflow-auto">{rows.map(d => <Button variant="outline" disabled={busy} className="h-auto w-full justify-start whitespace-normal text-left" key={d.id} onClick={() => void inspect(d.id)}>{d.paperId} · {editingKindLabel[d.kind]} · {d.updatedAt} · {d.status}</Button>)}</div>
+    <div className="max-h-64 space-y-1 overflow-auto">{rows.map(d => <Button variant="outline" disabled={busy} className="h-auto w-full justify-start whitespace-normal text-left" key={d.id} onClick={() => void inspect(d.id)}>{d.paperId} · {editingKindLabel[d.kind]} · {d.updatedAt} · {editingStatusLabel[d.status]}</Button>)}</div>
     {detail && <PaperDraftRecovery key={detail.draft.id} {...detail} current={current} onRestore={onRestore} onDiscard={async d => { const r = await window.electronAPI!.libraryEditing.discard({ scope, id: d.id, revision: d.revision }); if (!r.ok) throw Error(r.message); setDetail(undefined); await load() }} />}
     <Button variant="outline" disabled={busy} onClick={onClose}>关闭</Button>
   </DialogContent></Dialog>

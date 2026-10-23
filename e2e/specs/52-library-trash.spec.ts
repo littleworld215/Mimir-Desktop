@@ -5,6 +5,8 @@ import { launchApp } from '../fixtures/launch'
 import { seedResearch } from '../fixtures/libraryResearch'
 import { reopenEvidenceApp } from '../fixtures/libraryEvidence'
 import { gotoModule } from '../helpers/nav'
+import { randomUUID } from 'node:crypto'
+import { createEditingRepository } from '../../electron/libraryEditing/repository'
 
 test('回收与恢复：真实关联预览、历史与PDF保全、重导入拒绝、同profile重启', async ({}, testInfo) => {
   test.setTimeout(180_000)
@@ -12,6 +14,7 @@ test('回收与恢复：真实关联预览、历史与PDF保全、重导入拒�
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => {
     fixture = seedResearch(seed)
     fixture.papers[0]!.dates = { sourcePublished: { value: '2024', precision: 'year', source: 'openalex' } }
+    createEditingRepository().commit(fixture.root, 0, { schemaVersion: 1, revision: 1, drafts: [{ id: randomUUID(), paperId: fixture.papers[0].arxivId, kind: 'notes', base: { notes: fixture.papers[0].notes }, input: '\n 回收后仍可复制 \n', revision: 1, updatedAt: '2026-10-23T00:00:00.000Z' }] }, () => {})
     return fixture.seed
   } })
   let restarted: Awaited<ReturnType<typeof reopenEvidenceApp>> | undefined
@@ -19,12 +22,14 @@ test('回收与恢复：真实关联预览、历史与PDF保全、重导入拒�
     const original = fixture.papers[0]!, storePath = join(fixture.root, '.mimir/store.json')
     const historyPaths = ['evidence.json', 'research.json'].map(name => join(fixture.root, '.mimir/library', name))
     const history = historyPaths.map(path => readFileSync(path)), pdf = readFileSync(original.pdfPath!)
+    const draftPath = join(fixture.root, '.mimir/library-editing/drafts.json'), draftBytes = readFileSync(draftPath)
     await gotoModule(ctx.page, 'library')
     const heading = ctx.page.getByRole('heading', { name: original.title, exact: true })
     const card = heading.locator('xpath=ancestor::div[contains(@class,"group")][1]')
     await card.getByTitle('从文献库移除', { exact: true }).click()
     const preview = ctx.page.getByRole('dialog', { name: '移入文献回收站', exact: true })
     await expect(preview.getByText(/证据卡 2 张/)).toBeVisible()
+    await expect(preview.getByText(/文献编辑恢复草稿 1 条/)).toBeVisible()
     await preview.getByRole('button', { name: '取消', exact: true }).click()
     expect(JSON.parse(readFileSync(storePath, 'utf8'))['library:papers'][original.arxivId]).toEqual(original)
     await card.getByTitle('从文献库移除', { exact: true }).click()
@@ -39,6 +44,16 @@ test('回收与恢复：真实关联预览、历史与PDF保全、重导入拒�
     }), original)
     expect(reimport).toMatchObject({ ok: false })
     expect(reimport.message).toContain('回收站')
+    await ctx.page.getByRole('button', { name: '恢复草稿', exact: true }).click()
+    const recovery = ctx.page.getByRole('dialog', { name: '文献恢复草稿', exact: true })
+    await recovery.getByRole('button', { name: /自由笔记/ }).click()
+    await expect(recovery.getByText('自由笔记 · 文献在回收站，仅查看复制')).toBeVisible()
+    expect(await recovery.getByLabel('恢复草稿输入').textContent()).toBe('\n 回收后仍可复制 \n')
+    await recovery.getByRole('button', { name: '复制草稿输入', exact: true }).click()
+    // Windows clipboard represents text lines as CRLF; draft-file bytes above/below stay exact.
+    expect((await ctx.app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n')).toBe('\n 回收后仍可复制 \n')
+    await recovery.getByRole('button', { name: '关闭', exact: true }).click()
+    expect(readFileSync(draftPath)).toEqual(draftBytes)
     await ctx.page.getByRole('button', { name: '证据比较矩阵', exact: true }).click()
     await expect(ctx.page.getByText('来源文献已移除，快照保留', { exact: true })).toBeVisible()
     await ctx.page.getByRole('button', { name: '返回文献列表', exact: true }).click()
@@ -57,6 +72,7 @@ test('回收与恢复：真实关联预览、历史与PDF保全、重导入拒�
     expect(JSON.parse(readFileSync(storePath, 'utf8'))['library:papers'][original.arxivId]).toEqual(original)
     expect(historyPaths.map(path => readFileSync(path))).toEqual(history)
     expect(readFileSync(original.pdfPath!)).toEqual(pdf)
+    expect(readFileSync(draftPath)).toEqual(draftBytes)
     restarted = await reopenEvidenceApp(ctx)
     await gotoModule(restarted.page, 'library')
     await expect(restarted.page.getByRole('heading', { name: original.title, exact: true })).toBeVisible()

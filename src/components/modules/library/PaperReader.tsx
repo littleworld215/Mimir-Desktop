@@ -39,6 +39,7 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
   const boundary = useRef({ alive: true, key: '' })
   boundary.current.key = `${scope?.workspaceId}:${scope?.spaceEpoch}:${paper.arxivId}`
   useEffect(() => { boundary.current.alive = true; return () => { boundary.current.alive = false } }, [])
+  useEffect(() => { savingRef.current = false; setSaving(false) }, [scope?.workspaceId, scope?.spaceEpoch, paper.arxivId])
   const [tab, setTab] = useState(initialTab), [pdfUrl, setPdfUrl] = useState(pdfUrlOf(paper.arxivId)), [source, setSource] = useState<SourceOpenResult>()
   const container = useRef<HTMLDivElement>(null)
   const recovery = usePaperRecoveryDraft({ scope: addingNote ? scope : undefined, paperId: paper.arxivId, kind: 'append', base: { notes: paper.notes }, input: noteText, onRestore: setNoteText, onConfirmedPaper })
@@ -59,9 +60,11 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
     savingRef.current = true
     const key = boundary.current.key
     setSaving(true); setSaveError('')
+    let pending: Awaited<ReturnType<typeof recovery.save>> | undefined
     try {
       if (scope) {
-        const write = await recovery.save(), result = await window.electronAPI!.libraryEditing.commit({ scope, writes: [write] })
+        pending = await recovery.save()
+        const result = await window.electronAPI!.libraryEditing.commit({ scope, writes: [pending] })
         if (!boundary.current.alive || key !== boundary.current.key) return false
         if (!result.ok) throw Error(result.message)
         recovery.acceptCommit(result); setSaveWarning(result.warning ?? '')
@@ -75,15 +78,26 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
       return true
     } catch (failure) {
       if (!boundary.current.alive || key !== boundary.current.key) return false
+      if (pending) await recovery.commitFailed(pending)
+      if (!boundary.current.alive || key !== boundary.current.key) return false
       setSaveError(failure instanceof Error ? failure.message : '保存失败，输入已保留')
       return false
     } finally {
-      savingRef.current = false
-      setSaving(false)
+      if (boundary.current.alive && key === boundary.current.key) { savingRef.current = false; setSaving(false) }
     }
   }
 
-  async function discard() { try { if (scope) await recovery.discard(); setNoteText(''); setAddingNote(false); setSaveError('') } catch (e) { setSaveError(e instanceof Error ? e.message : '丢弃失败'); throw e } }
+  async function discard() {
+    if (savingRef.current) throw Error('正在处理编辑，请稍候')
+    const key = boundary.current.key, current = () => boundary.current.alive && key === boundary.current.key
+    savingRef.current = true; setSaving(true)
+    try {
+      if (scope) await recovery.discard()
+      if (!current()) throw Error('SPACE_CHANGED：编辑会话已变化')
+      setNoteText(''); setAddingNote(false); setSaveError('')
+    } catch (e) { if (current()) setSaveError(e instanceof Error ? e.message : '丢弃失败'); throw e }
+    finally { if (current()) { savingRef.current = false; setSaving(false) } }
+  }
   async function fallback() {
     if (savingRef.current) return
     savingRef.current = true; setSaving(true)

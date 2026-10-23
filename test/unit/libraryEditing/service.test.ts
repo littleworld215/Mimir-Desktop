@@ -122,3 +122,16 @@ it('retains the existing comma-only tag rule instead of reinterpreting Chinese c
   const s = setup(); await s.service.commit(s.ctx, 7, [s.write('tags', '  a，b\nc, a，b\nc  ')])
   expect(s.paper().tags).toEqual(['a，b\nc'])
 })
+it('completed retry returns fresh unrelated fields and refuses a changed committed field', async () => {
+  const s = setup(), w = s.write(); await s.service.commit(s.ctx, 7, [w])
+  s.change({ tags: ['later-tags'], projectIds: ['new-project'] })
+  expect(await s.service.commit(s.ctx, 7, [w])).toMatchObject({ state: 'already-saved', paper: { tags: ['later-tags'], projectIds: ['new-project'] } })
+  s.change({ notes: 'later-notes' }); await expect(s.service.commit(s.ctx, 7, [w])).rejects.toThrow(/CONFLICT/)
+  expect(s.host.updatePaper).toHaveBeenCalledTimes(1)
+})
+it('a fresh owner open after workspace change revokes obsolete in-memory tokens', () => {
+  const s = setup(), w = s.write()
+  s.service.open({ ...s.ctx, scope: { ...s.ctx.scope, epoch: 'next' } }, 7, 'p', 'notes')
+  expect(() => s.service.save(s.ctx, 7, w)).toThrow(/SESSION_CLOSED/)
+  expect(s.repository.read(s.root).drafts).toEqual([])
+})

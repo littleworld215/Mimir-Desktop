@@ -84,6 +84,7 @@ export function PaperCard({
   const boundary = useRef({ alive: true, key: '' })
   boundary.current.key = `${scope?.workspaceId}:${scope?.spaceEpoch}:${paper.arxivId}`
   useEffect(() => { boundary.current.alive = true; return () => { boundary.current.alive = false } }, [])
+  useEffect(() => { savingRef.current = false; setSaving(false) }, [scope?.workspaceId, scope?.spaceEpoch, paper.arxivId])
 
   const relevance = selectedProjectId ? paper.relevance?.[selectedProjectId] : undefined
   const { plain: plainNotes, entries: readingNotes } = readingNotesView(paper.notes)
@@ -94,10 +95,20 @@ export function PaperCard({
   const tagRecovery = usePaperRecoveryDraft({ scope: editingTags ? scope : undefined, paperId: paper.arxivId, kind: 'tags', base: { tags: paper.tags }, input: tagText, onRestore: setTagText, onConfirmedPaper })
   useEffect(() => { if (!recoverySelection) return; setExpanded(true); if (recoverySelection.kind === 'tags') { setTagText(paper.tags.join(', ')); setEditingTags(true) } else { setNoteText(paper.notes); setEditingNotes(true) } }, [recoverySelection?.id])
   const discard = async () => {
-    try { if (scope) { if (editingNotes) await noteRecovery.discard(); if (editingTags) await tagRecovery.discard() } }
-    catch (e) { setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留'); throw e }
-    setNoteText(paper.notes); setTagText(paper.tags.join(', '))
-    setEditingNotes(false); setEditingTags(false); setSaveError('')
+    if (savingRef.current) throw Error('正在处理编辑，请稍候')
+    const key = boundary.current.key, current = () => boundary.current.alive && key === boundary.current.key
+    savingRef.current = true; setSaving(true)
+    try {
+      if (scope) {
+        if (editingNotes) await noteRecovery.discard()
+        if (!current()) throw Error('SPACE_CHANGED：编辑会话已变化')
+        if (editingTags) await tagRecovery.discard()
+      }
+      if (!current()) throw Error('SPACE_CHANGED：编辑会话已变化')
+      setNoteText(paper.notes); setTagText(paper.tags.join(', '))
+      setEditingNotes(false); setEditingTags(false); setSaveError('')
+    } catch (e) { if (current()) setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留'); throw e }
+    finally { if (current()) { savingRef.current = false; setSaving(false) } }
   }
   const persist = async (mode: 'notes' | 'tags' | 'all'): Promise<boolean> => {
     if (savingRef.current) return false
@@ -107,12 +118,12 @@ export function PaperCard({
     savingRef.current = true
     const key = boundary.current.key
     setSaving(true); setSaveError('')
+    const prepared: { recovery: typeof noteRecovery; write: Awaited<ReturnType<typeof noteRecovery.save>> }[] = []
     try {
       if (scope) {
-        const writes = []
-        if (notes) writes.push(await noteRecovery.save())
-        if (tags) writes.push(await tagRecovery.save())
-        const result = await window.electronAPI!.libraryEditing.commit({ scope, writes })
+        if (notes) prepared.push({ recovery: noteRecovery, write: await noteRecovery.save() })
+        if (tags) prepared.push({ recovery: tagRecovery, write: await tagRecovery.save() })
+        const result = await window.electronAPI!.libraryEditing.commit({ scope, writes: prepared.map(p => p.write) })
         if (!boundary.current.alive || key !== boundary.current.key) return false
         if (!result.ok) throw Error(result.message)
         if (notes) noteRecovery.acceptCommit(result)
@@ -131,9 +142,11 @@ export function PaperCard({
       return true
     } catch (failure) {
       if (!boundary.current.alive || key !== boundary.current.key) return false
+      await Promise.all(prepared.map(p => p.recovery.commitFailed(p.write)))
+      if (!boundary.current.alive || key !== boundary.current.key) return false
       setSaveError(failure instanceof Error ? failure.message : '保存失败，输入已保留')
       return false
-    } finally { savingRef.current = false; setSaving(false) }
+    } finally { if (boundary.current.alive && key === boundary.current.key) { savingRef.current = false; setSaving(false) } }
   }
   usePaperEditGuard({ isDirty: () => notesDirty || tagsDirty, isBusy: () => savingRef.current || togglingProject,
     save: () => persist('all'), discard })
@@ -155,11 +168,18 @@ export function PaperCard({
       if (tagsDirty) { tagRecovery.acceptCommit(reply); setEditingTags(false) }
       setSaveWarning(reply.warning)
     } catch (e) { setSaveError(e instanceof Error ? e.message : '保存失败，输入保留') }
-    finally { savingRef.current = false; setSaving(false) }
+    finally { if (boundary.current.alive && key === boundary.current.key) { savingRef.current = false; setSaving(false) } }
   }
   async function cancelField(kind: 'notes' | 'tags') {
-    try { if (scope) await (kind === 'notes' ? noteRecovery : tagRecovery).discard(); if (kind === 'notes') { setNoteText(paper.notes); setEditingNotes(false) } else { setTagText(paper.tags.join(', ')); setEditingTags(false) }; setSaveError('') }
-    catch (e) { setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留') }
+    if (savingRef.current) return
+    const key = boundary.current.key, current = () => boundary.current.alive && key === boundary.current.key
+    savingRef.current = true; setSaving(true)
+    try {
+      if (scope) await (kind === 'notes' ? noteRecovery : tagRecovery).discard()
+      if (!current()) return
+      if (kind === 'notes') { setNoteText(paper.notes); setEditingNotes(false) } else { setTagText(paper.tags.join(', ')); setEditingTags(false) }; setSaveError('')
+    } catch (e) { if (current()) setSaveError(e instanceof Error ? e.message : '丢弃失败，输入保留') }
+    finally { if (current()) { savingRef.current = false; setSaving(false) } }
   }
 
   const toggleProject = async (projectId: string) => {

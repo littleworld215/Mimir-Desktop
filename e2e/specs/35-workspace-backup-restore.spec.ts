@@ -7,6 +7,9 @@ import { ASSETS_DDL, ASSETS_SCHEMA_VERSION } from '../../electron/assets/schema'
 import { createBackup } from '../../electron/workspaceBackup/packer'
 import type { WorkspaceBackupMaintenanceApi } from '../../shared/workspaceBackupContracts'
 import { launchApp } from '../fixtures/launch'
+import { createEditingRepository } from '../../electron/libraryEditing/repository'
+import { randomUUID } from 'node:crypto'
+import { reopenEvidenceApp } from '../fixtures/libraryEvidence'
 
 /** 对照源字节；SQLite共享内存与运行锁不属于业务资料。WAL另行核对。 */
 function sourceHashes(root: string): Record<string, string> {
@@ -38,12 +41,14 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
     transformSeed: seed => {
       sourceRoot = seed.workspaces[0].path
       return { ...seed, spaceData: {
-        'library:papers': { synthetic: { pdfPath: join(sourceRoot, 'papers', pdfName) } },
+        'library:papers': { synthetic: { arxivId: 'synthetic', title: '合成文献', notes: '', tags: [], pdfPath: join(sourceRoot, 'papers', pdfName) } },
         unknown: { text: `自由文本原样保留 ${sourceRoot}`, list: [1, '隐藏资料'] }
       } }
     }
   })
   try {
+    const draft = { id: randomUUID(), paperId: 'synthetic', kind: 'notes' as const, base: { notes: '' }, input: `\n 原路径 ${sourceRoot} \n`, revision: 1, updatedAt: '2026-10-23T00:00:00.000Z' }
+    createEditingRepository().commit(sourceRoot, 0, { schemaVersion: 1, revision: 1, drafts: [draft] }, () => {})
     if (process.env.MIMIR_E2E_PACKAGED) {
       // 安装包不能借用开发仓库.cwd下的.native缓存而产生假绿。
       await ctx.app.evaluate((_electron, cwd) => process.chdir(cwd), ctx.tempHome.root)
@@ -138,10 +143,24 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
     expect(restoredStore['library:papers'].synthetic.pdfPath).toBe(join(targetRoot, 'papers', pdfName))
     expect(sourceHashes(sourceRoot)).toEqual(before)
     const registryAfter = JSON.parse(readFileSync(registryPath, 'utf8'))
+    expect(readFileSync(join(targetRoot, '.mimir/library-editing/drafts.json'))).toEqual(readFileSync(join(sourceRoot, '.mimir/library-editing/drafts.json')))
     expect(registryAfter['workspaces:list']).toHaveLength(registryBefore['workspaces:list'].length + 1)
     expect(registryAfter.activeWorkspaceId).toBe(registryBefore.activeWorkspaceId)
     expect(registryAfter.defaultWorkspaceId).toBe(registryBefore.defaultWorkspaceId)
     expect(existsSync(join(sourceRoot, '.mimir/workspace.writer-lock'))).toBe(false)
+    if (scenario === 'backup-restore') {
+      sourceDb?.close(); sourceDb = undefined
+      const reopened = await reopenEvidenceApp(ctx)
+      try {
+        const id = registryAfter['workspaces:list'].find((r: any) => r.path === targetRoot).id
+        const result = await reopened.page.evaluate(async ({ id, draft }) => {
+          if (!(await window.electronAPI!.workspaces.switch(id)).ok) throw Error('switch failed')
+          const list = await window.electronAPI!.libraryEditing.list({}); if (!list.ok) return list
+          return window.electronAPI!.libraryEditing.open({ scope: list.scope, paperId: 'synthetic', kind: 'notes', resume: { draftId: draft.id, revision: draft.revision } })
+        }, { id, draft })
+        expect(result).toMatchObject({ ok: true, sessionId: expect.any(String), base: { notes: '' } })
+      } finally { await reopened.app.close() }
+    }
   } finally {
     try { sourceDb?.close() } finally { await ctx.cleanup() }
   }

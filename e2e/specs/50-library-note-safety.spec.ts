@@ -10,11 +10,11 @@ function start() {
 async function failOnce(app: ElectronApplication) {
   await app.evaluate(({ ipcMain }) => {
     const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
-    const original = handlers.get('library:updatePaper')
+    const original = handlers.get('libraryEditing:commit')
     if (!original) throw Error('真实更新处理器缺失')
     let first = true
-    ipcMain.removeHandler('library:updatePaper')
-    ipcMain.handle('library:updatePaper', (...args) => {
+    ipcMain.removeHandler('libraryEditing:commit')
+    ipcMain.handle('libraryEditing:commit', (...args) => {
       if (first) { first = false; return { ok: false, message: '合成保存失败' } }
       return original(...args)
     })

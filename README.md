@@ -2,7 +2,7 @@
 
 ## 当前安装与使用
 
-操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。文献编辑的崩溃恢复草稿仍未实现；正常保存和离开保护的范围见[笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。
+操作参考：[科研阅读整理快速指引](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-QUICKSTART.md) · [完整课题试用流程](https://github.com/littleworld215/research-asset-library/blob/main/docs/RESEARCH-PILOT.md)。2026-10-23文献恢复草稿六批源码及隔离目录包验证完成：三类输入显式恢复、冲突/失败保护及备份关联已接通；完整2232通过/9既有跳过，类型/构建exit0，开发/包内各16/16零重试。一次非作者静态复核3项Important已按反例修复，不称独立运行QA；日常276aba3未更新。见[恢复草稿说明](docs/LIBRARY-RECOVERY-DRAFTS.md)及[原笔记说明](docs/LIBRARY-NOTE-SAFETY.md)。
 
 2026-10-22：文献优化产品276aba3已部署到独立目录，桌面/开始菜单入口已切换并通过Windows Shell可见启动。候选包和实际安装分别36/36、旧新版互斥1/1，均零重试exit0；完整类型/测试/构建exit0（2154通过/9既有跳过）。原配置/profile/整空间和快捷方式已备份，原资料与注册表只读核对不变，旧版可回退。文献库新增日期来源及回收恢复现可使用；无模型调用或T2I实验。[使用与回退](docs/LIBRARY-DEPLOYMENT.md)。下方保留各批次历史状态，不将旧“安装未更新”当作当前状态。
 

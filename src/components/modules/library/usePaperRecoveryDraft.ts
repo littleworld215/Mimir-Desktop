@@ -3,11 +3,12 @@ import type { CommitReply, DraftSummary, EditingDraft, EditingFields, EditingKin
 import type { PaperRecord } from './types'
 
 interface Options { scope?: EditingScope; paperId: string; kind: EditingKind; base: EditingFields; input: string; onRestore(input: string): void; onConfirmedPaper?(paper: PaperRecord): void }
-type Session = { id: string; revision: number; sequence: number; base: EditingFields; scope: EditingScope; alive: boolean; stopped: boolean; savedInput: string; draft?: EditingDraft; due: boolean; flight?: Promise<void> }
+type Session = { id: string; revision: number; sequence: number; base: EditingFields; scope: EditingScope; alive: boolean; stopped: boolean; commitPending?: boolean; savedInput: string; draft?: EditingDraft; due: boolean; flight?: Promise<void> }
 export function usePaperRecoveryDraft(options: Options) {
   const latest = useRef(options); latest.current = options
   const session = useRef<Session>(), generation = useRef(0), timer = useRef<ReturnType<typeof setTimeout>>()
   const previousIdentity = useRef<string>()
+  const editorBase = useRef(options.base)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle')
   const [existing, setExisting] = useState<DraftSummary[]>([]), [error, setError] = useState(''), [warning, setWarning] = useState(''), [ready, setReady] = useState(0)
   const api = () => window.electronAPI?.libraryEditing
@@ -17,6 +18,12 @@ export function usePaperRecoveryDraft(options: Options) {
   function close(s: Session) { s.alive = false; s.stopped = true; void api()?.close({ scope: s.scope, sessionId: s.id }).catch(() => {}) }
   function acceptOpen(result: { base: EditingFields; sessionId?: string; revision: number; existing: DraftSummary[] }, scope: EditingScope, restored?: EditingDraft, initialInput?: string) {
     setExisting(restored ? [] : result.existing)
+    if (!restored && JSON.stringify(result.base) !== JSON.stringify(editorBase.current)) {
+      if (result.sessionId) void api()?.close({ scope, sessionId: result.sessionId }).catch(() => {})
+      fail(Error('CONFLICT：文献内容在打开编辑器前已更新；当前输入保留，请复制后关闭并重新打开编辑器对照'))
+      return
+    }
+    if (restored) editorBase.current = result.base
     if (result.sessionId) session.current = { id: result.sessionId, revision: result.revision, sequence: 0, base: result.base, scope, alive: true, stopped: false, savedInput: restored?.input ?? initialInput ?? (latest.current.kind === 'tags' ? result.base.tags?.join(', ') ?? '' : latest.current.kind === 'append' ? '' : result.base.notes ?? ''), draft: restored, due: false }
     setStatus('idle'); setError(''); setReady(n => n + 1)
   }
@@ -24,6 +31,7 @@ export function usePaperRecoveryDraft(options: Options) {
     const epoch = ++generation.current, scope = options.scope
     stopTimer(); const old = session.current; if (old) close(old); session.current = undefined
     setExisting([]); setError(''); setStatus('idle'); setWarning('')
+    editorBase.current = structuredClone(options.base)
     if (!scope) return
     const identity = JSON.stringify([scope.workspaceId, scope.spaceEpoch, options.paperId]), changed = previousIdentity.current !== undefined && previousIdentity.current !== identity
     const initialInput = changed ? latest.current.input : undefined
@@ -40,12 +48,12 @@ export function usePaperRecoveryDraft(options: Options) {
 
   async function pump(): Promise<void> {
     const s = session.current, bridge = api()
-    if (!s || !bridge || s.stopped) throw Error('请先处理恢复草稿选择，或检查恢复保护是否可用')
+    if (!s || !bridge || s.stopped || s.commitPending) throw Error('请先处理恢复草稿选择，或检查恢复保护是否可用')
     if (s.flight) return s.flight
     s.flight = (async () => {
       while (live(s) && !s.stopped && s.due) {
         s.due = false; const input = latest.current.input
-        if (input === s.savedInput) continue
+        if (input === s.savedInput && s.draft) continue
         setStatus('saving'); setError('')
         const result = await bridge.saveDraft({ scope: s.scope, write: { sessionId: s.id, expectedRevision: s.revision, sequence: ++s.sequence, input } })
         if (!live(s)) return
@@ -58,29 +66,50 @@ export function usePaperRecoveryDraft(options: Options) {
   }
   useEffect(() => {
     stopTimer(); const s = session.current
-    if (!s || s.stopped || options.input === s.savedInput) return
+    if (!s || s.stopped || s.commitPending || options.input === s.savedInput) return
     timer.current = setTimeout(() => { s.due = true; void pump().catch(() => {}) }, 500)
     return stopTimer
   }, [options.input, ready])
 
   async function save(): Promise<SessionWrite> {
     stopTimer(); const s = session.current
-    if (!s || s.stopped || existing.length) throw Error('请先恢复或明确丢弃已有草稿；当前输入保留')
+    if (!s || s.stopped || s.commitPending || existing.length) throw Error('请先恢复或明确丢弃已有草稿；当前输入保留')
     s.due = true; await pump()
     if (!live(s)) throw Error('编辑会话已结束，当前输入保留')
+    s.commitPending = true
     return { sessionId: s.id, expectedRevision: s.revision, sequence: s.sequence + 1, input: latest.current.input }
   }
+  async function commitFailed(write: SessionWrite) {
+    const s = session.current, bridge = api()
+    if (!s || !bridge || !live(s) || s.id !== write.sessionId) return
+    stopTimer(); s.sequence = Math.max(s.sequence, write.sequence)
+    try {
+      if (!s.draft) throw Error('请保留输入并重新检查提交结果')
+      const result = await bridge.detail({ scope: s.scope, id: s.draft.id })
+      if (!live(s)) return
+      if (!result.ok) throw Error(result.message)
+      if (JSON.stringify(result.draft.base) !== JSON.stringify(s.base)) throw Error('CONFLICT：草稿基线已变化，当前输入保留')
+      s.revision = result.draft.revision; s.draft = result.draft; s.savedInput = result.draft.input
+      if (result.status !== 'editable') {
+        setExisting([{ id: result.draft.id, paperId: result.draft.paperId, kind: result.draft.kind, revision: result.draft.revision, updatedAt: result.draft.updatedAt, status: result.status }])
+        close(s); session.current = undefined
+        fail(Error('CONFLICT：提交结果需先对照恢复草稿，当前输入保留'))
+      } else { setStatus('saved'); setError('') }
+    } catch (e) { if (live(s)) { s.stopped = true; fail(e) } }
+    finally { if (live(s)) { s.commitPending = false; setReady(n => n + 1) } }
+  }
   async function discard() {
-    stopTimer(); const s = session.current, bridge = api()
+    stopTimer(); const s = session.current, bridge = api(), epoch = generation.current
     if (!s) { if (existing.length) throw Error('请先选择需要丢弃的恢复草稿'); return }
     s.stopped = true; s.due = false
     try {
       await s.flight?.catch(() => {})
       if (!live(s)) throw Error('编辑会话已结束')
       const result = s.draft ? await bridge!.discard({ scope: s.scope, id: s.draft.id, revision: s.draft.revision }) : await bridge!.close({ scope: s.scope, sessionId: s.id })
+      if (!live(s) || epoch !== generation.current) throw Error('SPACE_CHANGED：编辑会话已变化')
       if (!result.ok) throw Error(result.message)
       close(s); session.current = undefined; setStatus('idle'); setError('')
-    } catch (e) { fail(e); throw e }
+    } catch (e) { if (live(s) && epoch === generation.current) fail(e); throw e }
   }
   async function restore(draft: EditingDraft) {
     const bridge = api(), scope = latest.current.scope
@@ -114,7 +143,7 @@ export function usePaperRecoveryDraft(options: Options) {
     const bridge = api(), s = session.current, o = latest.current, epoch = generation.current
     if (!bridge || !o.scope || existing.length) throw Error('请先处理已有草稿')
     stopTimer(); if (s) { s.stopped = true; s.due = false; await s.flight?.catch(() => {}) }
-    const result = await bridge.saveWithoutRecovery({ scope: o.scope, paperId: o.paperId, base: s?.base ?? o.base, ...(o.kind === 'append' ? { appendInput: o.input } : { fields: o.kind === 'tags' ? { tags: o.input.split(',').map(t => t.trim()).filter(Boolean) } : { notes: o.input } }) })
+    const result = await bridge.saveWithoutRecovery({ scope: o.scope, paperId: o.paperId, base: s?.base ?? editorBase.current, ...(o.kind === 'append' ? { appendInput: o.input } : { fields: o.kind === 'tags' ? { tags: o.input.split(',').map(t => t.trim()).filter(Boolean) } : { notes: o.input } }) })
     if (!result.ok) { fail(Error(result.message)); throw Error(result.message) }
     if (epoch !== generation.current || (s && !live(s))) return
     if (s) close(s); session.current = undefined; setWarning('已使用普通保存；原恢复草稿保留，未声明恢复保护'); setStatus('idle'); setError(''); o.onConfirmedPaper?.(result.paper)
@@ -122,5 +151,5 @@ export function usePaperRecoveryDraft(options: Options) {
   }
   async function pause() { stopTimer(); const s = session.current; if (s) { s.stopped = true; s.due = false; await s.flight?.catch(() => {}) } }
   const s = session.current
-  return { status, existing, error, warning, write: s && !s.stopped ? { sessionId: s.id, expectedRevision: s.revision, sequence: s.sequence + 1, input: options.input } : null, base: s?.base ?? options.base, save, discard, restore, discardExisting, acceptCommit, saveWithoutRecovery, pause }
+  return { status, existing, error, warning, write: s && !s.stopped && !s.commitPending ? { sessionId: s.id, expectedRevision: s.revision, sequence: s.sequence + 1, input: options.input } : null, base: s?.base ?? editorBase.current, save, discard, restore, discardExisting, acceptCommit, commitFailed, saveWithoutRecovery, pause }
 }

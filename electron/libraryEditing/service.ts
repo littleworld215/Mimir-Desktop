@@ -12,7 +12,7 @@ export interface EditingHost { readPaper(id: string): PaperRecord | undefined; u
 export const sessionWriteSchema = z.object({ sessionId: editingId, expectedRevision: editingRevision, sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), input: z.string() }).strict()
 export const fallbackSchema = z.object({ paperId: editingPaperId, base: editingFieldsSchema, fields: editingFieldsSchema.optional(), appendInput: z.string().optional() }).strict().refine(r => r.appendInput === undefined ? !!r.fields : !r.fields && r.base.notes !== undefined && r.base.tags === undefined)
 type Fallback = z.infer<typeof fallbackSchema>
-type Session = { owner: number; scope: OperationScope; paperId: string; kind: EditingKind; base: EditingFields; draftId: string; revision: number; sequence: number; prepared?: SessionWrite; completed?: { key: string; reply: CommitReply } }
+type Session = { owner: number; scope: OperationScope; paperId: string; kind: EditingKind; base: EditingFields; draftId: string; revision: number; sequence: number; prepared?: SessionWrite; completed?: { key: string; reply: CommitReply; result: EditingFields; ids: string[]; commitId: string } }
 const clone = <T>(v: T): T => structuredClone(v)
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const matches = (paper: PaperRecord, fields: EditingFields) => (fields.notes === undefined || fields.notes === paper.notes) && (fields.tags === undefined || equal(fields.tags, paper.tags))
@@ -72,6 +72,7 @@ export function createEditingService({ repository = createEditingRepository(), h
     },
     open(ctx: EditingContext, owner: number, paperId: string, kind: EditingKind, resume?: { draftId: string; revision: number }) {
       ctx.assertCurrent(); parse(editingPaperId, paperId); parse(editingKindSchema, kind)
+      for (const [id, s] of sessions) if (s.owner === owner && !equal(s.scope, ctx.scope)) sessions.delete(id)
       const doc = repository.read(ctx.scope.root), existing = doc.drafts.filter(d => d.paperId === paperId && d.kind === kind).map(summary)
       const paper = host.readPaper(paperId), base: EditingFields = kind === 'tags' ? { tags: clone(paper?.tags ?? []) } : { notes: paper?.notes ?? '' }
       let draft: EditingDraft | undefined
@@ -100,7 +101,10 @@ export function createEditingService({ repository = createEditingRepository(), h
       const first = session(ctx, owner, writes[0].sessionId)
       if (first.completed) {
         if (first.completed.key !== key) throw new EditingError('CONFLICT')
-        return { ...clone(first.completed.reply), state: 'already-saved' }
+        const current = active(ctx, first.paperId), saved = first.completed
+        if (!matches(current, saved.result)) throw new EditingError('CONFLICT', '上次保存之后文献已有更新，请重新读取；不会再次追加')
+        const cleared = saved.reply.cleanup === 'done' ? 'done' : cleanup(ctx, saved.ids, saved.commitId)
+        return { paper: current, state: 'already-saved', cleanup: cleared, ...(cleared === 'pending' ? { warning: saved.reply.warning } : {}) }
       }
       const doc = repository.read(ctx.scope.root), checked = writes.map(w => checkWrite(ctx, owner, w, doc)), paperId = first.paperId
       if (checked.some(c => c.s.paperId !== paperId) || new Set(checked.map(c => field(c.s.kind))).size !== checked.length) throw new EditingError('BAD_REQUEST', '只能合并同一文献的笔记和标签')
@@ -135,7 +139,7 @@ export function createEditingService({ repository = createEditingRepository(), h
         }
         const cleared = cleanup(ctx, ids, intent.commitId)
         const reply: CommitReply = { paper, state, cleanup: cleared, ...(cleared === 'pending' ? { warning: '文献已保存，恢复草稿清理失败；请勿重复追加，可稍后清理' } : {}) }
-        for (const { s } of checked) s.completed = { key, reply: clone(reply) }
+        for (const { s } of checked) s.completed = { key, reply: clone(reply), result: clone(intent.result), ids: [...ids], commitId: intent.commitId }
         return reply
       } finally { busy.delete(busyKey) }
     },
