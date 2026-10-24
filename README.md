@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-24 G-02归档读取补强：验包、恢复预览和解压共用限额/严格元数据，按实际展开流量停止；ZIP/ZIP64目录覆盖、目录空流及错误收尾有回归。[逻辑与上限](docs/I6-ARCHIVE-READ-LIMITS.md)及[实际验证](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-archive-read-limits-20261024.md)。格式1/旧入口保留，日常6645129安装不自动替换，I6全范围待验保持。
+
 2026-10-24 G-01备份一致性补强：来源两次流式观察、遍历末复核、临时包同步/独立验包及实际关闭、输出身份重验、同卷原子不覆盖发布。[逻辑与限制](docs/I6-BACKUP-CONSISTENCY.md)及[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-consistency-20261024.md)分别登记。源码修复不自动更新日常6645129安装，I6其它欠项与I5待验保持。
 
 ## 当前安装与使用

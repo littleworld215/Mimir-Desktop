@@ -39,10 +39,11 @@
  * - 不 import 任何 `electron` 模块；`fs` 也只用在归档读取两处。
  */
 
-import yauzl from 'yauzl'
+import { scanArchive } from './archiveReader'
+import { resolveArchiveLimits, VerifyError, type ArchiveLimitsInput } from './archivePolicy'
 
 import { RestoreError } from './restoreContracts'
-import { MANIFEST_IN_ARCHIVE, type ArchiveManifest } from './packer'
+import type { ArchiveManifest } from './archiveFormat'
 import type { ManifestEntry } from './manifest'
 
 /** 清单里「相对根」本身的形态：空串或 `.`。 */
@@ -128,114 +129,17 @@ export function canDeriveOldRoot(entries: readonly ManifestEntry[]): boolean {
   return oldRootFromArchive(entries) !== null
 }
 
-/** 打开归档（与 `extract.ts` 同口径：lazyEntries + autoClose）。 */
-function openArchive(path: string): Promise<yauzl.ZipFile> {
-  return new Promise((resolveOpen, reject) => {
-    yauzl.open(path, { lazyEntries: true, autoClose: true, decodeStrings: true }, (error, zipfile) => {
-      if (error || !zipfile) {
-        reject(new RestoreError('RECHECK_FAILED', `无法打开归档：${error?.message ?? '未知错误'}`))
-      } else {
-        resolveOpen(zipfile)
-      }
-    })
-  })
+/** 预览只读清单，但全目录计数、路径集合及清单字节限制与验包一致。 */
+export async function readArchiveManifestEntries(archivePath: string, limits?: ArchiveLimitsInput): Promise<ManifestEntry[]> {
+  return (await readArchiveManifest(archivePath, limits)).entries
 }
 
-/** 判断某条目是否就是归档内清单（尾斜杠归一后比较）。 */
-function isManifestEntry(fileName: string): boolean {
-  return fileName.split('\\').join('/').replace(/\/+$/, '') === MANIFEST_IN_ARCHIVE
-}
-
-/** 读出单个条目的全部字节（清单是 KB 级纯 JSON，可整块读）。 */
-function readEntryBytes(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
-  return new Promise((resolveRead, reject) => {
-    zipfile.openReadStream(entry, (error, stream) => {
-      if (error || !stream) {
-        reject(new RestoreError('RECHECK_FAILED', `无法读取归档清单条目：${entry.fileName}`))
-        return
-      }
-      const chunks: Buffer[] = []
-      let total = 0
-      stream.on('data', (chunk: Buffer) => { chunks.push(chunk); total += chunk.length })
-      stream.on('error', (streamError: Error) =>
-        reject(new RestoreError('RECHECK_FAILED', `归档清单读取失败：${streamError.message}`)))
-      stream.on('end', () => resolveRead(Buffer.concat(chunks, total)))
-    })
-  })
-}
-
-/**
- * 从归档读出清单条目（**只读**，流式扫描中央目录，不整文件读入内存）。
- *
- * 与 `restoreMain` 的分工：本函数只负责「把清单读成结构化数组」，
- * 不认识「旧根」「注册表」等上层概念；上层拿到结果再交给 `oldRootFromArchive`。
- *
- * @throws RestoreError `RECHECK_FAILED` 当清单缺失 / 不可解析 / 归档无法打开
- */
-export async function readArchiveManifestEntries(archivePath: string): Promise<ManifestEntry[]> {
-  const manifest = await readArchiveManifest(archivePath)
-  return manifest.entries
-}
-
-/**
- * 从归档读出**完整清单**（含 `sourceRoot`）。
- *
- * 与 `readArchiveManifestEntries` 的分工：后者只返回 `entries`（推导相对旧根只需要它）；
- * 本函数额外带出 `sourceRoot` —— 恢复侧 T03 的**唯一权威**匹配基准（**绝对**路径）。
- *
- * 为什么必须有它：`remapRules.matchRootPrefix` 硬要求「旧根与待改写值都为绝对路径」，
- * 而 `oldRootFromArchive` 推导出的是**相对**根 → 两者永不匹配（实测：`rewritten=0`，
- * 理由 `outside-old-root`）。绝对根无法从归档条目反推，只能由打包侧写进清单。
- *
- * @returns 完整清单；`sourceRoot` 缺失（早期归档）时为 `undefined`，调用方须退化为「不改写」。
- * @throws RestoreError `RECHECK_FAILED` 当清单缺失 / 不可解析 / 归档无法打开
- */
-export async function readArchiveManifest(archivePath: string): Promise<ArchiveManifest> {
-  const zipfile = await openArchive(archivePath)
-  try {
-    const buffer = await new Promise<Buffer | null>((resolveFound, rejectFound) => {
-      zipfile.on('entry', (entry: yauzl.Entry) => {
-        void (async () => {
-          try {
-            if (isManifestEntry(entry.fileName)) {
-              const bytes = await readEntryBytes(zipfile, entry)
-              zipfile.close()
-              resolveFound(bytes)
-              return
-            }
-            zipfile.readEntry()
-          } catch (error) {
-            zipfile.close()
-            rejectFound(error)
-          }
-        })()
-      })
-      zipfile.on('end', () => resolveFound(null))
-      zipfile.on('error', (error: Error) =>
-        rejectFound(new RestoreError('RECHECK_FAILED', `归档读取失败：${error.message}`)))
-      zipfile.readEntry()
-    })
-
-    if (buffer === null) {
-      throw new RestoreError('RECHECK_FAILED', `归档缺少清单 ${MANIFEST_IN_ARCHIVE}：${archivePath}`)
+/** 早期清单缺sourceRoot仍合法；实际旧根不猜测，未知业务键保留。 */
+export async function readArchiveManifest(archivePath: string, input?: ArchiveLimitsInput): Promise<ArchiveManifest> {
+  try { return (await scanArchive(archivePath, resolveArchiveLimits(input))).manifest } catch (error) {
+    if (error instanceof VerifyError && error.code !== 'OPEN_FAILED' && error.code !== 'READ_FAILED' && error.code !== 'MANIFEST_MISSING') {
+      throw new RestoreError(error.code, error.message)
     }
-
-    let manifest: ArchiveManifest
-    try {
-      manifest = JSON.parse(buffer.toString('utf8')) as ArchiveManifest
-    } catch (error) {
-      throw new RestoreError(
-        'RECHECK_FAILED',
-        `归档清单不是合法 JSON：${archivePath}（${(error as Error).message}）`
-      )
-    }
-    if (!Array.isArray(manifest.entries)) {
-      throw new RestoreError('RECHECK_FAILED', `归档清单 entries 不是数组：${archivePath}`)
-    }
-    return manifest
-  } catch (error) {
-    throw error instanceof RestoreError
-      ? error
-      : new RestoreError('RECHECK_FAILED', `读取归档清单失败：${archivePath}（${(error as Error).message}）`)
+    throw new RestoreError('RECHECK_FAILED', '读取归档清单失败：' + (error instanceof Error ? error.message : '未知错误'))
   }
 }

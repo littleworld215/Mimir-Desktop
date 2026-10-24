@@ -151,6 +151,8 @@ it('目录条目不创建链接：落地为普通目录', async () => {
   const dir = workDir()
   const archive = join(dir, 'backup.zip')
   const manifest = makeManifest([{ path: 'a/b.txt', content: Buffer.from('x') }])
+  // 目录同样属于真实归档集合；旧夹具漏列a，独立验包本来也会拒绝。
+  manifest.entries.push({ path: 'a', kind: 'directory', size: 0, sha256: '' })
   await buildZip(archive, [
     { path: 'a', content: Buffer.alloc(0), dir: true },
     { path: 'a/b.txt', content: Buffer.from('x') },
