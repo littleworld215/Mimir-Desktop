@@ -125,6 +125,7 @@ void app.whenReady().then(async () => {
    */
   const doctorHandler = buildDoctorHandler({
     homeDir: home,
+    assetsIntegrityOptions: nativeOptions,
     onProgress: (progress) => {
       // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响自检本身。
       if (owner && !owner.isDestroyed()) {

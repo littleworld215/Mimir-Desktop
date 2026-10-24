@@ -123,8 +123,8 @@ export async function scanSpaces(
   const failures: Array<{ name: string; code: string }> = []
   let okCount = 0
   for (const space of spaces) {
-    // 空间根 + 'assets.db' 仅在**调用侧**用于定位库文件，**绝不进入 detail**。
-    const dbPath = join(space.path, 'assets.db')
+    // 实际资产域路径仅用于定位，绝不进入detail。
+    const dbPath = join(space.path, '.mimir', 'assets', 'assets.db')
     const safeName = redactText(space.name || space.id)
     try {
       await checkIntegrity(dbPath)

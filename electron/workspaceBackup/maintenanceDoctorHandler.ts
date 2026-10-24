@@ -34,6 +34,7 @@ import {
   type MaintenanceDoctorResult
 } from '../../shared/workspaceBackupContracts'
 import { buildDoctorReport, type DoctorDeps, type DoctorProgress } from './doctorReport'
+import type { AssetsIntegrityOptions } from './assetsIntegrity'
 import { appendMaintenanceAudit } from './auditWriter'
 import { readRecentMaintenanceAudit } from './auditReader'
 
@@ -47,6 +48,7 @@ import { readRecentMaintenanceAudit } from './auditReader'
 export interface DoctorHandlerDeps {
   /** 注册表 home（生产 = `homedir()`；测试 = 合成目录）。 */
   readonly homeDir: string
+  readonly assetsIntegrityOptions?: AssetsIntegrityOptions
   /** 自检进度回调（生产 = `owner.webContents.send`；单测可注入以断言进度被上报）。 */
   readonly onProgress?: (p: DoctorProgress) => void
   /**
@@ -123,6 +125,7 @@ export function buildDoctorHandler(deps: DoctorHandlerDeps): DoctorHandler {
       // ① 跑只读自检（`buildDoctorReport` 内部已保证「不取锁、不建目录、不写文件」）。
       const report = await buildReport({
         home: deps.homeDir,
+        assetsIntegrityOptions: deps.assetsIntegrityOptions,
         ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {})
       })
 

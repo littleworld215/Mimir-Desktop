@@ -1,5 +1,7 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-24 G-03：[资产恢复规则](I6-ASSETS-RESTORE.md)补完整DDL/版本、暂存迁移及全部历史附件完整读取，自检仍只读。初版“只查表名即完整”不能替代当前门禁。[实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-restore-20261024.md)分开记录静态/运行/候选包；G-04～08与原用户待验保持，日常6645129不替换。
+
 > 2026-10-24 G-02：三个读取入口共用10万条目/64MiB清单/1TiB业务展开限制，元数据预检和实际计数分别执行，ZIP/ZIP64目录与真实空目录内容有回归。[当前规则](I6-ARCHIVE-READ-LIMITS.md)及[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-archive-read-limits-20261024.md)区分实现/运行/静态复核与日常部署；格式1保持，旧历史中“仅流式即满足上限”的说法不能替代读取时限制。
 
 > 2026-10-24 G-01补强：已修复来源变化仍成功发布/新增资料遗漏，临时包独立验包及真实关闭、最终来源/目录/临时包身份重验通过后才同卷硬链接原子发布，晚到目标不覆盖。[当前逻辑和限制](I6-BACKUP-CONSISTENCY.md)及[实际验证记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-consistency-20261024.md)。下文原rename/未调用验包等为早期实现记录；不能据六批落盘宣布I6全范围通过。日常安装仍6645129，本轮不部署。

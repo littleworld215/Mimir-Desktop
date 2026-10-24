@@ -24,7 +24,8 @@ import type { DoctorCheck, DoctorReport } from '../../shared/workspaceBackupCont
 import { readRegistryOverview } from './registryView'
 import { verifyBackup } from './verify'
 import { listRestoreArchives } from './restoreMain'
-import { checkRestoredAssetsIntegrity } from './assetsIntegrity'
+import type { AssetsIntegrityOptions } from './assetsIntegrity'
+import { checkOptionalAssetsCopy } from './assetsRestore'
 import { redactText } from './redact'
 import { scanArchives, DOCTOR_ARCHIVE_CHECK_ID } from './doctorArchiveScan'
 import { scanSpaces, readRegistrySpacePaths, DOCTOR_SPACE_CHECK_ID, type SpacePathView } from './doctorSpaceScan'
@@ -107,6 +108,8 @@ export interface DoctorDeps {
   readonly verifyArchive?: (path: string) => Promise<unknown>
   /** 单空间 `assets.db` 完整性校验（缺省 `checkRestoredAssetsIntegrity`）。 */
   readonly checkSpaceIntegrity?: (dbPath: string) => Promise<void>
+  /** 与维护恢复共用显式原生绑定选项；不加载普通业务store。 */
+  readonly assetsIntegrityOptions?: AssetsIntegrityOptions
   /**
    * 空间路径解析（**只读**，缺省 `readRegistrySpacePaths`）；`null` = 无法定位 → C3 降级 `notice`。
    * ⚠️ 生产缺省实现**绝不**调 `loadStore()`（设计稿 K3 红线）。
@@ -139,7 +142,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   const readRegistry = deps.readRegistry ?? readRegistryOverview
   const listArchives = deps.listArchives ?? listRestoreArchives
   const verifyArchive = deps.verifyArchive ?? verifyBackup
-  const checkSpaceIntegrity = deps.checkSpaceIntegrity ?? checkRestoredAssetsIntegrity
+  const checkSpaceIntegrity = deps.checkSpaceIntegrity ?? (dbPath => checkOptionalAssetsCopy(dbPath, deps.assetsIntegrityOptions))
   const resolveSpaces = deps.resolveSpaces ?? readRegistrySpacePaths
   const residualScanner = deps.scanResiduals ?? listResidualStagingRoots
   const checks: DoctorCheck[] = []

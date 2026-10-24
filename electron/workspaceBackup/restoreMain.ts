@@ -42,6 +42,7 @@ import { runRestore, type RestoreInput, type RestoreOutcome } from './restoreRun
 import { createRestoreSteps, type RestoreAdapterOptions } from './restoreAdapter'
 import { oldRootFromArchive, readArchiveManifest } from './restoreArchive'
 import { checkRestoredAssetsIntegrity, type AssetsIntegrityOptions } from './assetsIntegrity'
+import { prepareStagedAssets } from './assetsRestore'
 import { stagingPathFor } from './stagingRoot'
 import type { ManifestEntry } from './manifest'
 import { RestoreError } from './restoreContracts'
@@ -194,6 +195,7 @@ export function createMaintenanceRestoreSteps(
   assetsIntegrityOptions: AssetsIntegrityOptions = {}
 ) {
   return createRestoreSteps({
+    prepareAssets: (stagingRoot: string) => prepareStagedAssets(stagingRoot, assetsIntegrityOptions),
     checkAssetsIntegrity: (dbPath: string) => checkRestoredAssetsIntegrity(dbPath, assetsIntegrityOptions),
     targetExistedBefore,
     // 调用方的 lockStagingRoot 优先于 adapter 里可能带的同名字段（后者供单测覆盖）。

@@ -57,6 +57,8 @@ export interface RestoreAdapterOptions {
    * → 由 T05 主进程接线注入真实实现。
    */
   readonly checkAssetsIntegrity?: (dbPath: string) => Promise<void>
+  /** 维护恢复专用：仅在持锁的解压暂存根迁移已知旧库，不用于只读自检。 */
+  readonly prepareAssets?: (stagingRoot: string) => Promise<void>
   /**
    * **目标是否在本次操作开始前就已存在**（§2.1 落点不可覆盖的判据）。
    *
@@ -202,6 +204,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
       }
       // ② 资产库：存在就必须真验；未注入钩子则跳过（理由见 RestoreAdapterOptions 注释）。
       const dbPath = join(stagingRoot, ...ASSETS_DB_REL)
+      await options.prepareAssets?.(stagingRoot)
       if (!existsSync(dbPath)) return
       if (checkAssetsIntegrity === undefined) return
       await checkAssetsIntegrity(dbPath)

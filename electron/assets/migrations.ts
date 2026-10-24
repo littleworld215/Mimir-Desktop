@@ -15,7 +15,11 @@ export function validateSchema(db: Database.Database, factory: DatabaseFactory, 
   const reference = factory(':memory:', {})
   try {
     for (const ddl of version === 1 ? ASSETS_V1_DDL : version === 2 ? ASSETS_V2_DDL : version === 3 ? ASSETS_V3_DDL : ASSETS_DDL) reference.exec(ddl)
-    const normalize = (sql: string): string => sql.replace(/\s+/g, ' ').trim().toLowerCase()
+    // SQL关键字可忽略大小写/排版；字符串字面量的大小写和内部空白具有业务含义。
+    // 成对单引号转义也属于字面量，不得把CHECK/default内容折叠成另一个值。
+    const normalize = (sql: string): string => sql.replace(/'(?:''|[^'])*'|[^']+/g, token =>
+      token.startsWith("'") ? token : token.replace(/\s+/g, ' ').toLowerCase()
+    ).trim()
     const expected = schemaObjects(reference)
     const actual = schemaObjects(db)
     if (actual.length !== expected.length || actual.some((row, i) =>
