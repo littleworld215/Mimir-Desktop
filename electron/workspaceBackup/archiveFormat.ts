@@ -8,5 +8,7 @@ export interface ArchiveManifest {
   generatedAt: string
   /** 早期格式1可能缺失；恢复不能据此猜测绝对路径。 */
   sourceRoot?: string
+  /** 新包可选来源空间ID，用于恢复关联空间内模板；旧格式1可缺失。 */
+  sourceSpaceId?: string
   entries: ManifestEntry[]
 }

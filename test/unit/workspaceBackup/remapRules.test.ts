@@ -16,17 +16,24 @@ const OPTS = { caseInsensitive: false, separator: '/' as const }
 
 // ─── 白名单锁：防后人偷偷扩大改写面 ─────────────────────────────────
 
-it('REMAP_WHITELIST 只有一条，且字段就是 pdfPath（扩大改写面必须回传复核）', async () => {
+it('G04白名单仅包含I6已确认的五类结构字段', async () => {
   const { REMAP_WHITELIST } = await moduleUnderTest()
-  expect(REMAP_WHITELIST).toHaveLength(1)
+  expect(REMAP_WHITELIST).toEqual([
+    { storeKey: 'library:papers', field: 'pdfPath' },
+    { storeKey: 'library:projects', field: 'paperDir' },
+    { storeKey: 'paper.recentProjects', field: 'dir' },
+    { storeKey: 'chat:conversations', field: 'messages[].artifacts[].path' },
+    { storeKey: 'chat:conversations', field: 'messages[].run.steps[].artifacts[]' }
+  ])
   expect(REMAP_WHITELIST[0].storeKey).toBe('library:papers')
   expect(REMAP_WHITELIST[0].field).toBe('pdfPath')
 })
 
-it('白名单不含任何其它已知路径字段（paperDir / file_path / external_url 一律不在内）', async () => {
+it('白名单仍不含托管相对路径、外链、正文或命令', async () => {
   const { REMAP_WHITELIST } = await moduleUnderTest()
   const fields = REMAP_WHITELIST.map((rule: any) => rule.field)
-  expect(fields).not.toContain('paperDir')
+  expect(fields).not.toContain('content')
+  expect(fields).not.toContain('command')
   expect(fields).not.toContain('file_path')
   expect(fields).not.toContain('external_url')
 })

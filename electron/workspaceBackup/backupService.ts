@@ -398,6 +398,7 @@ async function packAndPublish(
   resolved.emit('packing', '正在打包归档…')
   const result = await resolved.createBackup({
     root: space.path,
+    sourceSpaceId: space.id,
     // 同时给 destination 与 spaceName → packer 走「受管命名校验」分支（`packer.ts:124`）：
     //   `deriveArchiveName` 产出的名字天然满足 `isManagedArchive`，故校验自然通过。
     //   这条链路让「命名规范在打包路径上被强制落实」（K5：归档名不合规范 → 保留策略找不到）。

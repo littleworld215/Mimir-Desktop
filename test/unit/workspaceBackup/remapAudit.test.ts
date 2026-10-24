@@ -172,13 +172,14 @@ it('相对路径 / 空串的 pdfPath → skipped(not-absolute|empty)', async () 
 
 // ─── observed 组：非白名单字段的绝对路径只报告 ──────────────────────
 
-it('非白名单字段含绝对路径 → 出现在 observed 且未被改写（U6 兜底钩子）', async () => {
+it('G04项目路径已纳入白名单，空间外项目仍跳过并保留原值', async () => {
   const { auditSpaceStore } = await auditModule()
   const report = auditSpaceStore(makeStore() as any, OLD_ROOT, NEW_ROOT, OPTS)
-  const hit = report.observed.find((o: any) => o.storeKey === 'library:projects' && o.field === 'paperDir')
+  const hit = report.skipped.find((o: any) => o.storeKey === 'library:projects' && o.field === 'paperDir')
   expect(hit).toBeTruthy()
   expect(hit.locator).toBe('[0]')
   expect(hit.value).toBe('C:\\Users\\me\\latex\\proj1')
+  expect(hit.reason).toBe('outside-old-root')
 })
 
 // ─── 零处需重写也算通过 ─────────────────────────────────────────────

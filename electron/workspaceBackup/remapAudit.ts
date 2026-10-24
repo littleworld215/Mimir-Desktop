@@ -1,30 +1,10 @@
-/**
- * 关联路径审计（I6 批次 3 · 第 3 块，纯函数 + 唯一的读文件入口）。
- *
- * 职责：只读扫描「恢复出来的空间层 `store.json`」，把发现的绝对路径引用分成四桶：
- *
- * - `found`      —— 白名单字段且命中旧空间根前缀（**计划改写**）；
- * - `rewritten`  —— 同上，`newValue` 已算出（**已改写**）；
- * - `skipped`    —— 白名单字段但**未**命中，原样保留（附原因，**不失败**）；
- * - `observed`   —— ⚠️ **非白名单**字段里出现的绝对路径样字符串，**只报告、绝不改写**。
- *
- * 纪律（对应设计 §3.5 / §7）：
- * - 改写面**只认白名单**（`remapRules.REMAP_WHITELIST`），自由文本一律不动（D-071 明文禁止
- *   全局 search-replace）。`observed` / `skipped` **不触发任何改动**。
- * - ⚠️ 数据结构实测更正：设计稿 §3.1 写的 `library:papers[].pdfPath` **不成立**——
- *   `library:papers` 是 **`Record<string, PaperRecord>`，按 arxivId 键控的映射**
- *   （见 `electron/library/libraryService.ts:40-42` 的 `papersTable()` /
- *   `savePapersTable(table: Record<string, PaperRecord>)`）。因此遍历用 `Object.entries()`，
- *   **不是**数组下标；`locator` 记的是 arxivId（数组形态下退化为 `[index]`）。
- * - `observed` 是设计 §8 **U6** 的兜底钩子：若真实归档里出现白名单之外的新绝对路径字段，
- *   会在这里暴露出来供人工复核；**是否扩白名单的决策权不在本模块**，须摘字段名 + 行号回传
- *   team-lead 复核。
- * - 除 `auditStagedSpaceStore` 外，本文件**不 import 任何 fs 能力**（纯函数优先，便于单测）。
- */
+/** G-04结构路径审计：已核对节点分为found/rewritten/skipped，未知路径仅observed。对象身份授权避免用伪造定位字符串扩大改写面，不改变正文、命令或未知结构。 */
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RestoreError } from './restoreContracts'
+import type { MaintenanceRestoreAssociations } from '../../shared/workspaceBackupContracts'
+import { collectPathReferences } from './structuredPaths'
 import {
   REMAP_WHITELIST,
   isAbsolutePathLike,
@@ -65,12 +45,7 @@ export interface RemapSkip {
   readonly reason: RemapSkipReason
 }
 
-/**
- * ⚠️ **非白名单**字段里发现的绝对路径样字符串（**只报告，绝不改写**）。
- *
- * 这是设计 §8 U6 的兜底钩子：真实归档若出现白名单之外的新绝对路径字段，会在此暴露，
- * 供人工复核后决定是否扩白名单——本模块**无权**自行扩大改写面。
- */
+/** 未知结构中的绝对路径只报告，不据此改写。 */
 export interface RemapObservation {
   readonly storeKey: string
   readonly locator: string
@@ -80,6 +55,8 @@ export interface RemapObservation {
 
 /** 四桶审计报告。 */
 export interface RemapAuditReport {
+  /** 仅安全计数，不携带旧路径、未知名称或模板正文。 */
+  readonly associations?: AssociationSummary
   /** 白名单字段且命中旧根 → 需改写。 */
   readonly found: RemapFinding[]
   /** 同上，`newValue` 已填（旧值 → 新值）。 */
@@ -89,6 +66,8 @@ export interface RemapAuditReport {
   /** 非白名单字段里的绝对路径样字符串 → 只报告。 */
   readonly observed: RemapObservation[]
 }
+
+export type AssociationSummary = MaintenanceRestoreAssociations
 
 /** 判断某「顶层键 + 字段名」是否在改写白名单内。 */
 export function isWhitelistedField(storeKey: string, field: string): boolean {
@@ -104,6 +83,7 @@ function isContainer(value: unknown): value is Record<string, unknown> | unknown
 }
 
 interface AuditContext {
+  readonly known: WeakMap<object, Set<string>>
   readonly oldRoot: string
   readonly newRoot: string
   readonly opts: RemapOptions
@@ -119,9 +99,10 @@ function classifyString(
   locator: string,
   field: string,
   value: string,
-  ctx: AuditContext
+  ctx: AuditContext,
+  parent: object
 ): void {
-  if (isWhitelistedField(storeKey, field)) {
+  if (ctx.known.get(parent)?.has(field)) {
     if (value.trim() === '') {
       ctx.skipped.push({ storeKey, locator, field, value, reason: 'empty' })
       return
@@ -146,7 +127,7 @@ function classifyString(
   }
 }
 
-/** 更深层级的下降：只做 observed 收集与继续下降，**永不改写**。 */
+/** 更深层级按对象身份分类，未知结构只观察。 */
 function walkNested(node: Record<string, unknown> | unknown[], storeKey: string, locator: string, ctx: AuditContext): void {
   const isArray = Array.isArray(node)
   const entries: ReadonlyArray<readonly [string, unknown]> = isArray
@@ -155,7 +136,7 @@ function walkNested(node: Record<string, unknown> | unknown[], storeKey: string,
   for (const [key, value] of entries) {
     const childLocator = isArray ? `${locator}[${key}]` : `${locator}.${key}`
     if (typeof value === 'string') {
-      if (isAbsolutePathLike(value)) ctx.observed.push({ storeKey, locator: childLocator, field: key, value })
+      classifyString(storeKey, childLocator, key, value, ctx, node)
       continue
     }
     if (isContainer(value)) walkNested(value, storeKey, childLocator, ctx)
@@ -168,7 +149,7 @@ function walkNested(node: Record<string, unknown> | unknown[], storeKey: string,
 function walkRecordFields(record: Record<string, unknown>, storeKey: string, locator: string, ctx: AuditContext): void {
   for (const [field, value] of Object.entries(record)) {
     if (typeof value === 'string') {
-      classifyString(storeKey, locator, field, value, ctx)
+      classifyString(storeKey, locator, field, value, ctx, record)
       continue
     }
     if (isContainer(value)) walkNested(value, storeKey, `${locator}.${field}`, ctx)
@@ -187,7 +168,13 @@ export function auditSpaceStore(
   newRoot: string,
   opts: RemapOptions = {}
 ): RemapAuditReport {
-  const ctx: AuditContext = { oldRoot, newRoot, opts, found: [], rewritten: [], skipped: [], observed: [] }
+  const known = new WeakMap<object, Set<string>>()
+  for (const ref of collectPathReferences(store)) {
+    const fields = known.get(ref.container) ?? new Set<string>()
+    fields.add(ref.field)
+    known.set(ref.container, fields)
+  }
+  const ctx: AuditContext = { known, oldRoot, newRoot, opts, found: [], rewritten: [], skipped: [], observed: [] }
 
   for (const [storeKey, table] of Object.entries(store)) {
     // 顶层键直接是字符串（极少见）：非白名单层，只观察。

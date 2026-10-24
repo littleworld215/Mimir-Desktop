@@ -1,22 +1,4 @@
-/**
- * 关联路径改写规则（I6 批次 3 · 第 3 块，纯函数）。
- *
- * 职责：定义「允许改写」的**单字段白名单**，以及旧空间根前缀的**路径边界匹配**与替换。
- *
- * 纪律（对应 `docs/design/I6-BATCH3-RESTORE.md` §3）：
- * - **零 IO、零 import**：本文件不 import `node:path` / `node:fs` / 任何运行时模块，全部按
- *   字符串处理——连 `resolve()` 也自行实现（见 `resolvePathLike`），因此不会隐式依赖
- *   `process.cwd()`，可在任意平台被单测直接加载。
- * - **白名单只含 `pdfPath` 一项**：§3.0 已实测核实，空间层配置里唯一持久化「指向旧空间根的
- *   绝对路径」的字段就是 `PaperRecord.pdfPath`（`electron/library/types.ts:62-63`，写入点
- *   `electron/library/libraryService.ts:283`）。扩大白名单 = 扩大改写面 = 设计 §7 的 K1 风险，
- *   **必须先回传 team-lead 复核，不得擅自加条目**；`REMAP_WHITELIST` 的「长度 1 / field 为
- *   `pdfPath`」由 `remapRules.test.ts` 断言锁定。
- * - 匹配必须落在**路径边界**上：老根 `/a/b` 时 `/a/bc/papers/x.pdf` **不得命中**
- *   （防误伤同级前缀目录，这是本模块最关键的一条边界）。
- * - 是否大小写敏感**显式**由 `opts.caseInsensitive` 决定（缺省才回落到 win32 平台默认），
- *   否则 win32 下单测无法覆盖「大小写敏感」分支。
- */
+/** G-04已确认的结构路径元信息与纯路径边界匹配。实际授权由structuredPaths按对象结构定位，不能仅凭字段名改写未知数据。 */
 
 /** 一条白名单例：空间层 `store.json` 的顶层键 + 字段名。 */
 export interface RemapRule {
@@ -26,15 +8,16 @@ export interface RemapRule {
   readonly field: string
 }
 
-/**
- * 改写白名单（**唯一一条**）。
- *
- * ⚠️ 扩大此白名单须先回传复核：每加一个字段，就等于把「用户内容被误改写」的风险面扩大一分
- * （设计 §7 K1）。当前唯一条目来自 §3.0 的实测核实结论。
- */
-export const REMAP_WHITELIST = [{ storeKey: 'library:papers', field: 'pdfPath' }] as const
+/** 已批准I6五类结构字段；不是对任意同名嵌套键的授权。 */
+export const REMAP_WHITELIST = [
+  { storeKey: 'library:papers', field: 'pdfPath' },
+  { storeKey: 'library:projects', field: 'paperDir' },
+  { storeKey: 'paper.recentProjects', field: 'dir' },
+  { storeKey: 'chat:conversations', field: 'messages[].artifacts[].path' },
+  { storeKey: 'chat:conversations', field: 'messages[].run.steps[].artifacts[]' }
+] as const
 
-/** 白名单字段名的字面量联合类型：当前恒为 `'pdfPath'`，用于类型层面的收口。 */
+/** 白名单字段名的字面量联合类型：包括已批准五类结构字段，用于类型层面的收口。 */
 export type RemapWhitelistField = (typeof REMAP_WHITELIST)[number]['field']
 
 /** 匹配/替换的可选项（**显式**传入，避免隐式依赖运行环境）。 */

@@ -77,6 +77,8 @@ function failureCode(outcome: RestoreOutcome): string {
 export function toRestoreResult(outcome: RestoreOutcome): MaintenanceRestoreResult {
   if (outcome.stage === 'done' && outcome.result !== null) {
     const result = outcome.result
+    const associations = outcome.remap?.associations
+    const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
     return {
       ok: true,
       spaceId: result.spaceId,
@@ -85,7 +87,12 @@ export function toRestoreResult(outcome: RestoreOutcome): MaintenanceRestoreResu
       entries: result.entries,
       totalBytes: result.totalBytes,
       // T03 只把「确实改写」的记录放进 `rewritten`；`remap` 缺失时为 0。
-      rewritten: outcome.remap?.rewritten?.length ?? 0
+      rewritten: outcome.remap?.rewritten?.length ?? 0,
+      ...(associations && typeof associations === 'object' ? { associations: {
+        snapshotsRelinked: count(associations.snapshotsRelinked), unknownSnapshotBuckets: count(associations.unknownSnapshotBuckets),
+        templatesRelinked: count(associations.templatesRelinked), unresolvedTemplates: count(associations.unresolvedTemplates),
+        externalSnapshotBuckets: count(associations.externalSnapshotBuckets)
+      } } : {})
     }
   }
   if (outcome.failure !== null) {

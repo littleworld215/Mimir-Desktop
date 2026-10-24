@@ -248,6 +248,15 @@ export interface MaintenanceRestoreRequest {
  * 的本机绝对路径）与 `remap`（T03 全量审计报告），两者都是**本机路径细节**，
  * 泄漏给渲染层既无必要、也扩大暴露面。这里只映射用户可见的必要字段。
  */
+export interface MaintenanceRestoreAssociations {
+  readonly snapshotsRelinked: number
+  readonly unknownSnapshotBuckets: number
+  readonly templatesRelinked: number
+  readonly unresolvedTemplates: number
+  /** 新增可选计数，兼容较早的四字段结果。 */
+  readonly externalSnapshotBuckets?: number
+}
+
 export type MaintenanceRestoreResult =
   | {
       ok: true
@@ -263,6 +272,8 @@ export type MaintenanceRestoreResult =
       totalBytes: number
       /** T03 自动改写的关联路径条数（用户可见的「改写 M 条」）。 */
       rewritten: number
+      /** 可选关联计数，旧主进程缺省；不含旧路径或模板内容。 */
+      associations?: MaintenanceRestoreAssociations
     }
   | {
       ok: false

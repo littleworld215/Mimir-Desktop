@@ -130,6 +130,19 @@ it('toRestoreResult：成功 → {ok:true,...}；**不含** cleanup / remap / �
   expect(JSON.stringify(result)).not.toContain('oldValue')
 })
 
+it('G04关联结果只透出安全计数，不透出旧路径或模板正文', () => {
+  const outcome: RestoreOutcome = {
+    stage: 'done', failure: null, result: { spaceId: 'id', name: '新空间', root: 'C:/new', entries: 1, totalBytes: 1 },
+    remap: { found: [], rewritten: [], skipped: [], observed: [], associations: { snapshotsRelinked: 2, unknownSnapshotBuckets: 1,
+      templatesRelinked: 1, unresolvedTemplates: 3, externalSnapshotBuckets: 4, oldRoot: 'C:/private', template: 'secret content' } as never },
+    cleanup: null, finishedAt: '2026-10-24'
+  }
+  const result = toRestoreResult(outcome)
+  expect(result).toMatchObject({ associations: { snapshotsRelinked: 2, unknownSnapshotBuckets: 1, templatesRelinked: 1, unresolvedTemplates: 3, externalSnapshotBuckets: 4 } })
+  expect(JSON.stringify(result)).not.toContain('private')
+  expect(JSON.stringify(result)).not.toContain('secret content')
+})
+
 it('toRestoreResult：失败 → {ok:false, code, detail, retryable}；不含 cleanup 路径', () => {
   const outcome: RestoreOutcome = {
     stage: 'failed',

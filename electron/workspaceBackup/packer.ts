@@ -62,6 +62,8 @@ export interface BackupRequest {
    * - 与 `destination` 同时给出时：触发上面对 `destination` 的**受管命名校验**。
    */
   spaceName?: string
+  /** 主进程已选来源空间ID；直接打包旧调用方可不提供。 */
+  sourceSpaceId?: string
   /** 同盘暂存目录（通常在空间之外的临时位置或 backups/）。 */
   stagingDir: string
   /** 用于快照的资产库；未打开时传 null（本次打包不含 assets.db）。 */
@@ -238,6 +240,7 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
         version: BACKUP_FORMAT_VERSION,
         generatedAt: new Date().toISOString(),
         sourceRoot: resolve(root),
+        ...(request.sourceSpaceId !== undefined ? { sourceSpaceId: request.sourceSpaceId } : {}),
         entries: manifest.entries
       }), 'utf8')
       zip.addBuffer(manifestBuffer, MANIFEST_IN_ARCHIVE, { mtime: new Date(0) })

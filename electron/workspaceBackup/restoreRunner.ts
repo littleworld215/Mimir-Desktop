@@ -59,6 +59,8 @@ export interface RestoreInput {
   readonly spaceName: string
   /** 归档内记录的旧空间根：供 T03 重映射匹配旧前缀。 */
   readonly oldRoot: string
+  /** 可选清单来源空间ID；早期包缺失时不猜测多个模板来源。 */
+  readonly sourceSpaceId?: string
 }
 
 /** 注册步骤的回执：`appended:false` = 命中幂等（已注册过），**不是**失败。 */
@@ -82,7 +84,7 @@ export interface RestoreSteps {
   /** 解压到暂存根，返回落地条目数。 */
   readonly extract: (input: RestoreInput, stagingRoot: string) => Promise<number>
   /** T03 关联路径审计 + 改写回写暂存副本（在 `verifying` 阶段内，§3.4）。 */
-  readonly remap: (input: RestoreInput, stagingRoot: string) => Promise<RemapAuditReport>
+  readonly remap: (input: RestoreInput, stagingRoot: string, newSpaceId?: string) => Promise<RemapAuditReport>
   /** 二次校验：JSON / 数据库 / 外键 / 摘要（§3.4 步骤 c）。 */
   readonly recheck: (input: RestoreInput, stagingRoot: string) => Promise<void>
   /** 同盘 `rename` 发布暂存根 → 目标新目录（rename 前双检 `TARGET_EXISTS`）。 */
@@ -270,6 +272,7 @@ export async function runRestore(
   let plan: RestorePlan | null = null
   /** T03 审计报告。 */
   let remapReport: RemapAuditReport | null = null
+  let spaceId = ''
 
   /**
    * 推进一步并**校验落点**：非法转移（`advance` 抛错）或落点与预期不符
@@ -457,7 +460,9 @@ export async function runRestore(
     // ── ③ verifying：T03 改写（§3.4 a/b）+ 二次校验（§3.4 c） ────────────
     // 失败一律**保留暂存根**供排查 → 绝不调用 cleanupStaging。
     try {
-      const report = await steps.remap(input, stagingRoot)
+      spaceId = newId()
+      if (typeof spaceId !== 'string' || spaceId.trim() === '') throw new RestoreError('RECHECK_FAILED', '无法生成恢复空间标识。')
+      const report = await steps.remap(input, stagingRoot, spaceId)
       rejectFailedResult(report, 'verifying', 'remap')
       if (!isRecord(report) || !Array.isArray(report.found)) {
         throw new RestoreError('RECHECK_FAILED', 'remap 未返回有效的审计报告（RemapAuditReport）。')
@@ -498,7 +503,6 @@ export async function runRestore(
 
     // ── ⑤ registering：本机保护快照 + 原子追加（S1–S10，不经 IPC） ────────
     // 失败时目录**已发布且完整**，只有注册未完成 → retry 只重做注册。
-    const spaceId = newId()
     try {
       const receipt = await steps.register(input, spaceId)
       rejectFailedResult(receipt, 'registering', 'register')

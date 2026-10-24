@@ -570,7 +570,10 @@ function MaintenanceApp() {
 
     {restoreResult && <p role={restoreResult.ok ? 'status' : 'alert'}>
       {restoreResult.ok
-        ? `已恢复到 ${restoreResult.root}，共 ${restoreResult.entries} 条，改写 ${restoreResult.rewritten} 条。`
+        ? `已恢复到 ${restoreResult.root}，共 ${restoreResult.entries} 条，改写 ${restoreResult.rewritten} 条。${restoreResult.associations
+          ? ` 已关联 ${restoreResult.associations.snapshotsRelinked} 个快照索引、${restoreResult.associations.templatesRelinked} 份任务包模板。${restoreResult.associations.unknownSnapshotBuckets + restoreResult.associations.unresolvedTemplates > 0
+            ? ` 另有 ${restoreResult.associations.unknownSnapshotBuckets} 个未知快照索引、${restoreResult.associations.unresolvedTemplates} 份未关联模板原样保留，请人工确认。` : ''}${(restoreResult.associations.externalSnapshotBuckets ?? 0) > 0
+              ? ` 保留 ${restoreResult.associations.externalSnapshotBuckets} 个外部项目快照索引；外部项目资料未纳入本次备份，请人工确认。` : ''}` : ''}`
         : `${failureText(restoreResult.code)}（${restoreResult.code}）${restoreResult.detail}`}
     </p>}
 

@@ -83,6 +83,17 @@ function fakeSteps(overrides: Record<string, (...args: any[]) => any> = {}) {
 const FIXED_NOW = (): Date => new Date('2026-01-02T03:04:05.000Z')
 const OPTS = { newId: () => 'space-uuid-1', now: FIXED_NOW }
 
+it('G04在关联前生成一次UUID，关联与注册使用同一个值', async () => {
+  const { runRestore } = await runnerModule()
+  const f = fakeSteps()
+  let count = 0
+  const outcome = await runRestore(INPUT, f.steps, { ...OPTS, newId: () => { count++; return 'new-space-id' } })
+  expect(outcome.stage).toBe('done')
+  expect(count).toBe(1)
+  expect(f.seen.remap[2]).toBe('new-space-id')
+  expect(f.seen.register[1]).toBe('new-space-id')
+})
+
 // ─── ① inspecting 失败：零副作用 ────────────────────────────────────
 
 it('inspecting 失败：createStaging 未被调用、cleanup 为 null、register 未被调用、retryable=false', async () => {

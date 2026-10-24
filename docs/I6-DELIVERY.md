@@ -1,5 +1,7 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-24 G-04：[恢复关联规则](I6-RESTORE-ASSOCIATIONS.md)接通五类结构路径、目录键快照和空间UUID模板，正文不替换，未知/外部保留并提示，冲突不合并。新增来源ID仅为最小关联前置，格式1兼容；[实际记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-associations-20261024.md)区分失败/复核/工程/桌面与部署，G-05～08和I5/I6/I10原待验保持。
+
 > 2026-10-24 G-03：[资产恢复规则](I6-ASSETS-RESTORE.md)补完整DDL/版本、暂存迁移及全部历史附件完整读取，自检仍只读。初版“只查表名即完整”不能替代当前门禁。[实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-restore-20261024.md)分开记录静态/运行/候选包；G-04～08与原用户待验保持，日常6645129不替换。
 
 > 2026-10-24 G-02：三个读取入口共用10万条目/64MiB清单/1TiB业务展开限制，元数据预检和实际计数分别执行，ZIP/ZIP64目录与真实空目录内容有回归。[当前规则](I6-ARCHIVE-READ-LIMITS.md)及[本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-archive-read-limits-20261024.md)区分实现/运行/静态复核与日常部署；格式1保持，旧历史中“仅流式即满足上限”的说法不能替代读取时限制。

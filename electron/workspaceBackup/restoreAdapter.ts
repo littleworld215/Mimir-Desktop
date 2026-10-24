@@ -30,6 +30,7 @@ import { verifyBackup } from './verify'
 import { cleanupStagingRoot, createStagingRoot } from './stagingRoot'
 import { extractToStaging } from './extract'
 import { remapSpaceStore } from './spaceStoreRemap'
+import { assertAssociationRoot, relinkRestoredAssociations } from './restoreAssociations'
 import type { RemapAuditReport } from './remapAudit'
 import { publishStagedSpace } from './publish'
 import { appendWorkspaceRecord, buildRegistryAppendInput, writeRegistryAtomic } from './registryAppend'
@@ -178,18 +179,17 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
      * 就会让**空空间永远无法恢复**——这是本函数在 T05 联调时被真实用例抓到的缺陷。
      * 故：文件缺失 → 视为空 store（`{}`），不写盘、不产生改写，直接返回空报告。
      */
-    async remap(input: RestoreInput, stagingRoot: string): Promise<RemapAuditReport> {
+    async remap(input: RestoreInput, stagingRoot: string, newSpaceId?: string): Promise<RemapAuditReport> {
+      assertAssociationRoot(stagingRoot)
       const storePath = join(stagingRoot, ...SPACE_STORE_REL)
-      if (!existsSync(storePath)) {
-        // 空 store：白名单一项都没命中（也无可改写处），审计报告如实为空。
-        return { found: [], rewritten: [], skipped: [], observed: [] }
-      }
-      const store = readStagedSpaceStore(stagingRoot)
+      const present = existsSync(storePath)
+      const store = present ? readStagedSpaceStore(stagingRoot) : {}
       const { store: remapped, report } = remapSpaceStore(store, input.oldRoot, input.targetRoot)
+      const associations = relinkRestoredAssociations({ original: store, restored: remapped, report, stagingRoot, newSpaceId, sourceSpaceId: input.sourceSpaceId, oldRoot: input.oldRoot })
       // 原子写回（temp + rename）。注：该辅助在 POSIX 下给 0600，比 store.ts 对空间层的
       // 默认 0644 更严——属收紧暴露面，Windows 上 chmod 被跳过无影响。
-      writeRegistryAtomic(storePath, remapped)
-      return report
+      if (present) writeRegistryAtomic(storePath, remapped)
+      return Object.values(associations).some(count => count !== 0) ? { ...report, associations } : report
     },
 
     async recheck(_input: RestoreInput, stagingRoot: string) {

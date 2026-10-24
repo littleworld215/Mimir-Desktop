@@ -44,6 +44,8 @@ export function parseArchiveManifest(buffer: Buffer, limits: ArchiveReadLimits):
   if (!record(value) || !Number.isSafeInteger(value.version)) throw new VerifyError('MANIFEST_INVALID', '归档清单根或版本类型无效')
   if (value.version !== BACKUP_FORMAT_VERSION) throw new VerifyError('VERSION_UNSUPPORTED', `归档格式版本 ${value.version} 不受支持（期望 ${BACKUP_FORMAT_VERSION}）`)
   if (typeof value.generatedAt !== 'string' || (value.sourceRoot !== undefined && (typeof value.sourceRoot !== 'string' || value.sourceRoot.includes('\0')))
+    || (value.sourceSpaceId !== undefined && (typeof value.sourceSpaceId !== 'string' || !value.sourceSpaceId || value.sourceSpaceId.trim() !== value.sourceSpaceId
+      || value.sourceSpaceId.length > 200 || /[\u0000-\u001f\u007f]/.test(value.sourceSpaceId)))
     || !Array.isArray(value.entries)) throw new VerifyError('MANIFEST_INVALID', '归档清单元数据类型无效')
   if (value.entries.length > limits.maxEntries) throw new VerifyError('ENTRY_LIMIT', '清单条目数超过上限')
   let total = 0

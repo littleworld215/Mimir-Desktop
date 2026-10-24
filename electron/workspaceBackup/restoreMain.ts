@@ -130,7 +130,7 @@ export interface MaintenanceRestoreDeps {
    * 注入点存在理由：验证「早期归档无 `sourceRoot` → 退化为不改写」这条**真实退化路径**，
    * 需要一份不含该字段的归档；而 `createBackup` 现在总会写入它，只能靠注入模拟。
    */
-  readonly readManifest?: (archivePath: string) => Promise<{ sourceRoot?: string; entries: ManifestEntry[] }>
+  readonly readManifest?: (archivePath: string) => Promise<{ sourceRoot?: string; sourceSpaceId?: string; entries: ManifestEntry[] }>
   /** 进度回调。 */
   readonly onProgress?: RestoreProgressReporter
   /** 适配器附加选项（单测注入假完整性钩子）。 */
@@ -328,8 +328,10 @@ export async function runMaintenanceRestore(
   // 是绝对路径 → 相对根永不命中（实测 `rewritten=0`，理由 `outside-old-root`）。
   // 相对根只用来在清单无 `sourceRoot` 时给一条**非权威**诊断文案。
   let oldRoot = ''
+  let sourceSpaceId: string | undefined
   try {
     const manifest = await (deps.readManifest ?? readArchiveManifest)(request.archivePath)
+    sourceSpaceId = manifest.sourceSpaceId
     const sourceRoot = typeof manifest.sourceRoot === 'string' ? manifest.sourceRoot.trim() : ''
     const relativeRoot = oldRootFromArchive(manifest.entries)
     if (sourceRoot !== '') {
@@ -362,7 +364,8 @@ export async function runMaintenanceRestore(
     // 真实 home：注册步骤会在此**真正**追加新空间（见文件头注释）。
     homeDir: deps.homeDir,
     spaceName: request.spaceName,
-    oldRoot
+    oldRoot,
+    sourceSpaceId
   }
 
   // `targetExistedBefore` 恒为 `false`：本编排层从不建目标目录（见函数头注释），
