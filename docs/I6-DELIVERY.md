@@ -1,5 +1,7 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+> 2026-10-25 G-05：[中断恢复规则](I6-RESTORE-RECOVERY.md)接通固定UUID／目录的记录和登记重试、确认后暂存核验，以及残锁只读和稳定分页；无锁自检不写审计。实际工程、强退与候选包见[本轮记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-recovery-20261025.md)，G-06～08及原终验保持，不更新日常安装。
+
 > 2026-10-24 G-04：[恢复关联规则](I6-RESTORE-ASSOCIATIONS.md)接通五类结构路径、目录键快照和空间UUID模板，正文不替换，未知/外部保留并提示，冲突不合并。新增来源ID仅为最小关联前置，格式1兼容；[实际记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-associations-20261024.md)区分失败/复核/工程/桌面与部署，G-05～08和I5/I6/I10原待验保持。
 
 > 2026-10-24 G-03：[资产恢复规则](I6-ASSETS-RESTORE.md)补完整DDL/版本、暂存迁移及全部历史附件完整读取，自检仍只读。初版“只查表名即完整”不能替代当前门禁。[实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-restore-20261024.md)分开记录静态/运行/候选包；G-04～08与原用户待验保持，日常6645129不替换。

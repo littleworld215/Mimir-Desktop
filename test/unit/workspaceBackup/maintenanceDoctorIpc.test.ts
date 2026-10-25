@@ -41,6 +41,14 @@ function fakeReport(): DoctorReport & { internalPath?: string } {
   } as DoctorReport & { internalPath?: string }
 }
 
+it('维护写锁不可用时自检仍可读，但不落审计文件', async () => {
+  let auditWrites = 0
+  const deps = { homeDir: HOME, buildReport: async () => fakeReport(), writeAudit: () => { auditWrites += 1 }, auditAllowed: () => false }
+  const result = await buildDoctorHandler(deps).doctor()
+  expect(result.ok).toBe(true)
+  expect(auditWrites).toBe(0)
+})
+
 /** 假 ipc：捕获注册用的 listener（照既有范式）。 */
 function fakeIpc(): { captured: { channel?: string; listener?: (event: unknown, ...args: unknown[]) => unknown }[]; ipc: { handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void } } {
   const captured: { channel?: string; listener?: (event: unknown, ...args: unknown[]) => unknown }[] = []

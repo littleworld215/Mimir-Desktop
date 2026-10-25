@@ -102,7 +102,9 @@ export const WORKSPACE_BACKUP_CHANNELS = {
    * 从不经过 `installWorkspaceIpcGate`）。语义：**纯可观测性**——最佳努力，丢一两条不影响备份
    * 结果；`detail` 不含本机绝对路径。
    */
-  backupProgress: 'workspaceBackup:backupProgress'
+  backupProgress: 'workspaceBackup:backupProgress',
+  recoveryList: 'workspaceBackup:recoveryList',
+  recoveryAction: 'workspaceBackup:recoveryAction'
 } as const
 
 /**
@@ -129,6 +131,8 @@ export type MaintenanceOverview =
       spaces: Array<{ id: string; name: string }>
       /** 可选：可恢复的归档候选（**只做展示与选择**，恢复动作由后续版本开放）。 */
       archives?: MaintenanceArchiveCandidate[]
+      /** 写锁未取得时仅提供只读维护视图，所有写入口仍拒绝。 */
+      writable?: boolean
     }
   | { ok: false; code: 'REGISTRY_INVALID' }
 
@@ -142,6 +146,8 @@ export type MaintenanceOverview =
  */
 export interface WorkspaceBackupMaintenanceApi {
   overview(): Promise<MaintenanceOverview>
+  recoveryList?(cursor?: string): Promise<MaintenanceRecoveryList>
+  recoveryAction?(request: MaintenanceRecoveryRequest): Promise<MaintenanceRecoveryResult>
   /**
    * 把一份归档恢复成一个**新**科研空间。
    *
@@ -240,6 +246,35 @@ export interface MaintenanceRestoreRequest {
   /** 新空间名（登记用）。 */
   spaceName: string
 }
+
+export type MaintenanceRecoveryAction = 'register' | 'cleanup'
+export type MaintenanceRecoveryStatus = 'pending-registration' | 'registered' | 'staging-retained' | 'interrupted' | 'no-output' | 'cleaned' | 'blocked'
+export interface MaintenanceRecoveryItem {
+  readonly operationId: string
+  readonly spaceName: string
+  readonly createdAt: string
+  readonly phase: string
+  readonly status: MaintenanceRecoveryStatus
+  readonly entries: number
+  readonly totalBytes: number
+  readonly actions: readonly MaintenanceRecoveryAction[]
+}
+export interface MaintenanceRecoveryList {
+  readonly ok: true
+  readonly writable: boolean
+  readonly items: readonly MaintenanceRecoveryItem[]
+  readonly invalidRecords: number
+  readonly truncated: boolean
+  /** 主进程产生的分页游标，只是操作ID，不接受路径。 */
+  readonly nextCursor?: string
+}
+export interface MaintenanceRecoveryRequest {
+  readonly operationId: string
+  readonly action: MaintenanceRecoveryAction
+}
+export type MaintenanceRecoveryResult =
+  | { readonly ok: true; readonly operationId: string; readonly action: MaintenanceRecoveryAction; readonly spaceId?: string; readonly alreadyRegistered?: boolean }
+  | { readonly ok: false; readonly code: string; readonly detail: string }
 
 /**
  * 恢复结果（主进程 → 渲染层）：**可被沙箱渲染层安全消费**。

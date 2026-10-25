@@ -25,7 +25,7 @@
  *    逻辑分叉。`chmodSync` 在 win32 跳过（对齐 `tightenFileMode`）。
  */
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { RestoreError } from './restoreContracts'
@@ -107,10 +107,16 @@ export function writeRegistryAtomic(path: string, value: Record<string, unknown>
     }
   }
   const tempPath = join(dir, `.tmp-${basename(path)}-${process.pid}-${randomUUID()}`)
+  let fd: number | undefined
   try {
-    writeFileSync(tempPath, JSON.stringify(value, null, 2), { encoding: 'utf-8', mode: CREDENTIAL_FILE_MODE })
+    fd = openSync(tempPath, 'wx', CREDENTIAL_FILE_MODE)
+    writeFileSync(fd, JSON.stringify(value, null, 2), 'utf8')
+    fsyncSync(fd)
+    closeSync(fd)
+    fd = undefined
     renameSync(tempPath, path)
   } catch (error) {
+    if (fd !== undefined) { try { closeSync(fd) } catch { /* preserve write failure */ } }
     try {
       unlinkSync(tempPath)
     } catch {
@@ -202,10 +208,8 @@ function sameSpacePath(recorded: unknown, candidate: string): boolean {
  * 顺序：① 读原始 JSON ② **先判重**（命中即返回，**不拍快照**）③ 拍保护快照
  * ④ 只替换 `workspaces:list` ⑤ 原子写 ⑥ 用 `readRegistryOverview` 复核新 id 存在。
  *
- * ⚠️ 判重看 **`id` 或 `path` 任一**命中，不能只看 `id`：设计 §4.2 S9 明文写着
- * 「以**新 UUID** 追加」——重试时 id 本就会变，只按 id 判重永远命中不了，
- * 同一个目录会被登记两次。而 `path` 在一次恢复操作的各次重试之间是稳定的，
- * 注册表正是「该路径是否已登记」的权威判据。
+ * G-05以操作记录固定UUID，只有id和路径同时相同才是幂等；任一冲突必须拒绝。
+ * 否则模板已关联的新UUID可能与实际登记不一致，或同一UUID误指向另一个目录。
  *
  * ⚠️ 判重**先于**快照：保护快照的意义是「写前留原字节」，既然幂等命中不写盘，
  * 就没有可保护的变更。否则每次 retry 都会在 `.mimir` 里留下一份无用快照并持续堆积。
@@ -223,13 +227,18 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
 
   const path = registryFilePath(homeDir)
   // ① 原始对象（绝不走 loadStore）
+  try { readRegistryOverview(homeDir) }
+  catch { throw new RestoreError('REGISTRY_INVALID', '现有空间登记未通过检查，未修改原文件。') }
   const registry = readRegistryRaw(homeDir)
   // ② 判重（**先于**快照：幂等命中不写盘，就没有需要保护的变更）
   const spaces = readSpacesList(registry, path)
-  const existing = spaces.find(
-    (space) => space['id'] === input.id || sameSpacePath(space['path'], input.path)
-  )
+  if (spaces.some(space => !space || typeof space !== 'object' || Array.isArray(space))) throw new RestoreError('REGISTRY_INVALID', '空间登记条目格式不正确。')
+  const matches = spaces.filter(space => space['id'] === input.id || sameSpacePath(space['path'], input.path))
+  const existing = matches[0]
   if (existing !== undefined) {
+    if (matches.length !== 1 || existing['id'] !== input.id || !sameSpacePath(existing['path'], input.path)) {
+      throw new RestoreError('REGISTRY_INVALID', '恢复空间标识或目录与现有登记冲突，未修改注册表。')
+    }
     // `snapshotPath` 为 '' = 未写入故未拍快照（它是必填 string，不用 undefined 强转）。
     return { appended: false, snapshotPath: '', spaces: spaces.length }
   }

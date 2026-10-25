@@ -38,7 +38,7 @@
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, normalize } from 'node:path'
 
-import { runRestore, type RestoreInput, type RestoreOutcome } from './restoreRunner'
+import { runRestore, type RestoreInput, type RestoreOutcome, type RestoreSteps } from './restoreRunner'
 import { createRestoreSteps, type RestoreAdapterOptions } from './restoreAdapter'
 import { oldRootFromArchive, readArchiveManifest } from './restoreArchive'
 import { checkRestoredAssetsIntegrity, type AssetsIntegrityOptions } from './assetsIntegrity'
@@ -94,6 +94,8 @@ export interface MaintenanceWriterSession {
 }
 
 export interface MaintenanceRestoreDeps {
+  /** 主进程内部持久化上下文，不来自渲染层。 */
+  readonly beginOperation?: () => { id: string; spaceId: string; decorate(steps: RestoreSteps, input: RestoreInput): RestoreSteps }
   /** 维护模式持有的写者会话（本层只用它做健康检查；registry 锁在构造时已持有）。 */
   readonly session: MaintenanceWriterSession
   /**
@@ -357,10 +359,13 @@ export async function runMaintenanceRestore(
   }
 
   // ── ④ 编排（真适配器 + 真完整性钩子 + 暂存根内写锁） ─────────────
+  let operation: ReturnType<NonNullable<MaintenanceRestoreDeps['beginOperation']>> | undefined
+  try { operation = deps.beginOperation?.() }
+  catch { return failedEarly('LOCK_UNAVAILABLE', '无法保存恢复操作记录，未创建恢复资料。', now()) }
   const input: RestoreInput = {
     archivePath: request.archivePath,
     targetRoot: request.targetRoot,
-    stagingRoot: stagingPathFor(request.targetRoot, 'restore'),
+    stagingRoot: stagingPathFor(request.targetRoot, operation?.id ?? 'restore'),
     // 真实 home：注册步骤会在此**真正**追加新空间（见文件头注释）。
     homeDir: deps.homeDir,
     spaceName: request.spaceName,
@@ -374,10 +379,11 @@ export async function runMaintenanceRestore(
   //
   // `lockStagingRoot` 由调用方注入（生产 = `acquireMigratableWriterLock` 包装），
   // 适配器会在 `createStaging` 内、**解压之前**用它取锁（§4.2 S5 锁先行）。
-  const steps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, deps.adapter ?? {}, deps.assetsIntegrityOptions)
+  const baseSteps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, { ...deps.adapter, ...(operation ? { stagingToken: operation.id } : {}) }, deps.assetsIntegrityOptions)
+  const steps = operation ? operation.decorate(baseSteps, input) : baseSteps
 
   report('extracting', '开始解压到同盘暂存根…')
-  const outcome = await runRestore(input, steps, { now })
+  const outcome = await runRestore(input, steps, { now, ...(operation ? { newId: () => operation.spaceId } : {}) })
   report(
     outcome.stage,
     outcome.failure === null ? '恢复完成。' : `恢复失败：${outcome.failure.code}`

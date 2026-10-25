@@ -60,6 +60,8 @@ export interface DoctorHandlerDeps {
   readonly readAudit?: (home: string, limit?: number) => MaintenanceAuditView
   /** 追加一条审计（缺省 = `appendMaintenanceAudit`）；**尽力而为**，抛错不得影响 doctor。 */
   readonly writeAudit?: (home: string, entry: MaintenanceAuditEntry) => void
+  /** 未持维护写锁或会话已失效时，保留自检读取能力但禁止旁路落盘。 */
+  readonly auditAllowed?: () => boolean
 }
 
 /** 自检处理器集合：`doctor()` 跑一次只读自检并留审计；`auditRecent(limit)` 只读最近审计。 */
@@ -136,7 +138,7 @@ export function buildDoctorHandler(deps: DoctorHandlerDeps): DoctorHandler {
       //    注入实现（单测会注入一个「必抛」的实现，断言 doctor 仍返回成功）。
       //    审计 entry 是**白名单形状**：只记 at/action/outcome/counts，**绝不含路径**。
       try {
-        writeAudit(deps.homeDir, {
+        if (deps.auditAllowed?.() !== false) writeAudit(deps.homeDir, {
           at: report.at,
           action: 'doctor',
           outcome: 'ok',

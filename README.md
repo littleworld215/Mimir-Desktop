@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-25 G-05恢复中断处理：[使用与核心逻辑](docs/I6-RESTORE-RECOVERY.md)新增固定UUID的阶段记录、同目录登记重试和确认后暂存核验；稳定分页保证旧任务可达，无锁维护仅只读查看。工程／实际强退／新目录包和一次静态复核分别见[证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-recovery-20261025.md)。日常安装不随源码更新，G-06～08及I5/I6/I10原待验保持。
+
 2026-10-24 G-04恢复关联：[路径/快照/模板规则](docs/I6-RESTORE-ASSOCIATIONS.md)覆盖五类已知结构路径、原始项目键快照与同一新UUID模板，正文和外部引用保持，冲突不合并，未知/外部计数提示。新增可选来源ID，格式1保持；[本轮实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-associations-20261024.md)分别记录失败、静态复核、工程与桌面/候选包。日常安装不自动替换。
 
 2026-10-24 G-03资产恢复补强：[兼容与历史附件规则](docs/I6-ASSETS-RESTORE.md)覆盖未来/漂移库拒绝、已知旧库只在恢复暂存副本先快照后迁移，以及全历史附件完整读取。只读自检修正真实路径和包内原生绑定。[实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-restore-20261024.md)分别登记运行与静态复核；schema4保持，日常安装未自动更新。

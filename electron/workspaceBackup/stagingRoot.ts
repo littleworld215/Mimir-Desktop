@@ -14,6 +14,10 @@
 import { mkdirSync, existsSync, rmSync } from 'node:fs'
 import { RestoreError, RESTORE_STAGING_PREFIX } from './restoreContracts'
 import { abortScope } from './restoreState'
+import { assertRestoreIdentity, restoreRootIdentity, type RestoreRootIdentity } from './restoreFingerprint'
+import { resolve } from 'node:path'
+
+const createdRoots = new Map<string, RestoreRootIdentity>()
 
 export interface StagingRoot {
   /** 暂存根绝对路径。 */
@@ -57,6 +61,7 @@ export function createStagingRoot(targetRoot: string, token: string): StagingRoo
     }
     throw new RestoreError('STAGING_CLEANUP_FAILED', `暂存根创建失败：${root}（${(error as Error).message}）`)
   }
+  createdRoots.set(resolve(root), restoreRootIdentity(root))
   return { root, owned: true }
 }
 
@@ -67,13 +72,14 @@ export function createStagingRoot(targetRoot: string, token: string): StagingRoo
  *
  * @throws RestoreError `STAGING_CLEANUP_FAILED` 当目录仍存在且删除失败
  */
-export function cleanupStagingRoot(stagingRoot: string, options: { createdTarget?: string | null } = {}): void {
+export function cleanupStagingRoot(stagingRoot: string, options: { createdTarget?: string | null; identity?: RestoreRootIdentity } = {}): void {
   // 经 abortScope 统一「本操作产物」口径：失败阶段用 failed 以满足其契约。
   const scope = abortScope(
     { stage: 'failed', code: 'EXTRACT_FAILED', retryable: true, detail: '清理暂存根' },
     { stagingRoot, createdTarget: options.createdTarget ?? null }
   )
-  for (const target of [scope.stagingRoot, scope.createdTarget]) {
+  if (scope.createdTarget !== null) throw new RestoreError('STAGING_CLEANUP_FAILED', '已发布空间不通过暂存清理删除。')
+  for (const target of [scope.stagingRoot]) {
     if (target === null) continue
     // 安全兜底：只清理以暂存前缀命名的目录，拒绝误删任意路径。
     if (!target.split('/').pop()!.startsWith(RESTORE_STAGING_PREFIX) && target !== scope.createdTarget) {
@@ -81,7 +87,11 @@ export function cleanupStagingRoot(stagingRoot: string, options: { createdTarget
     }
     if (!existsSync(target)) continue
     try {
+      const identity = options.identity ?? createdRoots.get(resolve(target))
+      if (!identity) throw Error('missing creation receipt')
+      assertRestoreIdentity(target, identity)
       rmSync(target, { recursive: true, force: true })
+      createdRoots.delete(resolve(target))
     } catch (error) {
       throw new RestoreError('STAGING_CLEANUP_FAILED', `暂存清理失败：${target}（${(error as Error).message}）`)
     }

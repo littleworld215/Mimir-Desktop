@@ -6,6 +6,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
   overview: () => ipcRenderer.invoke('workspaceBackup:overview'),
+  recoveryList: cursor => ipcRenderer.invoke('workspaceBackup:recoveryList', cursor),
+  recoveryAction: request => ipcRenderer.invoke('workspaceBackup:recoveryAction', request),
   // 恢复：请求体形如 { archivePath, targetRoot, spaceName }（字段**只作输入**，
   // 主进程自行 path.resolve 规范化并校验，绝不信任渲染层拼好的路径 —— 设计 §4.2 S7）。
   restore: request => ipcRenderer.invoke('workspaceBackup:restore', request),

@@ -19,6 +19,7 @@ import type {
   WorkspaceBackupMaintenanceApi
 } from '../../shared/workspaceBackupContracts'
 import './maintenance.css'
+import { RestoreRecoveryPanel } from '../components/maintenance/RestoreRecoveryPanel'
 
 declare global { interface Window { workspaceBackupMaintenance: WorkspaceBackupMaintenanceApi } }
 
@@ -191,6 +192,10 @@ function MaintenanceApp() {
   const [backupRunningId, setBackupRunningId] = useState<string>()
   const [backupResult, setBackupResult] = useState<MaintenanceBackupResult>()
   const [backupProgress, setBackupProgress] = useState<MaintenanceBackupProgress>()
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
+  const [recoveryVersion, setRecoveryVersion] = useState(0)
+  const readOnly = result?.ok === true && result.writable === false
+  const writeBusy = busy || recoveryBusy || backupRunningId !== undefined || retentionBusy
 
   const api = window.workspaceBackupMaintenance
 
@@ -268,7 +273,7 @@ function MaintenanceApp() {
   }
 
   async function submit() {
-    if (!form || busy) return
+    if (!form || writeBusy || readOnly) return
     // 渲染层只做最轻的非空校验；真正的规范化与拒绝由主进程完成（§4.2 S7）。
     if (form.spaceName.trim() === '' || form.targetRoot.trim() === '') {
       setRestoreResult({ ok: false, code: 'INVALID_TARGET', detail: '请填写新空间名与目标目录绝对路径。', retryable: false })
@@ -298,6 +303,7 @@ function MaintenanceApp() {
     } finally {
       setBusy(false)
       setProgress(undefined)
+      setRecoveryVersion(value => value + 1)
     }
   }
 
@@ -372,7 +378,7 @@ function MaintenanceApp() {
    * 返回如实展示；`TOKEN_MISMATCH` → 提示重新预览（**不**假装成功）。
    */
   async function applyRetention() {
-    if (retentionBusy || !retention?.ok) return
+    if (writeBusy || readOnly || !retention?.ok) return
     const pending = retention.items.filter((item: MaintenanceRetentionItem) => item.disposition === 'remove')
     if (pending.length === 0) return
     // 判存在再调用（旧主进程不提供 applyRetention）；不假装成功。
@@ -417,7 +423,7 @@ function MaintenanceApp() {
    * 成功后归档清单会变（新归档落进备份目录）→ 刷新只读清单。
    */
   async function runBackup(spaceId: string) {
-    if (backupRunningId !== undefined) return // 已有备份在跑 → 早退（串行）
+    if (writeBusy || readOnly) return
     // 判存在再调用（旧主进程不提供 backupSpace）；不假装成功。
     if (typeof api.backupSpace !== 'function') {
       setBackupResult({ ok: false, code: 'NOT_SUPPORTED', detail: '当前版本不支持逐空间备份，请更新应用后重试。' })
@@ -443,13 +449,14 @@ function MaintenanceApp() {
   return <main>
     <h1>备份与恢复维护窗口</h1>
     <p>选择一份备份归档，即可把它恢复成一个新的科研空间。恢复过程不会改动你现有的任何空间。</p>
+    {readOnly && <p role="alert">维护写锁尚未取得，当前为只读查看。请按锁处理规约确认现有写锁后，再重新进入维护。</p>}
     <section aria-label="科研空间清单" aria-busy={loading}>
       <h2>已登记的科研空间</h2>
       {loading && <p role="status">正在读取清单…</p>}
       {result?.ok && (result.spaces.length
         ? <ul>{result.spaces.map(space => <li key={space.id}>
             {space.name}
-            <button type="button" disabled={backupRunningId !== undefined} onClick={() => void runBackup(space.id)}>
+            <button type="button" disabled={writeBusy || readOnly} onClick={() => void runBackup(space.id)}>
               {backupRunningId === space.id ? '备份中…' : '备份该空间'}
             </button>
           </li>)}</ul>
@@ -461,13 +468,14 @@ function MaintenanceApp() {
           ? <ul>{result.archives.map(archive => <li key={archive.path}>
               {archive.name}（{(archive.bytes / 1024 / 1024).toFixed(1)} MB，{new Date(archive.modifiedAt).toLocaleString()}）
               {!archive.remappable && <span role="note">（无法自动改写论文路径，恢复后需人工确认）</span>}
-              <button type="button" disabled={busy} onClick={() => openForm(archive)}>恢复为新空间…</button>
+              <button type="button" disabled={writeBusy || readOnly} onClick={() => openForm(archive)}>恢复为新空间…</button>
             </li>)}</ul>
           : <p>未发现备份归档。</p>}
       </>}
       <button type="button" disabled={loading || busy} onClick={() => void refresh()}>重新读取</button>
     </section>
 
+    <RestoreRecoveryPanel api={api} refreshVersion={recoveryVersion} disabled={writeBusy || readOnly} onBusyChange={setRecoveryBusy} onChanged={async () => { setRestoreResult(undefined); await refresh() }} />
     {/* 备份区块（放在「归档候选」之下、自检之上）：逐空间备份，仅由用户点按钮显式触发。 */}
     <section aria-label="备份科研空间" aria-busy={backupRunningId !== undefined}>
       <h2>备份科研空间</h2>
@@ -484,7 +492,7 @@ function MaintenanceApp() {
     {/* 自检面板（放在「归档候选」之下）：只读报告，只陈述技术事实，不做任何汇总结论。 */}
     <section aria-label="只读自检" aria-busy={doctorRunning}>
       <h2>只读自检</h2>
-      <p>对注册表、归档、已发布空间一致性做一次只读检查。自检不会改动任何文件。</p>
+      <p>对注册表、归档、已发布空间一致性做一次只读检查。自检保留科研资料；持有维护写锁时追加脱敏审计。</p>
       <button type="button" disabled={doctorRunning} onClick={() => void runDoctor()}>{doctorRunning ? '自检中…' : '运行自检'}</button>
       {doctorRunning && <p role="status">{doctorProgress ? `正在自检：${doctorProgress.detail}` : '正在自检…'}</p>}
       {doctorResult && !doctorResult.ok && <p role="alert">自检未能完成（{doctorResult.code}）{doctorResult.detail}</p>}
@@ -532,7 +540,7 @@ function MaintenanceApp() {
       </>}
       {retentionNotice && <p role="status">{retentionNotice}</p>}
       {retention?.ok && retention.items.some((item: MaintenanceRetentionItem) => item.disposition === 'remove') && <p>
-        <button type="button" disabled={retentionBusy} onClick={() => void applyRetention()}>
+        <button type="button" disabled={writeBusy || readOnly} onClick={() => void applyRetention()}>
           确认清理 {retention.items.filter((item: MaintenanceRetentionItem) => item.disposition === 'remove').length} 份
         </button>
       </p>}
@@ -563,7 +571,7 @@ function MaintenanceApp() {
       {busy && <p role="status">{progress ? `阶段：${stageText(progress.stage)}；明细：${progress.detail}` : '正在恢复…'}</p>}
       {cancelNotice && <p role="status">{cancelNotice}</p>}
       <p>
-        <button type="button" disabled={busy} onClick={() => void submit()}>{busy ? '恢复中…' : '开始恢复'}</button>
+        <button type="button" disabled={writeBusy || readOnly} onClick={() => void submit()}>{busy ? '恢复中…' : '开始恢复'}</button>
         <button type="button" disabled={busy && isRestoreUncancellable(progress?.stage)} onClick={() => void closeForm()}>取消</button>
       </p>
     </section>}

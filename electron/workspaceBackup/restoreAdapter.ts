@@ -46,6 +46,8 @@ const WORKSPACE_LOCK_NAME = 'workspace.writer-lock'
 const ASSETS_DB_REL = ['.mimir', 'assets', 'assets.db'] as const
 
 export interface RestoreAdapterOptions {
+  /** 仅由恢复记录生成；旧调用继续使用随机token。 */
+  readonly stagingToken?: string
   /** 时钟（可注入以便测试确定性）。缺省 `new Date().toISOString()`。 */
   readonly now?: () => string
   /**
@@ -134,7 +136,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
       // 未注入时退回实时 stat（见 RestoreAdapterOptions.targetExistedBefore 注释）。
       const targetExists = targetExistedBefore ?? existsSync(input.targetRoot)
       const verified = await verifyBackup(input.archivePath)
-      pendingToken = randomUUID()
+      pendingToken = options.stagingToken ?? randomUUID()
       return planRestore({
         archivePath: input.archivePath,
         targetRoot: input.targetRoot,

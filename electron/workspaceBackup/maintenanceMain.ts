@@ -13,6 +13,9 @@ import { buildBackupHandler, registerBackupHandler } from './maintenanceBackupHa
 import { redactText } from './redact'
 // 归档目录名收口为共享常量（I6 批次 3.5 · T01）：与 retention / doctor 的默认值同一事实源。
 import { archiveDirectory } from './directories'
+import { RestoreRecovery } from './restoreRecovery'
+import { buildRecoveryHandler, isTrustedMaintenanceRequest, registerRecoveryHandlers } from './maintenanceRecoveryHandler'
+import { MaintenanceWriteGate } from './maintenanceWriteGate'
 import type { MaintenanceCancelResult } from '../../shared/workspaceBackupContracts'
 import {
   WORKSPACE_BACKUP_CHANNELS,
@@ -37,7 +40,11 @@ void app.whenReady().then(async () => {
   if (process.platform !== 'win32' || process.arch !== 'x64') throw Error('PLATFORM_UNSUPPORTED')
   const home = homedir()
   const nativeOptions = { isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appRoot: join(directory, '../..') }
-  session = new WorkspaceWriterSession(home, assertWindowsLocalDisk)
+  try { session = new WorkspaceWriterSession(home, assertWindowsLocalDisk) }
+  catch (error) {
+    // A stale or live lock is preserved; the window may only explain recovery state.
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
   window = new BrowserWindow({ width: 860, height: 620, minWidth: 520, minHeight: 420, show: false,
     webPreferences: { preload: join(directory, '../preload/maintenance.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   const owner = window
@@ -47,10 +54,25 @@ void app.whenReady().then(async () => {
    * 与普通模式的 `installWorkspaceMaintenanceHandler` 同口径：防止被注入的子框架 /
    * 其它窗口旁路触发恢复（恢复会写注册表与用户资料盘，是最敏感的写路径）。
    */
-  const trusted = (event: unknown): boolean => {
-    const sender = (event as { sender?: unknown }).sender
-    return Boolean(owner && !owner.isDestroyed() && sender === owner.webContents)
+  const trusted = (event: unknown): boolean => isTrustedMaintenanceRequest(event, owner)
+  const assertWritable = () => {
+    if (!session) throw Error('维护写锁尚未取得。')
+    session.assertUsable()
   }
+  const writes = new MaintenanceWriteGate(assertWritable)
+  const takeRootLock = (root: string) => {
+    assertWritable()
+    const lock = acquireStagingLock(root)
+    session!.ownWriterLock({ root, release: () => lock.release() })
+    return lock
+  }
+  const recovery = new RestoreRecovery({ homeDir: home, assertUsable: assertWritable, lockRoot: takeRootLock, assetsIntegrityOptions: nativeOptions })
+  owner.on('close', event => {
+    if (!writes.running) return
+    event.preventDefault()
+    void dialog.showMessageBox(owner, { type: 'info', message: '维护任务尚未完成，请稍候再关闭窗口。', buttons: ['返回维护'], noLink: true })
+  })
+  app.on('before-quit', event => { if (writes.running) event.preventDefault() })
   /** 统一的只读清单：空间名 + 归档候选。**不建目录、不写任何东西**。 */
   const buildOverview = async (): Promise<MaintenanceOverview> => {
     let spaces: Array<{ id: string; name: string }>
@@ -67,7 +89,7 @@ void app.whenReady().then(async () => {
     } catch {
       archives = []
     }
-    return { ok: true, spaces, archives }
+    return { ok: true, spaces, archives, writable: session !== undefined }
   }
   ipcMain.handle(WORKSPACE_BACKUP_CHANNELS.overview, (event): Promise<MaintenanceOverview> => {
     if (!trusted(event)) throw Error('UNAUTHORIZED_SENDER')
@@ -88,17 +110,11 @@ void app.whenReady().then(async () => {
    * 此时 `buildRestoreHandler` 会以 `LOCK_UNAVAILABLE` 拒绝（绝不无锁写入）。
    */
   const restoreHandler = buildRestoreHandler({
+    run: (request, deps) => recovery.run(request, deps),
     assetsIntegrityOptions: nativeOptions,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     homeDir: home,
-    lockStagingRoot: root => {
-      if (!session) throw Error('维护会话尚未就绪')
-      session.assertUsable()
-      const lock = acquireStagingLock(root)
-      // 不重新取同址锁；只登记已获取凭据，由同一会话在退出时核验并释放。
-      session.ownWriterLock({ root, release: () => lock.release() })
-      return lock
-    },
+    lockStagingRoot: takeRootLock,
     onProgress: (progress) => {
       // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响恢复本身。
       if (owner && !owner.isDestroyed()) {
@@ -112,7 +128,19 @@ void app.whenReady().then(async () => {
       }
     }
   })
-  registerRestoreHandler(ipcMain, trusted, restoreHandler)
+  registerRestoreHandler(ipcMain, trusted, request => writes.run(() => restoreHandler(request)))
+  registerRecoveryHandlers(ipcMain, trusted, buildRecoveryHandler({
+    recovery,
+    runWrite: action => writes.run(action),
+    confirmCleanup: async view => {
+      const result = await dialog.showMessageBox(owner, {
+        type: 'warning', title: '清理本次恢复暂存', message: `确认清理「${view.spaceName}」的中断暂存？`,
+        detail: `将核对并移除本任务暂存中的 ${view.entries} 个条目（${view.totalBytes} 字节）。确认后还会重新核对；已发布空间和原空间保留。`,
+        buttons: ['保留暂存', '确认清理'], defaultId: 0, cancelId: 0, noLink: true
+      })
+      return result.response === 1
+    }
+  }))
 
   /**
    * 自检 / 审计 handler（批次 4 · T04）。
@@ -124,6 +152,7 @@ void app.whenReady().then(async () => {
    * 进度推送形态照既有 `restoreProgress`：`if (owner && !owner.isDestroyed()) owner.webContents.send(...)`。
    */
   const doctorHandler = buildDoctorHandler({
+    auditAllowed: () => { try { assertWritable(); return true } catch { return false } },
     homeDir: home,
     assetsIntegrityOptions: nativeOptions,
     onProgress: (progress) => {
@@ -151,7 +180,7 @@ void app.whenReady().then(async () => {
    * 主进程据 token **自己重算**候选（`maintenanceRetentionHandler` 内严格规范化后再交服务层）。
    */
   const retentionHandler = buildRetentionHandler({ homeDir: home })
-  registerRetentionHandler(ipcMain, trusted, retentionHandler)
+  registerRetentionHandler(ipcMain, trusted, { preview: () => retentionHandler.preview(), apply: request => writes.run(() => retentionHandler.apply(request)) })
 
   /**
    * 逐空间完整备份 handler（I6 批次 3.5 · T04）。
@@ -188,7 +217,7 @@ void app.whenReady().then(async () => {
       }
     }
   })
-  registerBackupHandler(ipcMain, trusted, backupHandler)
+  registerBackupHandler(ipcMain, trusted, { backup: request => writes.run(() => backupHandler.backup(request)) })
 
   /**
    * 取消通道（批次 4 · T04）。
