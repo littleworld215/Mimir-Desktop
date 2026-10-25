@@ -46,6 +46,7 @@ const WORKSPACE_LOCK_NAME = 'workspace.writer-lock'
 const ASSETS_DB_REL = ['.mimir', 'assets', 'assets.db'] as const
 
 export interface RestoreAdapterOptions {
+  readonly assertSelection?: () => void
   /** 仅由恢复记录生成；旧调用继续使用随机token。 */
   readonly stagingToken?: string
   /** 时钟（可注入以便测试确定性）。缺省 `new Date().toISOString()`。 */
@@ -131,6 +132,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
 
   return {
     async inspect(input: RestoreInput) {
+      options.assertSelection?.()
       // 目标是否已存在由**调用方**给出优先：`planRestore` 是零 IO 纯函数，
       // 而调用方可能为了取写锁而先建了空目录——此时实时 stat 会把它误判成「用户既有目录」。
       // 未注入时退回实时 stat（见 RestoreAdapterOptions.targetExistedBefore 注释）。
@@ -151,6 +153,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async createStaging(input: RestoreInput) {
+      options.assertSelection?.()
       // 与 inspect 用**同一个** token，保证暂存根路径与计划一致。
       const token = pendingToken !== '' ? pendingToken : randomUUID()
       pendingToken = token
@@ -166,6 +169,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async extract(input: RestoreInput, stagingRoot: string) {
+      options.assertSelection?.()
       const result = await extractToStaging({ archivePath: input.archivePath, stagingRoot })
       return result.files
     },
@@ -213,6 +217,7 @@ export function createRestoreSteps(options: RestoreAdapterOptions = {}): Restore
     },
 
     async publish(input: RestoreInput, stagingRoot: string) {
+      options.assertSelection?.()
       await publishStagedSpace(stagingRoot, input.targetRoot)
       // rename 已把暂存根（连同其内的 `.mimir/workspace.writer-lock`）搬到目标目录。
       // 锁对象记录的仍是**旧路径**，必须迁移到新路径，否则 `release()` 会 ENOENT。

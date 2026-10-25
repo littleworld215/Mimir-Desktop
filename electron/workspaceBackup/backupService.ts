@@ -349,21 +349,25 @@ export async function runSpaceBackup(
       // labels 只放脱敏标识（空间名 / 归档 basename），**绝不含绝对路径**。
       labels: { space: space.name }
     })
-    return fail('BACKUP_FAILED', '备份失败，未产出归档。')
+    return failureCode === 'TASK_CLEANUP_FAILED'
+      ? fail('TASK_CLEANUP_FAILED', '取消后的归档暂存收尾未完成，原资料已保留。')
+      : fail('BACKUP_FAILED', '备份失败，未产出归档。')
   } finally {
+    let cleanupFailed = false
     // ── ⑧ 关库 + 释放锁（无论成败；try/finally 防句柄 / 锁泄漏） ──────────
     if (assetsDb !== null) {
       try {
         assetsDb.close()
       } catch {
-        // 关库失败不影响备份结果；不掩盖上方的真实失败原因。
+        cleanupFailed = true
       }
     }
     try {
       lock.release()
     } catch {
-      // 释放锁失败不影响备份结果（锁的生命周期异常是另一类问题，不该改写备份结论）。
+      cleanupFailed = true
     }
+    if (cleanupFailed) throw Object.assign(new Error('备份资源收尾未完成，请检查维护记录。'), { code: 'TASK_CLEANUP_FAILED' })
   }
 }
 

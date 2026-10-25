@@ -15,7 +15,7 @@ for (const newer of [false, true]) {
   test(`科研计划维护：${newer ? '较新格式拒绝发布/注册' : '自检、整空间备份与新空间恢复'}，原空间逐文件不变`, async () => {
     test.setTimeout(180_000)
     let source = ''
-    const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
+    const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
       source = seed.workspaces[0]!.path
       const dir = join(source, '.mimir/planning'); mkdirSync(dir, { recursive: true })
       const stamp = '2026-10-21T00:00:00.000Z', doc = emptyPlanningDocument(); doc.revision = 1

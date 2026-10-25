@@ -189,7 +189,8 @@ export function buildBackupHandler(deps: BackupHandlerDeps): BackupHandler {
           ...(deps.resourcesPath !== undefined ? { resourcesPath: deps.resourcesPath } : {}),
           ...(deps.appRoot !== undefined ? { appRoot: deps.appRoot } : {})
         })
-      } catch {
+      } catch (error) {
+        if ((error as { code?: string })?.code === 'TASK_CLEANUP_FAILED') return { ok: false, code: 'TASK_CLEANUP_FAILED', detail: '备份资源收尾未完成，请检查维护记录；已发布资料保留。' }
         return {
           ok: false,
           code: 'BACKUP_FAILED',

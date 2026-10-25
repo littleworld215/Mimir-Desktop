@@ -35,6 +35,7 @@ import {
 } from '../../shared/workspaceBackupContracts'
 import { buildDoctorReport, type DoctorDeps, type DoctorProgress } from './doctorReport'
 import type { AssetsIntegrityOptions } from './assetsIntegrity'
+import { checkMaintenanceCancellation } from './maintenanceTask'
 import { appendMaintenanceAudit } from './auditWriter'
 import { readRecentMaintenanceAudit } from './auditReader'
 
@@ -132,6 +133,7 @@ export function buildDoctorHandler(deps: DoctorHandlerDeps): DoctorHandler {
       })
 
       // ② 单向裁剪（防任何内部字段 / 本机路径外泄）。
+      checkMaintenanceCancellation()
       const result = toDoctorResult(report)
 
       // ③ 审计留痕：**尽力而为**。writeAudit 内部已 try/catch；此处再包一层以防御

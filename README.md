@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+2026-10-25 G-06：[原生恢复选择与任务取消](docs/I6-MAINTENANCE-TASKS.md)已通过完整三闸门（2530通过/9既有跳过）及开发/独立候选包维护组合各41/41、零自动重试。首次并行记录RECHECK仍待查；未更新日常安装，G07～08及I6未终验。
+
 2026-10-25 G-05恢复中断处理：[使用与核心逻辑](docs/I6-RESTORE-RECOVERY.md)新增固定UUID的阶段记录、同目录登记重试和确认后暂存核验；稳定分页保证旧任务可达，无锁维护仅只读查看。工程／实际强退／新目录包和一次静态复核分别见[证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-recovery-20261025.md)。日常安装不随源码更新，G-06～08及I5/I6/I10原待验保持。
 
 2026-10-24 G-04恢复关联：[路径/快照/模板规则](docs/I6-RESTORE-ASSOCIATIONS.md)覆盖五类已知结构路径、原始项目键快照与同一新UUID模板，正文和外部引用保持，冲突不合并，未知/外部计数提示。新增可选来源ID，格式1保持；[本轮实际证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-associations-20261024.md)分别记录失败、静态复核、工程与桌面/候选包。日常安装不自动替换。

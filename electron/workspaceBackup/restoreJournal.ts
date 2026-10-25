@@ -1,3 +1,4 @@
+import { markMaintenanceCleanupFailure } from './maintenanceTask'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -117,13 +118,15 @@ export class RestoreJournal {
       const raw = JSON.stringify(record)
       if (Buffer.byteLength(raw) > 65536) throw invalid()
       fd = openSync(temp, 'wx', 0o600)
-      writeFileSync(fd, raw, 'utf8'); fsyncSync(fd); closeSync(fd); fd = undefined
+      writeFileSync(fd, raw, 'utf8'); fsyncSync(fd)
+      try { closeSync(fd) } catch (error) { markMaintenanceCleanupFailure(); throw error }
+      fd = undefined
       if (initial) { linkSync(temp, file); unlinkSync(temp) }
       else renameSync(temp, file)
     } catch { throw new RestoreError('RECHECK_FAILED', '恢复操作记录未能安全保存，已阻止继续写入。') }
     finally {
-      if (fd !== undefined) { try { closeSync(fd) } catch { /* retain failure */ } }
-      if (existsSync(temp)) { try { unlinkSync(temp) } catch { /* only this unique temp is eligible */ } }
+      if (fd !== undefined) { try { closeSync(fd) } catch { markMaintenanceCleanupFailure() } }
+      if (existsSync(temp)) { try { unlinkSync(temp) } catch { markMaintenanceCleanupFailure() } }
     }
   }
   scan(cursor?: string): { records: RestoreOperationRecord[]; invalidRecords: number; truncated: boolean; nextCursor?: string } {

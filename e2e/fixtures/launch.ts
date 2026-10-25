@@ -33,6 +33,8 @@ export const repoRoot = join(__dirname, '..', '..')
 export const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 
 export interface LaunchOptions {
+  /** 仅合成维护回归：允许原生选择桩采用隔离根内的建议位置。产品不读取此选项。 */
+  maintenanceRestoreSuggestions?: boolean
   /** 仅显式人工验收保留真实确认框；默认自动测试继续固定拒绝。 */
   nativeMessageBoxes?: boolean
   /** Explicit packaged executable; no development main entry is passed. */
@@ -155,18 +157,39 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     const openPaths = options.openDialogPaths ?? []
     const savePath = options.saveDialogPath ?? join(tempHome.root, 'saved-output.txt')
     await app.evaluate(
-      ({ dialog }, payload) => {
-        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: payload.openPaths })
+      async ({ dialog }, payload) => {
+        const paths = process.getBuiltinModule('path') as typeof import('node:path')
+        const suggestion = (value: unknown): string | undefined => {
+          if (!payload.maintenanceRestoreSuggestions || typeof value !== 'string' || !paths.isAbsolute(value)) return
+          const relative = paths.relative(payload.isolationRoot, paths.resolve(value))
+          if (!relative || relative === '..' || relative.startsWith('..' + paths.sep) || paths.isAbsolute(relative)) return
+          return value
+        }
+        dialog.showOpenDialog = async (...args: unknown[]) => {
+          const options = args[args.length - 1] as { title?: string; defaultPath?: string }
+          if (payload.maintenanceRestoreSuggestions && options.title === '选择要恢复的备份归档') {
+            const path = suggestion(options.defaultPath)
+            return { canceled: !path, filePaths: path ? [path] : [] }
+          }
+          return { canceled: false, filePaths: payload.openPaths }
+        }
         // 同步变体：返回 string[]，取消时为空数组
         dialog.showOpenDialogSync = () => payload.openPaths
-        dialog.showSaveDialog = async () => ({ canceled: false, filePath: payload.savePath })
+        dialog.showSaveDialog = async (...args: unknown[]) => {
+          const options = args[args.length - 1] as { title?: string; defaultPath?: string }
+          if (payload.maintenanceRestoreSuggestions && options.title === '选择尚不存在的新空间目录') {
+            const path = suggestion(options.defaultPath)
+            return { canceled: !path, filePath: path }
+          }
+          return { canceled: false, filePath: payload.savePath }
+        }
         dialog.showSaveDialogSync = () => payload.savePath
         if (!payload.nativeMessageBoxes) {
           dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
           dialog.showMessageBoxSync = () => 0
         }
       },
-      { openPaths, savePath, nativeMessageBoxes: options.nativeMessageBoxes === true }
+      { openPaths, savePath, nativeMessageBoxes: options.nativeMessageBoxes === true, isolationRoot: tempHome.root, maintenanceRestoreSuggestions: options.maintenanceRestoreSuggestions === true }
     )
 
     const page = firstWindow

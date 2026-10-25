@@ -24,7 +24,7 @@ for (const scenario of ['manifest-limit', 'invalid-metadata'] as const) {
   test(`真实维护恢复拒绝${scenario}，不发布或注册且原资料不变`, async () => {
     let sourceRoot = ''
     const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED,
-      extraArgs: ['--workspace-maintenance'], transformSeed: seed => { sourceRoot = seed.workspaces[0].path; return seed }
+      maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => { sourceRoot = seed.workspaces[0].path; return seed }
     })
     try {
       const before = hashes(sourceRoot)

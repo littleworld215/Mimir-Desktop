@@ -31,6 +31,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { maintenanceCheckpoint, maintenanceSignal, enterMaintenanceCommit, reportMaintenanceProgress } from './maintenanceTask'
 
 import {
   RestoreError,
@@ -77,6 +78,7 @@ export interface RegisterReceipt {
  * - 若某实现改用返回值契约，则 `{ ok: false }` 一律按失败处理（纪律 3）。
  */
 export interface RestoreSteps {
+  readonly preparePublish?: (input: RestoreInput, stagingRoot: string) => Promise<void>
   /** 只读验包 + 生成计划（§1.1 `inspecting`；**零副作用**）。 */
   readonly inspect: (input: RestoreInput) => Promise<RestorePlan>
   /** 创建本次暂存根（独占），返回**实际**路径。 */
@@ -189,6 +191,7 @@ const RESTORE_ERROR_CODES: ReadonlySet<string> = new Set<RestoreErrorCode>([
  * `INTERNAL`，用户拿到一个没有信息量的错误。
  */
 function asRestoreError(error: unknown): RestoreError | null {
+  if (maintenanceSignal()?.aborted) return new RestoreError('CANCELLED', '已在发布前取消恢复。')
   if (error instanceof RestoreError) return error
   if (!isRecord(error)) return null
   const code = error.code
@@ -399,6 +402,7 @@ export async function runRestore(
     }
 
     try {
+      await maintenanceCheckpoint()
       const inspected = await steps.inspect(input)
       rejectFailedResult(inspected, 'inspecting', 'inspect')
       if (!isRecord(inspected)) {
@@ -428,6 +432,7 @@ export async function runRestore(
     }
 
     try {
+      await maintenanceCheckpoint()
       const created = await steps.createStaging(input)
       rejectFailedResult(created, 'extracting', 'createStaging')
       const actual = typeof created === 'string' && created.trim() !== '' ? created : input.stagingRoot
@@ -442,6 +447,7 @@ export async function runRestore(
     }
 
     try {
+      await maintenanceCheckpoint()
       const entries = await steps.extract(input, stagingRoot)
       rejectFailedResult(entries, 'extracting', 'extract')
       if (typeof entries !== 'number' || !Number.isFinite(entries) || entries < 0) {
@@ -462,6 +468,7 @@ export async function runRestore(
     try {
       spaceId = newId()
       if (typeof spaceId !== 'string' || spaceId.trim() === '') throw new RestoreError('RECHECK_FAILED', '无法生成恢复空间标识。')
+      await maintenanceCheckpoint()
       const report = await steps.remap(input, stagingRoot, spaceId)
       rejectFailedResult(report, 'verifying', 'remap')
       if (!isRecord(report) || !Array.isArray(report.found)) {
@@ -474,7 +481,12 @@ export async function runRestore(
 
     try {
       // `recheck` 是抛错契约（返回 void），无需返回值守卫。
+      await maintenanceCheckpoint()
       await steps.recheck(input, stagingRoot)
+      await maintenanceCheckpoint()
+      reportMaintenanceProgress({ stage: 'verifying', detail: '正在完成发布前复核，仍可请求取消。' })
+      await steps.preparePublish?.(input, stagingRoot)
+      await maintenanceCheckpoint()
     } catch (error) {
       return failAt('verifying', error, true, null)
     }
@@ -489,6 +501,7 @@ export async function runRestore(
     // 失败保留暂存根 → 绝不调用 cleanupStaging、绝不调用 register；
     // `createdTarget` 由 `targetCreated` 探针给出（默认 null，见 `failPublishing` 注释）。
     try {
+      enterMaintenanceCommit()
       await steps.publish(input, stagingRoot)
       published = true
     } catch (error) {

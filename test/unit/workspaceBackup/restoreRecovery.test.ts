@@ -9,12 +9,14 @@ import { acquireStagingLock } from '../../../electron/workspaceBackup/maintenanc
 import { cleanupStagingRoot } from '../../../electron/workspaceBackup/stagingRoot'
 import { RestoreError } from '../../../electron/workspaceBackup/restoreContracts'
 import type { RestoreAdapterOptions } from '../../../electron/workspaceBackup/restoreAdapter'
+import { MaintenanceTaskManager } from '../../../electron/workspaceBackup/maintenanceTask'
 
-const fault = vi.hoisted(() => ({ assetLockAtRegisterCommit: false }))
+const fault = vi.hoisted(() => ({ assetLockAtRegisterCommit: false, denyJournal: false }))
 vi.mock('node:fs', async importOriginal => {
   const fs = await importOriginal<typeof import('node:fs')>()
   const path = await import('node:path')
   return { ...fs, renameSync: (from: string, to: string) => {
+    if (fault.denyJournal && to.includes('restore-operations')) throw Object.assign(Error('synthetic journal write failure'), { code: 'ENOSPC' })
     fs.renameSync(from, to)
     if (fault.assetLockAtRegisterCommit && to.includes('restore-operations') && to.endsWith('.json')) {
       const record = JSON.parse(fs.readFileSync(to, 'utf8'))
@@ -30,6 +32,7 @@ const roots: string[] = []
 const leases: Array<{ release(): void }> = []
 afterEach(() => {
   fault.assetLockAtRegisterCommit = false
+  fault.denyJournal = false
   for (const lease of leases.splice(0)) { try { lease.release() } catch { /* negative lock-replacement probe */ } }
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -73,6 +76,36 @@ async function fixture() {
   return { root, homeDir, source, targetRoot, archivePath, registry, original, recovery, fresh, run, recordFile, record, release, unchanged,
     setWritable: (v: boolean) => { writable = v }, setFailAppend: (v: boolean) => { failAppend = v }, setFailAfterAppend: (v: boolean) => { failAfterAppend = v } }
 }
+it('取消后的目录定位失败须报告收尾失败并保留两处现场', async () => {
+  const f = await fixture(), tasks = new MaintenanceTaskManager()
+  let moved = ''
+  const result = await tasks.run('restore', async () => {
+    const outcome = await f.run({ prepareAssets: async root => {
+      tasks.cancel({ taskId: tasks.current!.taskId })
+      moved = root + '-preserved'; renameSync(root, moved); mkdirSync(root)
+    } })
+    return { ok: outcome.failure === null, code: outcome.failure?.code }
+  })
+  expect(result).toMatchObject({ ok: false, code: 'STAGING_CLEANUP_FAILED' })
+  expect(existsSync(moved)).toBe(true)
+  expect(existsSync(f.record().stagingRoot)).toBe(true)
+  f.unchanged()
+})
+it('取消收尾的定位或错误记录无法落盘也不得覆盖收尾失败结论', async () => {
+  const f = await fixture(), tasks = new MaintenanceTaskManager()
+  let retained = ''
+  const result = await tasks.run('restore', async () => {
+    const outcome = await f.run({ prepareAssets: async root => {
+      retained = root
+      tasks.cancel({ taskId: tasks.current!.taskId }); fault.denyJournal = true
+    } })
+    return { ok: outcome.failure === null, code: outcome.failure?.code }
+  })
+  fault.denyJournal = false
+  expect(result).toMatchObject({ ok: false, code: 'STAGING_CLEANUP_FAILED' })
+  expect(existsSync(retained)).toBe(true)
+  f.unchanged()
+})
 async function pending() {
   const f = await fixture()
   f.setFailAppend(true)

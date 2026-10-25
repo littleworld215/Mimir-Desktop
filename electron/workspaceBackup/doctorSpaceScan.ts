@@ -21,6 +21,7 @@
 
 import { lstatSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { maintenanceCheckpoint, checkMaintenanceCancellation } from './maintenanceTask'
 import type { DoctorCheck } from '../../shared/workspaceBackupContracts'
 import { redactText } from './redact'
 import { extractErrorCode } from './doctorArchiveScan'
@@ -123,6 +124,7 @@ export async function scanSpaces(
   const failures: Array<{ name: string; code: string }> = []
   let okCount = 0
   for (const space of spaces) {
+    await maintenanceCheckpoint()
     // 实际资产域路径仅用于定位，绝不进入detail。
     const dbPath = join(space.path, '.mimir', 'assets', 'assets.db')
     const safeName = redactText(space.name || space.id)
@@ -130,6 +132,7 @@ export async function scanSpaces(
       await checkIntegrity(dbPath)
       okCount += 1
     } catch (error) {
+      checkMaintenanceCancellation()
       failures.push({ name: safeName, code: extractErrorCode(error, 'INTEGRITY_FAILED') })
     }
   }

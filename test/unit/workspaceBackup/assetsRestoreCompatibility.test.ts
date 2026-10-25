@@ -10,6 +10,8 @@ import { createMaintenanceRestoreSteps } from '../../../electron/workspaceBackup
 import { scanSpaces } from '../../../electron/workspaceBackup/doctorSpaceScan'
 import { buildDoctorReport } from '../../../electron/workspaceBackup/doctorReport'
 import { buildDoctorHandler } from '../../../electron/workspaceBackup/maintenanceDoctorHandler'
+import { checkOptionalAssetsCopy, prepareStagedAssets } from '../../../electron/workspaceBackup/assetsRestore'
+import { MaintenanceTaskManager } from '../../../electron/workspaceBackup/maintenanceTask'
 import * as migrations from '../../../electron/assets/migrations'
 
 vi.mock('node:fs', async importOriginal => {
@@ -27,6 +29,53 @@ const fs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
 const roots: string[] = []
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 const clock = '2026-10-24T00:00:00.000Z'
+it('维护取消能在历史文件块之间停止并关闭实际SQLite/文件句柄', async () => {
+  const f = fixture()
+  writeFileSync(join(f.assets, 'files/1/历史😀.txt'), Buffer.alloc(1024 * 1024, 71))
+  const tasks = new MaintenanceTaskManager(), originalRead = fs.readSync
+  let reads = 0
+  vi.spyOn(fs, 'readSync').mockImplementation((...args: unknown[]) => {
+    const result = Reflect.apply(originalRead, fs, args)
+    if (++reads === 1) tasks.cancel({ taskId: tasks.current!.taskId })
+    return result
+  })
+  expect(await tasks.run('doctor', async () => { await checkOptionalAssetsCopy(f.dbPath); return { ok: true } })).toMatchObject({ ok: false, code: 'CANCELLED' })
+  expect(reads).toBeLessThanOrEqual(2)
+  // Windows下实际删除可发现残留文件/SQLite句柄。
+  rmSync(f.root, { recursive: true })
+})
+it('维护取消时SQLite关闭失败不能被取消码覆盖', async () => {
+  const f = fixture(), tasks = new MaintenanceTaskManager(), originalRead = fs.readSync, originalClose = Database.prototype.close
+  let cancelled = false
+  vi.spyOn(fs, 'readSync').mockImplementation((...args: unknown[]) => {
+    const result = Reflect.apply(originalRead, fs, args)
+    if (!cancelled) { cancelled = true; tasks.cancel({ taskId: tasks.current!.taskId }) }
+    return result
+  })
+  vi.spyOn(Database.prototype, 'close').mockImplementation(function (this: Database.Database) {
+    const own = this.name === f.dbPath
+    const result = originalClose.call(this)
+    if (own) throw Error('synthetic close receipt failure')
+    return result
+  })
+  expect(await tasks.run('doctor', async () => { await checkOptionalAssetsCopy(f.dbPath); return { ok: true } })).toMatchObject({ ok: false, code: 'TASK_CLEANUP_FAILED' })
+})
+it('旧库暂存快照后取消且迁移连接关闭失败时不能宣称完整取消', async () => {
+  const f = fixture(1), tasks = new MaintenanceTaskManager(), backup = migrations.snapshotBeforeMigration, close = Database.prototype.close
+  let cancelled = false
+  vi.spyOn(migrations, 'snapshotBeforeMigration').mockImplementation(async (...args) => {
+    const result = await backup(...args)
+    cancelled = true
+    tasks.cancel({ taskId: tasks.current!.taskId })
+    return result
+  })
+  vi.spyOn(Database.prototype, 'close').mockImplementation(function (this: Database.Database) {
+    const own = this.name === f.dbPath, result = close.call(this)
+    if (own && cancelled) throw Error('synthetic migration close failure')
+    return result
+  })
+  expect(await tasks.run('restore', async () => { await prepareStagedAssets(f.root); return { ok: true } })).toMatchObject({ ok: false, code: 'TASK_CLEANUP_FAILED' })
+})
 function fixture(version = 4, filePath: string | null = 'files/1/历史😀.txt', changeDdl = (sql: string) => sql) {
   const root = mkdtempSync(join(tmpdir(), 'mimir-g03-'))
   roots.push(root)

@@ -13,6 +13,28 @@ import {
 import { runMaintenanceRestore } from '../../../electron/workspaceBackup/restoreMain'
 import type { RestoreOutcome } from '../../../electron/workspaceBackup/restoreRunner'
 import type { MaintenanceRestoreRequest } from '../../../shared/workspaceBackupContracts'
+import type { RestoreHandlerDeps } from '../../../electron/workspaceBackup/maintenanceRestoreHandler'
+
+it('原生选择取消后不得执行文本建议路径', async () => {
+  let called = false
+  const handler = buildRestoreHandler({ homeDir: 'synthetic', session: { assertUsable() {} },
+    selectRequest: async () => null,
+    run: async () => { called = true; throw Error('unexpected path execution') }
+  } as RestoreHandlerDeps)
+  const result = await handler({ archivePath: 'C:/suggested.zip', targetRoot: 'C:/suggested-target', spaceName: '合成' })
+  expect(result).toMatchObject({ ok: false, code: 'CANCELLED' })
+  expect(called).toBe(false)
+})
+
+it('生产选择器的额外字段拒绝不会被旧规范化静默丢弃', async () => {
+  let called = false
+  const handler = buildRestoreHandler({ homeDir: 'synthetic', session: { assertUsable() {} },
+    selectRequest: async (request: unknown) => { expect(request).toHaveProperty('unsafe'); throw Error('invalid request') },
+    run: async () => { called = true; throw Error('unexpected') }
+  } as RestoreHandlerDeps)
+  expect(await handler({ archivePath: 'C:/suggested.zip', targetRoot: 'C:/target', spaceName: '合成', unsafe: true } as MaintenanceRestoreRequest)).toMatchObject({ ok: false, code: 'SELECTION_CHANGED' })
+  expect(called).toBe(false)
+})
 
 /**
  * 维护模式恢复 IPC 装配（I6 批次 3 · T05 收口）。

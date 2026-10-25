@@ -12,6 +12,8 @@ export interface WorkspaceMaintenanceEntryApi { enterMaintenance(): Promise<{ ok
 
 /** 维护窗口 IPC 通道。 */
 export const WORKSPACE_BACKUP_CHANNELS = {
+  taskStatus: 'workspaceBackup:taskStatus',
+  taskCancel: 'workspaceBackup:taskCancel',
   overview: 'workspaceBackup:overview',
   /**
    * 恢复（批次 3 · T05 收口）。
@@ -145,6 +147,8 @@ export type MaintenanceOverview =
  * `path.resolve` 规范化并重新校验，**绝不**信任渲染层拼好的路径。
  */
 export interface WorkspaceBackupMaintenanceApi {
+  taskStatus?(request: MaintenanceTaskReference): Promise<MaintenanceTaskStatus>
+  cancelTask?(request: MaintenanceTaskReference): Promise<MaintenanceCancelResult>
   overview(): Promise<MaintenanceOverview>
   recoveryList?(cursor?: string): Promise<MaintenanceRecoveryList>
   recoveryAction?(request: MaintenanceRecoveryRequest): Promise<MaintenanceRecoveryResult>
@@ -221,6 +225,8 @@ export interface WorkspaceBackupMaintenanceApi {
 
 /** 恢复进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
 export interface MaintenanceRestoreProgress {
+  readonly taskId?: string
+  readonly cancellable?: boolean
   /** 阶段标识（`inspecting` / `extracting` / `verifying` / `publishing` / `registering` 等）。 */
   readonly stage: string
   /** 面向用户的阶段说明。 */
@@ -395,6 +401,8 @@ export type MaintenanceDoctorRequest = Record<string, never>
  * 避免暗示「接近完成」的假象——设计 §8 U4）。
  */
 export interface MaintenanceDoctorProgress {
+  readonly taskId?: string
+  readonly cancellable?: boolean
   /** 阶段标识（如 `scanning-registry` / `verifying-archive` / `checking-space` / `residual`）。 */
   readonly stage: string
   /** 面向用户的阶段说明（中文，**不含本机绝对路径 / 凭据**）。 */
@@ -605,6 +613,20 @@ export type MaintenanceBackupResult =
 
 /** 备份进度上报（主进程 → 渲染层；**只含阶段与文案，不含任何本机路径**）。 */
 export interface MaintenanceBackupProgress {
+  readonly taskId?: string
+  readonly cancellable?: boolean
   readonly stage: string
   readonly detail: string
 }
+
+export type MaintenanceTaskKind = 'backup' | 'restore' | 'doctor'
+export type MaintenanceTaskState = 'running' | 'cancelling' | 'committing' | 'done' | 'failed' | 'cancelled'
+export interface MaintenanceTaskReference { readonly taskId: string }
+export interface MaintenanceTaskView extends MaintenanceTaskReference {
+  readonly kind: MaintenanceTaskKind
+  readonly state: MaintenanceTaskState
+  readonly stage: string
+  readonly cancellable: boolean
+}
+export interface MaintenanceTaskProgress extends MaintenanceTaskView { readonly detail: string }
+export type MaintenanceTaskStatus = { readonly ok: true; readonly task: MaintenanceTaskView } | { readonly ok: false; readonly code: string }

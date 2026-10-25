@@ -46,6 +46,24 @@ vi.mock('node:fs', async importOriginal => {
   }
 })
 
+vi.mock('node:fs/promises', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, open: async (...args: Parameters<typeof fs.open>) => {
+    const file = String(args[0])
+    if (file === probe.readFailure) throw Object.assign(new Error('synthetic unreadable'), { code: 'EACCES' })
+    const handle = await fs.open(...args)
+    return new Proxy(handle, { get(target, key) {
+      if (key === 'read') return async (...readArgs: Parameters<typeof target.read>) => {
+        const result = await target.read(...readArgs)
+        if (!result.bytesRead) probe.afterRead?.(file)
+        return result
+      }
+      const value = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  } }
+})
+
 const roots: string[] = []
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'mimir-backup-consistency-'))

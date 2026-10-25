@@ -13,6 +13,7 @@
  */
 
 import { basename } from 'node:path'
+import { maintenanceCheckpoint, checkMaintenanceCancellation } from './maintenanceTask'
 import type { DoctorCheck } from '../../shared/workspaceBackupContracts'
 import { redactText } from './redact'
 
@@ -55,12 +56,14 @@ export async function scanArchives(
 ): Promise<DoctorCheck> {
   const outcomes: ArchiveVerifyOutcome[] = []
   for (const archive of archives) {
+    await maintenanceCheckpoint()
     // 归档文件名一律以 basename 呈现，并再经 redactText 兜底（即便 name 被塞进绝对路径也不外泄）。
     const safeName = redactText(basename(archive.name || archive.path))
     try {
       await verify(archive.path)
       outcomes.push({ name: safeName, verified: true, code: '' })
     } catch (error) {
+      checkMaintenanceCancellation()
       // ⚠️ 单份失败只降为该项 warning——绝不 catch 后上抛吞掉整份报告。
       outcomes.push({ name: safeName, verified: false, code: extractErrorCode(error, 'VERIFY_FAILED') })
     }

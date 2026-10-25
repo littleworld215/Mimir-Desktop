@@ -5,11 +5,12 @@
 // 里 `maintenance-sandbox-preload` 的说明——本文件以自包含 CJS 进入沙箱 preload）。
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
+  taskStatus: request => ipcRenderer.invoke('workspaceBackup:taskStatus', request),
+  cancelTask: request => ipcRenderer.invoke('workspaceBackup:taskCancel', request),
   overview: () => ipcRenderer.invoke('workspaceBackup:overview'),
   recoveryList: cursor => ipcRenderer.invoke('workspaceBackup:recoveryList', cursor),
   recoveryAction: request => ipcRenderer.invoke('workspaceBackup:recoveryAction', request),
-  // 恢复：请求体形如 { archivePath, targetRoot, spaceName }（字段**只作输入**，
-  // 主进程自行 path.resolve 规范化并校验，绝不信任渲染层拼好的路径 —— 设计 §4.2 S7）。
+  // 恢复路径仅作原生选择窗口建议，执行使用主进程原生选择结果。
   restore: request => ipcRenderer.invoke('workspaceBackup:restore', request),
   // 恢复进度订阅（可选增强）：返回取消订阅函数，避免组件卸载后监听器泄漏。
   // 只把 (event, progress) 的 progress 透传给渲染层，不暴露 IpcRendererEvent（含 sender）。
@@ -27,7 +28,7 @@ contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
     ipcRenderer.on('workspaceBackup:doctorProgress', wrapped)
     return () => { ipcRenderer.removeListener('workspaceBackup:doctorProgress', wrapped) }
   },
-  // 取消自检（只读取消）/ 取消恢复（信号语义）：本批如实返回 { ok:false, code:'NOT_SUPPORTED' }。
+  // 取消自检（只读取消）/ 取消恢复：旧匿名调用被拒绝，新界面使用带taskId的cancelTask。
   cancelDoctor: () => ipcRenderer.invoke('workspaceBackup:doctorCancel'),
   cancelRestore: () => ipcRenderer.invoke('workspaceBackup:restoreCancel'),
   // 读取最近维护审计（只读；返回已脱敏条目，不暴露 JSONL 文件路径）。

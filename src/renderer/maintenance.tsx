@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type {
   DoctorCheck,
@@ -20,12 +20,18 @@ import type {
 } from '../../shared/workspaceBackupContracts'
 import './maintenance.css'
 import { RestoreRecoveryPanel } from '../components/maintenance/RestoreRecoveryPanel'
+import { MaintenanceTaskControls } from '../components/maintenance/MaintenanceTaskControls'
+import { TaskProgressGuard } from '../components/maintenance/taskProgress'
 
 declare global { interface Window { workspaceBackupMaintenance: WorkspaceBackupMaintenanceApi } }
 
 /** 失败码 → 人话文案（§4.2 S7：渲染层只懂 code，不做任何路径拼接）。 */
 function failureText(code: string): string {
   switch (code) {
+    case 'CANCELLED':
+      return '操作已取消。'
+    case 'STAGING_CLEANUP_FAILED':
+      return '取消后的暂存收尾未完成，请查看恢复记录。'
     case 'TARGET_EXISTS':
       return '目标目录已存在。为避免覆盖你既有的资料，请换一个不存在的目标路径。'
     case 'INVALID_TARGET':
@@ -158,6 +164,7 @@ function formatMegabytes(bytes: number): string {
 interface RestoreForm { archive: MaintenanceArchiveCandidate; spaceName: string; targetRoot: string }
 
 function MaintenanceApp() {
+  const progressGuard = useRef(new TaskProgressGuard()).current
   const [result, setResult] = useState<MaintenanceOverview>()
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState<RestoreForm>()
@@ -195,7 +202,7 @@ function MaintenanceApp() {
   const [recoveryBusy, setRecoveryBusy] = useState(false)
   const [recoveryVersion, setRecoveryVersion] = useState(0)
   const readOnly = result?.ok === true && result.writable === false
-  const writeBusy = busy || recoveryBusy || backupRunningId !== undefined || retentionBusy
+  const writeBusy = busy || doctorRunning || recoveryBusy || backupRunningId !== undefined || retentionBusy
 
   const api = window.workspaceBackupMaintenance
 
@@ -210,21 +217,21 @@ function MaintenanceApp() {
   // 订阅恢复进度（可选增强）：旧主进程不提供时 `onRestoreProgress` 可能不存在，需降级。
   useEffect(() => {
     if (typeof api.onRestoreProgress !== 'function') return
-    const unsubscribe = api.onRestoreProgress((next) => setProgress(next))
+    const unsubscribe = api.onRestoreProgress((next) => { if (progressGuard.accept('restore', next, !api.cancelTask)) setProgress(next) })
     return unsubscribe
   }, [api])
 
   // 订阅自检进度（可选增强）：照 `onRestoreProgress` 的降级写法（判存在再订阅，返回 unsubscribe）。
   useEffect(() => {
     if (typeof api.onDoctorProgress !== 'function') return
-    const unsubscribe = api.onDoctorProgress((next) => setDoctorProgress(next))
+    const unsubscribe = api.onDoctorProgress((next) => { if (progressGuard.accept('doctor', next, !api.cancelTask)) setDoctorProgress(next) })
     return unsubscribe
   }, [api])
 
   // 订阅备份进度（可选增强）：照 `onDoctorProgress` 的降级写法（判存在再订阅，返回 unsubscribe）。
   useEffect(() => {
     if (typeof api.onBackupProgress !== 'function') return
-    const unsubscribe = api.onBackupProgress((next) => setBackupProgress(next))
+    const unsubscribe = api.onBackupProgress((next) => { if (progressGuard.accept('backup', next, !api.cancelTask)) setBackupProgress(next) })
     return unsubscribe
   }, [api])
 
@@ -254,6 +261,11 @@ function MaintenanceApp() {
       return
     }
     // 判存在再调用（旧主进程不提供 cancelRestore）；不假装成功。
+    if (progress?.taskId && typeof api.cancelTask === 'function') {
+      const result = await api.cancelTask({ taskId: progress.taskId }).catch(() => ({ ok: false }))
+      setCancelNotice(result.ok ? '已请求取消，将在安全点中止' : '取消未被接受，请等待当前任务结果。')
+      return
+    }
     if (typeof api.cancelRestore !== 'function') {
       setCancelNotice('当前版本不支持中途取消')
       return
@@ -273,10 +285,10 @@ function MaintenanceApp() {
   }
 
   async function submit() {
-    if (!form || writeBusy || readOnly) return
+    if (!form || writeBusy || progressGuard.running || readOnly) return
     // 渲染层只做最轻的非空校验；真正的规范化与拒绝由主进程完成（§4.2 S7）。
-    if (form.spaceName.trim() === '' || form.targetRoot.trim() === '') {
-      setRestoreResult({ ok: false, code: 'INVALID_TARGET', detail: '请填写新空间名与目标目录绝对路径。', retryable: false })
+    if (form.spaceName.trim() === '') {
+      setRestoreResult({ ok: false, code: 'INVALID_TARGET', detail: '请填写新空间名；目标位置将在原生窗口中选择。', retryable: false })
       return
     }
     // 旧主进程可能不暴露 restore：判存在后再调用，避免直接抛错。
@@ -284,6 +296,7 @@ function MaintenanceApp() {
       setRestoreResult({ ok: false, code: 'LOCK_UNAVAILABLE', detail: '当前版本不支持恢复，请更新应用后重试。', retryable: false })
       return
     }
+    const taskEpoch = progressGuard.begin('restore')
     setBusy(true)
     setRestoreResult(undefined)
     try {
@@ -301,6 +314,7 @@ function MaintenanceApp() {
     } catch {
       setRestoreResult({ ok: false, code: 'INTERNAL', detail: '恢复请求未能送达主进程，请重试。', retryable: true })
     } finally {
+      progressGuard.end(taskEpoch)
       setBusy(false)
       setProgress(undefined)
       setRecoveryVersion(value => value + 1)
@@ -309,11 +323,12 @@ function MaintenanceApp() {
 
   /** 运行只读自检（判存在再调 `api.doctor`，照 `api.restore` 的降级写法）。 */
   async function runDoctor() {
-    if (doctorRunning) return
+    if (writeBusy || progressGuard.running) return
     if (typeof api.doctor !== 'function') {
       setDoctorResult({ ok: false, code: 'NOT_SUPPORTED', detail: '当前版本不支持自检，请更新应用后重试。' })
       return
     }
+    const taskEpoch = progressGuard.begin('doctor')
     setDoctorRunning(true)
     setDoctorResult(undefined)
     try {
@@ -321,6 +336,7 @@ function MaintenanceApp() {
     } catch {
       setDoctorResult({ ok: false, code: 'INTERNAL', detail: '自检请求未能送达主进程，请重试。' })
     } finally {
+      progressGuard.end(taskEpoch)
       setDoctorRunning(false)
       setDoctorProgress(undefined)
     }
@@ -423,12 +439,13 @@ function MaintenanceApp() {
    * 成功后归档清单会变（新归档落进备份目录）→ 刷新只读清单。
    */
   async function runBackup(spaceId: string) {
-    if (writeBusy || readOnly) return
+    if (writeBusy || progressGuard.running || readOnly) return
     // 判存在再调用（旧主进程不提供 backupSpace）；不假装成功。
     if (typeof api.backupSpace !== 'function') {
       setBackupResult({ ok: false, code: 'NOT_SUPPORTED', detail: '当前版本不支持逐空间备份，请更新应用后重试。' })
       return
     }
+    const taskEpoch = progressGuard.begin('backup')
     setBackupRunningId(spaceId)
     setBackupResult(undefined)
     setBackupProgress(undefined)
@@ -439,6 +456,7 @@ function MaintenanceApp() {
     } catch {
       setBackupResult({ ok: false, code: 'INTERNAL', detail: '备份请求未能送达主进程，请重试。' })
     } finally {
+      progressGuard.end(taskEpoch)
       setBackupRunningId(undefined)
       setBackupProgress(undefined)
       // 备份成功后归档清单会变（新归档落 backups/）→ 刷新只读清单。
@@ -479,6 +497,7 @@ function MaintenanceApp() {
     {/* 备份区块（放在「归档候选」之下、自检之上）：逐空间备份，仅由用户点按钮显式触发。 */}
     <section aria-label="备份科研空间" aria-busy={backupRunningId !== undefined}>
       <h2>备份科研空间</h2>
+      {backupRunningId !== undefined && <MaintenanceTaskControls api={api} progress={backupProgress} label="取消备份" />}
       <p>备份会把该空间的资料打包成一份归档，存放在备份目录。备份期间不会改动空间内容。</p>
       {backupRunningId !== undefined && backupProgress && <p role="status">{backupProgress.detail}</p>}
       {backupResult?.ok && <p role="status">
@@ -493,8 +512,9 @@ function MaintenanceApp() {
     <section aria-label="只读自检" aria-busy={doctorRunning}>
       <h2>只读自检</h2>
       <p>对注册表、归档、已发布空间一致性做一次只读检查。自检保留科研资料；持有维护写锁时追加脱敏审计。</p>
-      <button type="button" disabled={doctorRunning} onClick={() => void runDoctor()}>{doctorRunning ? '自检中…' : '运行自检'}</button>
+      <button type="button" disabled={writeBusy} onClick={() => void runDoctor()}>{doctorRunning ? '自检中…' : '运行自检'}</button>
       {doctorRunning && <p role="status">{doctorProgress ? `正在自检：${doctorProgress.detail}` : '正在自检…'}</p>}
+      {doctorRunning && <MaintenanceTaskControls api={api} progress={doctorProgress} label="取消自检" />}
       {doctorResult && !doctorResult.ok && <p role="alert">自检未能完成（{doctorResult.code}）{doctorResult.detail}</p>}
       {doctorResult?.ok && <>
         <table>
@@ -569,10 +589,12 @@ function MaintenanceApp() {
         />
       </label></p>
       {busy && <p role="status">{progress ? `阶段：${stageText(progress.stage)}；明细：${progress.detail}` : '正在恢复…'}</p>}
+      {busy && <MaintenanceTaskControls api={api} progress={progress} label="取消恢复" />}
       {cancelNotice && <p role="status">{cancelNotice}</p>}
+      <p>开始后将通过系统窗口重新选择归档和不存在的新空间位置；填写路径仅作建议，不直接授权复制。</p>
       <p>
         <button type="button" disabled={writeBusy || readOnly} onClick={() => void submit()}>{busy ? '恢复中…' : '开始恢复'}</button>
-        <button type="button" disabled={busy && isRestoreUncancellable(progress?.stage)} onClick={() => void closeForm()}>取消</button>
+        <button type="button" disabled={busy && (progress?.cancellable === false || !progress?.taskId)} onClick={() => void closeForm()}>取消</button>
       </p>
     </section>}
 

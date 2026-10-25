@@ -1,5 +1,6 @@
 /** 三个读取入口共用生命周期；错误返回前等待实际流与归档句柄收尾。 */
 import { createHash } from 'node:crypto'
+import { maintenanceCheckpoint, maintenanceSignal, checkMaintenanceCancellation, MaintenanceCancelled, markMaintenanceCleanupFailure } from './maintenanceTask'
 import { open, close } from 'node:fs'
 import type { EventEmitter } from 'node:events'
 import { Readable, Transform, Writable } from 'node:stream'
@@ -14,13 +15,17 @@ export interface OpenArchive { zip: yauzl.ZipFile; directory: ArchiveDirectory; 
 interface ZipCursor { readEntryCursor: number; entriesRead: number }
 
 export async function openArchive(path: string, input?: ArchiveLimitsInput): Promise<OpenArchive> {
+  await maintenanceCheckpoint()
   const limits = resolveArchiveLimits(input)
   return new Promise((resolveOpen, reject) => {
     open(path, 'r', (openError, fd) => {
       if (openError) { reject(new VerifyError('OPEN_FAILED', `无法打开归档：${openError.message}`)); return }
       yauzl.fromFd(fd, { lazyEntries: true, autoClose: false, decodeStrings: true }, (error, zipfile) => {
         if (error || !zipfile) {
-          close(fd, closeError => reject(new VerifyError('OPEN_FAILED', `无法打开归档：${closeError?.message ?? error?.message ?? '未知错误'}`)))
+          close(fd, closeError => {
+            if (closeError) markMaintenanceCleanupFailure()
+            reject(new VerifyError('OPEN_FAILED', `无法打开归档：${closeError?.message ?? error?.message ?? '未知错误'}`))
+          })
           return
         }
         const closed = new Promise<Error | undefined>(resolveClosed => {
@@ -30,9 +35,11 @@ export async function openArchive(path: string, input?: ArchiveLimitsInput): Pro
         })
         zipfile.on('error', () => {})
         const closeHandle = async () => {
-          zipfile.close()
-          const closeError = await closed
-          if (closeError) throw new VerifyError('READ_FAILED', `关闭归档失败：${closeError.message}`)
+          try {
+            zipfile.close()
+            const closeError = await closed
+            if (closeError) throw new VerifyError('READ_FAILED', `关闭归档失败：${closeError.message}`)
+          } catch (error) { markMaintenanceCleanupFailure(); throw error }
         }
         if (!Number.isSafeInteger(zipfile.entryCount) || zipfile.entryCount < 0 || zipfile.entryCount > limits.maxEntries) {
           void closeHandle().then(() => reject(new VerifyError('ENTRY_LIMIT', `归档条目数 ${zipfile.entryCount} 超过上限 ${limits.maxEntries}`)), reject)
@@ -64,12 +71,17 @@ export async function walkArchive(handle: OpenArchive, visit: (entry: yauzl.Entr
   let onEntry: (entry: yauzl.Entry) => void
   let onEnd: () => void
   let onError: (error: Error) => void
+  const external = maintenanceSignal()
+  let onCancel: (() => void) | undefined
   try {
     await new Promise<void>((resolveAll, rejectAll) => {
       const fail = (error: unknown) => { if (!ended) { ended = true; controller.abort(); rejectAll(error) } }
+      onCancel = () => fail(new MaintenanceCancelled())
+      external?.addEventListener('abort', onCancel, { once: true })
+      if (external?.aborted) { onCancel(); return }
       onEntry = entry => {
         if (ended) return
-        pending = Promise.resolve().then(() => visit(entry, controller.signal))
+        pending = maintenanceCheckpoint().then(() => visit(entry, controller.signal))
         void pending.then(() => { if (!ended) { try { zip.readEntry() } catch (error) { fail(error) } } }, fail)
       }
       onEnd = () => {
@@ -83,8 +95,11 @@ export async function walkArchive(handle: OpenArchive, visit: (entry: yauzl.Entr
       try { zip.readEntry() } catch (error) { fail(error) }
     })
   } finally {
+    if (onCancel) external?.removeEventListener('abort', onCancel)
     await pending.catch(() => {})
-    zip.off('entry', onEntry!).off('end', onEnd!).off('error', onError!)
+    if (onEntry!) zip.off('entry', onEntry)
+    if (onEnd!) zip.off('end', onEnd)
+    if (onError!) zip.off('error', onError)
   }
 }
 
@@ -127,6 +142,7 @@ export async function consumeArchiveEntry(zip: yauzl.ZipFile, entry: yauzl.Entry
   source.once('error', readError)
   destination.once('error', writeError)
   try { await pipeline(source, entryCounter(entry, budget, consume), destination, { signal }) } catch (error) {
+    checkMaintenanceCancellation()
     if (error instanceof VerifyError || origin.value === 'write') throw error
     throw new VerifyError('READ_FAILED', `读取条目失败：${entry.fileName}（${(error as Error).message}）`)
   } finally { source.off('error', readError); destination.off('error', writeError) }

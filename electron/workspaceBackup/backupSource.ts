@@ -1,6 +1,8 @@
+import { maintenanceCheckpoint, markMaintenanceCleanupFailure } from './maintenanceTask'
 /** 来源观察独立于归档清单：SQLite快照不能掩盖真实主库/WAL变化。 */
 import { createHash } from 'node:crypto'
-import { createReadStream, lstatSync, fstatSync, openSync, closeSync, readdirSync, realpathSync, type Stats } from 'node:fs'
+import { lstatSync, readdirSync, realpathSync, type Stats } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { isAbsolute, dirname, join, relative, resolve, sep } from 'node:path'
 import { DEFAULT_MANIFEST_LIMITS, isExcludedFromBackup } from './manifest'
 
@@ -75,6 +77,7 @@ export async function captureBackupSource(
     const childNames = (absolute: string, path: string) => readdirSync(absolute).sort()
       .filter(name => observed(path ? `${path}/${name}` : name))
     const visit = async (absolute: string, path: string): Promise<void> => {
+      await maintenanceCheckpoint()
       // WAL/journal不入归档，但它们的变化仍可能改变数据库；SHM仅为协调数据。
       if (path && !observed(path)) return
       const stat = lstatSync(absolute)
@@ -90,20 +93,25 @@ export async function captureBackupSource(
         }
       } else {
         if (stat.size <= maxFileBytes) {
-          const fd = openSync(absolute, 'r')
+          // 单一所有者负责关闭：带AbortSignal的ReadStream销毁时可能先关闭外传fd。
+          const handle = await open(absolute, 'r')
           try {
-            assertStamp(before, stamp(path, fstatSync(fd)))
+            assertStamp(before, stamp(path, await handle.stat()))
             const hash = createHash('sha256')
             let bytes = 0
-            for await (const chunk of createReadStream(absolute, { fd, autoClose: false })) {
-              bytes += (chunk as Buffer).length
+            const buffer = Buffer.allocUnsafe(64 * 1024)
+            for (;;) {
+              await maintenanceCheckpoint()
+              const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+              if (!bytesRead) break
+              bytes += bytesRead
               if (bytes > stat.size) changed()
-              hash.update(chunk as Buffer)
+              hash.update(buffer.subarray(0, bytesRead))
             }
             if (bytes !== stat.size) changed()
-            assertStamp(before, stamp(path, fstatSync(fd)))
+            assertStamp(before, stamp(path, await handle.stat()))
             before.sha256 = hash.digest('hex')
-          } finally { closeSync(fd) }
+          } finally { try { await handle.close() } catch (error) { markMaintenanceCleanupFailure(); throw error } }
         }
         // 摘要单独比较；这里复核路径仍指向刚读过的文件。
         assertStamp({ ...before, sha256: '' }, stamp(path, lstatSync(absolute)))

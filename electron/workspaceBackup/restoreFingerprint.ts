@@ -1,3 +1,4 @@
+import { maintenanceCheckpoint, checkMaintenanceCancellation, markMaintenanceCleanupFailure } from './maintenanceTask'
 import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync, realpathSync, type BigIntStats } from 'node:fs'
 import { open } from 'node:fs/promises'
@@ -53,6 +54,7 @@ export async function fingerprintRestoredRoot(root: string, expected = restoreRo
     if (before.isSymbolicLink() || !before.isDirectory() || !sameRestorePath(realpathSync(directory), directory)) throw changed()
     const names = readdirSync(directory).sort()
     for (const name of names) {
+      await maintenanceCheckpoint()
       const file = join(directory, name), path = relative ? `${relative}/${name}` : name
       const stat = lstatSync(file, { bigint: true })
       if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) throw changed()
@@ -76,6 +78,7 @@ export async function fingerprintRestoredRoot(root: string, expected = restoreRo
         const buffer = Buffer.allocUnsafe(64 * 1024)
         let size = 0
         for (;;) {
+          checkMaintenanceCancellation()
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
           if (!bytesRead) break
           size += bytesRead
@@ -83,7 +86,7 @@ export async function fingerprintRestoredRoot(root: string, expected = restoreRo
           content.update(buffer.subarray(0, bytesRead))
         }
         if (size !== Number(stat.size) || stamp(await handle.stat({ bigint: true })) !== stamp(stat)) throw changed()
-      } finally { await handle.close() }
+      } finally { try { await handle.close() } catch (error) { markMaintenanceCleanupFailure(); throw error } }
       if (stamp(lstatSync(file, { bigint: true })) !== stamp(stat)) throw changed()
       combined.update(JSON.stringify([path, 'file', Number(stat.size), content.digest('hex')]) + '\n')
     }
@@ -96,5 +99,5 @@ export async function fingerprintRestoredRoot(root: string, expected = restoreRo
     await walk(root, '')
     assertRestoreIdentity(root, expected)
     return { digest: combined.digest('hex'), entries, totalBytes }
-  } catch { throw changed() }
+  } catch { checkMaintenanceCancellation(); throw changed() }
 }

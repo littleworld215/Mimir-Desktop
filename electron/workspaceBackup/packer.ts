@@ -22,6 +22,7 @@ import type { Readable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
 import type Database from 'better-sqlite3'
+import { maintenanceCheckpoint, maintenanceSignal, enterMaintenanceCommit, checkMaintenanceCancellation, markMaintenanceCleanupFailure } from './maintenanceTask'
 import { buildManifest, manifestPathKey, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
 import { deriveArchiveName, isManagedArchive } from './archiveNaming'
 import { verifyBackup } from './verify'
@@ -98,7 +99,7 @@ async function hashFile(path: string): Promise<string> {
   const hash = createHash('sha256')
   await pipeline(createReadStream(path), async function* (source) {
     for await (const chunk of source) hash.update(chunk as Buffer)
-  })
+  }, { signal: maintenanceSignal() })
   return hash.digest('hex')
 }
 
@@ -154,6 +155,7 @@ function resolveDestination(request: BackupRequest): string {
  * 失败只清理本次临时包/快照。最终目标晚到也不能被rename静默覆盖。
  */
 export async function createBackup(request: BackupRequest): Promise<BackupResult> {
+  await maintenanceCheckpoint()
   const { root, stagingDir, assetsDb, assetsDbRelPath, limits, spaceName } = request
   const destination = resolveDestination(request)
   assertBackupPathsOutsideSource(root, [stagingDir, destination])
@@ -193,8 +195,9 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
     if (assetsDb && snapshotPath && normalizedDbRel) {
       assertOutputs()
       const fd = openSync(snapshotPath, 'wx', 0o600)
-      closeSync(fd)
-      await assetsDb.backup(snapshotPath)
+      try { closeSync(fd) } catch (error) { markMaintenanceCleanupFailure(); throw error }
+      await assetsDb.backup(snapshotPath, { progress: () => { checkMaintenanceCancellation(); return 256 } })
+      await maintenanceCheckpoint()
       overrides = {
         replacement: new Map([[normalizedDbRel, { replacementAbsPath: snapshotPath, size: statSync(snapshotPath).size }]])
       }
@@ -209,13 +212,14 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
     const output = zip.outputStream as Readable
     // 先观察写入和yazl异步错误；失败后等待流关闭才能清理暂存。
     zip.on('error', error => output.destroy(error))
-    const writing = pipeline(output, createWriteStream(stagingArchive, { flags: 'wx' }))
+    const writing = pipeline(output, createWriteStream(stagingArchive, { flags: 'wx' }), { signal: maintenanceSignal() })
     void writing.catch(() => {})
     const readers = new Set<ReturnType<typeof createReadStream>>()
     const readerClosed: Promise<void>[] = []
     let stopped = false
     try {
       for (const entry of manifest.entries) {
+        await maintenanceCheckpoint()
         const sourceAbs = join(root, entry.path)
         if (entry.kind === 'directory') {
           zip.addEmptyDirectory(entry.path)
@@ -259,7 +263,7 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
 
     assertOutputs()
     const fd = openSync(stagingArchive, 'r+')
-    try { fsyncSync(fd) } finally { closeSync(fd) }
+    try { fsyncSync(fd) } finally { try { closeSync(fd) } catch (error) { markMaintenanceCleanupFailure(); throw error } }
     const archiveState = lstatSync(stagingArchive)
     await verifyBackup(stagingArchive)
     const archiveSha256 = await hashFile(stagingArchive)
@@ -273,6 +277,7 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
       throw new BackupError('BACKUP_FAILED', '临时备份在校验期间发生变化，未发布正式归档。')
     }
     // 同卷硬链接原子、不覆盖；不支持则失败，不用可见半包复制降级。
+    enterMaintenanceCommit()
     try { linkSync(stagingArchive, publishedPath) } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new BackupError('TARGET_EXISTS', '目标备份已存在，拒绝覆盖。')
@@ -300,6 +305,11 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
     if (published) { try { if (sameDirectory(stagingRoot, stagingIdentity)) unlinkSync(stagingArchive) } catch { /* 残留暂存不作为正式归档。 */ } }
     if (snapshotPath) {
       try { if (sameDirectory(stagingRoot, stagingIdentity)) unlinkSync(snapshotPath) } catch { /* 身份不明时保留现场。 */ }
+    }
+    if (maintenanceSignal()?.aborted) {
+      let clean = false
+      try { clean = sameDirectory(stagingRoot, stagingIdentity) && !existsSync(stagingArchive) && (!snapshotPath || !existsSync(snapshotPath)) } catch { /* cannot prove cleanup */ }
+      if (!clean) throw new BackupError('TASK_CLEANUP_FAILED', '取消后的归档暂存收尾未完成，原资料保留，请检查维护记录。')
     }
   }
 }

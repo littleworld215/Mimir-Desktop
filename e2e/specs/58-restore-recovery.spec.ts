@@ -18,7 +18,7 @@ function contents(root: string) {
 }
 async function prepare() {
   let source = '', sourceId = ''
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
     source = seed.workspaces[0].path; sourceId = seed.workspaces[0].id
     return { ...seed, spaceData: { 'g05-synthetic': '合成科研资料', unknown: { original: source } } }
   } })

@@ -21,6 +21,7 @@
  */
 
 import { mkdirSync } from 'node:fs'
+import type { SelectedRestore } from './maintenanceSelection'
 import { join, resolve } from 'node:path'
 
 import {
@@ -117,6 +118,7 @@ export function acquireStagingLock(stagingRoot: string): { release(): void; migr
 
 /** `buildRestoreHandler` 的依赖（全部注入，便于单测；**不含任何 Electron 类型**）。 */
 export interface RestoreHandlerDeps {
+  readonly selectRequest?: (request: unknown) => Promise<SelectedRestore | null>
   /**
    * 当前维护会话的**健康检查**（`maintenanceMain` 的模块级 `session`）。
    *
@@ -162,8 +164,19 @@ export function buildRestoreHandler(deps: RestoreHandlerDeps): RestoreHandler {
   const lockStagingRoot = deps.lockStagingRoot ?? acquireStagingLock
 
   return async (request: MaintenanceRestoreRequest): Promise<MaintenanceRestoreResult> => {
+    let selected: SelectedRestore | undefined
+    if (deps.selectRequest) {
+      try {
+        const choice = await deps.selectRequest(request)
+        if (!choice) return { ok: false, code: 'CANCELLED', detail: '已取消原生选择，未创建恢复资料。', retryable: false }
+        selected = choice
+      } catch (error) {
+        const code = (error as { code?: string }).code
+        return { ok: false, code: code && ['INVALID_REQUEST', 'TARGET_EXISTS', 'INVALID_TARGET', 'CANCELLED'].includes(code) ? code : 'SELECTION_CHANGED', detail: '恢复选择未完成或已变化，未开始恢复，请重新选择。', retryable: false }
+      }
+    }
     // ① 规范化（§4.2 S7）。空值就地拒绝 —— 注意：此时**尚未取锁、未建任何目录**。
-    const normalized = normalizeRestoreRequest(request)
+    const normalized = normalizeRestoreRequest(selected?.request ?? request)
     if (normalized === null) {
       return {
         ok: false,
@@ -182,6 +195,7 @@ export function buildRestoreHandler(deps: RestoreHandlerDeps): RestoreHandler {
     }
 
     const restoreDeps: MaintenanceRestoreDeps = {
+      ...(selected ? { adapter: { assertSelection: selected.assertUnchanged } } : {}),
       session,
       homeDir: deps.homeDir,
       assetsIntegrityOptions: deps.assetsIntegrityOptions,

@@ -1,3 +1,4 @@
+import { maintenanceCheckpoint, checkMaintenanceCancellation } from './maintenanceTask'
 /**
  * 自检报告模型与纯逻辑骨架（I6 批次 4 · T01）。
  *
@@ -137,6 +138,7 @@ export interface DoctorDeps {
  * @returns 结构化报告：`{ at, checks, summary }`。
  */
 export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport> {
+  await maintenanceCheckpoint()
   const home = deps.home
   const archiveDir = deps.archiveDir ?? archiveDirectory(home)
   const readRegistry = deps.readRegistry ?? readRegistryOverview
@@ -162,6 +164,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
       facts: { spaces: spaces.length }
     })
   } catch (error) {
+    checkMaintenanceCancellation()
     registryOk = false
     registryNote = '注册表不可读，空间相关检查已跳过'
     checks.push({
@@ -181,6 +184,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
     const archives = await listArchives(archiveDir)
     checks.push(await scanArchives(archives, verifyArchive))
   } catch (error) {
+    checkMaintenanceCancellation()
     // 归档列举本身失败（非单份验包失败）→ 该项 warning，不吞报告。
     checks.push({
       id: DOCTOR_ARCHIVE_CHECK_ID,
@@ -217,6 +221,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   for (const space of researchSpaces ?? []) {
+    await maintenanceCheckpoint()
     const editing = inspectEditingIntegrity(space.path)
     checks.push({ id: 'LIBRARY_EDITING_INTEGRITY', title: '文献编辑恢复草稿',
       severity: editing.state === 'invalid' || editing.state === 'unsupported' ? 'error' : editing.state === 'warning' ? 'warning' : editing.state === 'unused' ? 'notice' : 'ok',
@@ -251,6 +256,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
     const residuals = await residualScanner(home)
     checks.push(scanResiduals(residuals))
   } catch (error) {
+    checkMaintenanceCancellation()
     checks.push({
       id: 'RESIDUAL_ARTIFACTS',
       title: '残留暂存根',
@@ -262,6 +268,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   // 脱敏兜底：所有 detail 再过一道 redactText（防任何绝对路径片段外泄）。
+  await maintenanceCheckpoint()
   const safeChecks: DoctorCheck[] = checks.map((check) => ({
     ...check,
     detail: redactText(check.detail)

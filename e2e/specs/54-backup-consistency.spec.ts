@@ -8,7 +8,7 @@ import type { WorkspaceBackupMaintenanceApi } from '../../shared/workspaceBackup
 test('真实维护备份：写临时包期间新增来源，拒绝发布且原资料保留', async () => {
   let sourceRoot = ''
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED,
-    extraArgs: ['--workspace-maintenance'],
+    maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'],
     transformSeed: seed => { sourceRoot = seed.workspaces[0].path; return seed }
   })
   try {

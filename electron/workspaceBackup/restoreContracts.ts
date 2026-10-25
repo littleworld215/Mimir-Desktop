@@ -43,6 +43,7 @@ export type RestoreEvent =
 
 /** 恢复错误码（SCREAMING_SNAKE；与批次 2 风格一致）。 */
 export type RestoreErrorCode =
+  | 'CANCELLED'
   // 计划/落点
   | 'TARGET_EXISTS'
   | 'INVALID_TARGET'

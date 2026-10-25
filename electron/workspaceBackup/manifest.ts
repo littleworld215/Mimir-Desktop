@@ -17,6 +17,8 @@
  */
 
 import { createHash } from 'node:crypto'
+import { pipeline } from 'node:stream/promises'
+import { maintenanceCheckpoint, maintenanceSignal } from './maintenanceTask'
 import { createReadStream, lstatSync, readdirSync, type Stats } from 'node:fs'
 import { join, relative } from 'node:path'
 import { validateArchivePaths, type ArchivePath } from './archivePaths'
@@ -137,12 +139,9 @@ class ManifestError extends Error {
 /** 逐文件流式计算 SHA256；大文件不整块进内存。 */
 async function hashFile(path: string): Promise<string> {
   const hash = createHash('sha256')
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(path)
-    stream.on('data', chunk => hash.update(chunk))
-    stream.on('error', reject)
-    stream.on('end', () => resolve())
-  })
+  await pipeline(createReadStream(path), async function* (source) {
+    for await (const chunk of source) hash.update(chunk as Buffer)
+  }, { signal: maintenanceSignal() })
   return hash.digest('hex')
 }
 
@@ -161,6 +160,7 @@ async function walk(
   let totalBytes = 0
 
   const visit = async (absolute: string, relPrefix: string): Promise<void> => {
+    await maintenanceCheckpoint()
     let stat: Stats
     try { stat = lstatSync(absolute) } catch (error) {
       throw new ManifestError('READ_FAILED', `无法读取路径：${relPrefix}（${(error as Error).message}）`)

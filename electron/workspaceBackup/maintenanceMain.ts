@@ -16,7 +16,9 @@ import { archiveDirectory } from './directories'
 import { RestoreRecovery } from './restoreRecovery'
 import { buildRecoveryHandler, isTrustedMaintenanceRequest, registerRecoveryHandlers } from './maintenanceRecoveryHandler'
 import { MaintenanceWriteGate } from './maintenanceWriteGate'
-import type { MaintenanceCancelResult } from '../../shared/workspaceBackupContracts'
+import { MaintenanceTaskManager, reportMaintenanceProgress } from './maintenanceTask'
+import { selectRestoreRequest } from './maintenanceSelection'
+import { registerMaintenanceTaskHandlers } from './maintenanceTaskHandler'
 import {
   WORKSPACE_BACKUP_CHANNELS,
   type MaintenanceArchiveCandidate,
@@ -59,7 +61,16 @@ void app.whenReady().then(async () => {
     if (!session) throw Error('维护写锁尚未取得。')
     session.assertUsable()
   }
-  const writes = new MaintenanceWriteGate(assertWritable)
+  const tasks = new MaintenanceTaskManager(progress => {
+    if (owner.isDestroyed()) return
+    const channel = progress.kind === 'restore' ? WORKSPACE_BACKUP_CHANNELS.restoreProgress : progress.kind === 'backup' ? WORKSPACE_BACKUP_CHANNELS.backupProgress : WORKSPACE_BACKUP_CHANNELS.doctorProgress
+    owner.webContents.send(channel, { ...progress, detail: redactText(progress.detail) })
+  })
+  registerMaintenanceTaskHandlers(ipcMain, trusted, tasks)
+  const writes = new MaintenanceWriteGate(() => {
+    assertWritable()
+    if (tasks.current?.kind === 'doctor') throw Error('TASK_BUSY')
+  })
   const takeRootLock = (root: string) => {
     assertWritable()
     const lock = acquireStagingLock(root)
@@ -68,11 +79,11 @@ void app.whenReady().then(async () => {
   }
   const recovery = new RestoreRecovery({ homeDir: home, assertUsable: assertWritable, lockRoot: takeRootLock, assetsIntegrityOptions: nativeOptions })
   owner.on('close', event => {
-    if (!writes.running) return
+    if (!writes.running && !tasks.running) return
     event.preventDefault()
     void dialog.showMessageBox(owner, { type: 'info', message: '维护任务尚未完成，请稍候再关闭窗口。', buttons: ['返回维护'], noLink: true })
   })
-  app.on('before-quit', event => { if (writes.running) event.preventDefault() })
+  app.on('before-quit', event => { if (writes.running || tasks.running) event.preventDefault() })
   /** 统一的只读清单：空间名 + 归档候选。**不建目录、不写任何东西**。 */
   const buildOverview = async (): Promise<MaintenanceOverview> => {
     let spaces: Array<{ id: string; name: string }>
@@ -110,25 +121,27 @@ void app.whenReady().then(async () => {
    * 此时 `buildRestoreHandler` 会以 `LOCK_UNAVAILABLE` 拒绝（绝不无锁写入）。
    */
   const restoreHandler = buildRestoreHandler({
+    selectRequest: request => selectRestoreRequest(request, {
+      assertLocal: assertWindowsLocalDisk,
+      pickArchive: async suggestion => {
+        const choice = await dialog.showOpenDialog(owner, { title: '选择要恢复的备份归档', defaultPath: suggestion || archiveDirectory(home), properties: ['openFile'], filters: [{ name: 'Mimir备份', extensions: ['zip'] }] })
+        if (choice.canceled || choice.filePaths.length !== 1) return
+        return choice.filePaths[0]
+      },
+      pickTarget: async suggestion => {
+        const choice = await dialog.showSaveDialog(owner, { title: '选择尚不存在的新空间目录', buttonLabel: '选择新空间位置', defaultPath: suggestion || join(home, '恢复的科研空间') })
+        if (choice.canceled || !choice.filePath) return
+        return choice.filePath
+      }
+    }),
     run: (request, deps) => recovery.run(request, deps),
     assetsIntegrityOptions: nativeOptions,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     homeDir: home,
     lockStagingRoot: takeRootLock,
-    onProgress: (progress) => {
-      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响恢复本身。
-      if (owner && !owner.isDestroyed()) {
-        // ⚠️ 脱敏兜底（I6 批次 4 §0.3）：即便服务层某条文案混入了本机绝对路径，
-        // 也在**出口处**用 `redactText` 过滤（纵深防御：服务层已改文案，此处再包一层）。
-        // 通道名用 `WORKSPACE_BACKUP_CHANNELS.restoreProgress`（收口批次 3 的硬编码）。
-        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.restoreProgress, {
-          stage: progress.stage,
-          detail: redactText(progress.detail)
-        })
-      }
-    }
+    onProgress: progress => reportMaintenanceProgress(progress)
   })
-  registerRestoreHandler(ipcMain, trusted, request => writes.run(() => restoreHandler(request)))
+  registerRestoreHandler(ipcMain, trusted, request => writes.run(() => tasks.run('restore', () => restoreHandler(request))))
   registerRecoveryHandlers(ipcMain, trusted, buildRecoveryHandler({
     recovery,
     runWrite: action => writes.run(action),
@@ -155,18 +168,12 @@ void app.whenReady().then(async () => {
     auditAllowed: () => { try { assertWritable(); return true } catch { return false } },
     homeDir: home,
     assetsIntegrityOptions: nativeOptions,
-    onProgress: (progress) => {
-      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响自检本身。
-      if (owner && !owner.isDestroyed()) {
-        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.doctorProgress, {
-          stage: progress.stage,
-          // 同上：出口处再包一层脱敏，防任何绝对路径片段外泄。
-          detail: redactText(progress.detail)
-        })
-      }
-    }
+    onProgress: progress => reportMaintenanceProgress(progress)
   })
-  registerDoctorHandler(ipcMain, trusted, doctorHandler)
+  registerDoctorHandler(ipcMain, trusted, {
+    doctor: () => writes.running ? Promise.resolve({ ok: false as const, code: 'TASK_BUSY', detail: '已有维护任务正在运行。' }) : tasks.run('doctor', () => doctorHandler.doctor()),
+    auditRecent: limit => doctorHandler.auditRecent(limit)
+  })
 
   /**
    * 保留预览 / 清理 handler（I6 批次 5 · T04）。
@@ -206,39 +213,9 @@ void app.whenReady().then(async () => {
     ...nativeOptions,
     homeDir: home,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
-    onProgress: (progress) => {
-      // 进度为**可选增强**：窗口已销毁时静默丢弃，绝不让上报失败影响备份本身。
-      if (owner && !owner.isDestroyed()) {
-        owner.webContents.send(WORKSPACE_BACKUP_CHANNELS.backupProgress, {
-          stage: progress.stage,
-          // 出口处再包一层脱敏（纵深防御，与 restore/doctor 同款）。
-          detail: redactText(progress.detail)
-        })
-      }
-    }
+    onProgress: progress => reportMaintenanceProgress(progress)
   })
-  registerBackupHandler(ipcMain, trusted, { backup: request => writes.run(() => backupHandler.backup(request)) })
-
-  /**
-   * 取消通道（批次 4 · T04）。
-   *
-   * ⚠️ **诚实优先**：本批 UI 侧（T05）暫不实现「真取消」（需要 AbortSignal 贯穿
-   * `runMaintenanceRestore` 的每一步与 `publish` 前的安全点——那是 T05 的范围）。
-   * 为避免做出「会留半成品的假取消」，此处**如实返回 `{ ok:false, code:'NOT_SUPPORTED' }`**
-   * ——不是假装成功、也不改变任何写路径语义（对齐设计稿 §3.2「宁可诚实返回，也不做假取消」）。
-   * 通道仍**注册**，以保证渲染层「进度/取消/结果」三件套在 UI 上可用（取消按钮会得到明确拒绝）。
-   *
-   * 语义（`MaintenanceCancelResult`）：`ok:true` 才代表取消请求被接受；本批恒为 `false`。
-   */
-  const cancelChannel = (channel: string): void => {
-    ipcMain.handle(channel, (event): MaintenanceCancelResult => {
-      if (!trusted(event)) throw Error('UNAUTHORIZED_SENDER')
-      // 本批不做「假取消」：无副作用、无竞态，明确告知暂不支持。
-      return { ok: false, code: 'NOT_SUPPORTED' }
-    })
-  }
-  cancelChannel(WORKSPACE_BACKUP_CHANNELS.doctorCancel)
-  cancelChannel(WORKSPACE_BACKUP_CHANNELS.restoreCancel)
+  registerBackupHandler(ipcMain, trusted, { backup: request => writes.run(() => tasks.run('backup', () => backupHandler.backup(request))) })
 
   owner.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   owner.webContents.on('will-navigate', event => event.preventDefault())

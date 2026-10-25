@@ -10,6 +10,7 @@ import { runMaintenanceRestore, type MaintenanceRestoreDeps, type RestoreRequest
 import type { RestoreInput, RestoreOutcome, RestoreSteps } from './restoreRunner'
 import { appendWorkspaceRecord, buildRegistryAppendInput, type RegistryAppendInput } from './registryAppend'
 import { cleanupStagingRoot } from './stagingRoot'
+import { withoutMaintenanceTask, markMaintenanceCleanupFailure } from './maintenanceTask'
 import { readRegistryOverview } from './registryView'
 
 type Lease = { release(): void; migrate?(next: string): void }
@@ -231,8 +232,11 @@ export class RestoreRecovery {
             await steps.recheck(input, root)
             update({ phase: 'verified', fingerprint: await fingerprintRestoredRoot(root, record!.rootIdentity) })
           },
-          publish: async (input, root) => {
+          preparePublish: async (input, root) => {
+            await steps.preparePublish?.(input, root)
             await this.verify(record!, root)
+          },
+          publish: async (input, root) => {
             update({ phase: 'publishing' })
             await steps.publish(input, root)
             update({ phase: 'published' })
@@ -264,6 +268,28 @@ export class RestoreRecovery {
             return { id: record.id, spaceId: record.spaceId, decorate }
           }
         })
+        if (record && outcome.failure?.code === 'CANCELLED') {
+          try {
+            const place = this.locate(record)
+            if (place === 'published' || (place === 'missing' && record.rootIdentity)) throw changed()
+            if (place === 'staging') await withoutMaintenanceTask(async () => {
+              if (!record?.rootIdentity) throw changed()
+              const root = record.stagingRoot, lease = this.lock(record, root)
+              update({ phase: 'cleaning', fingerprint: await fingerprintRestoredRoot(root, record.rootIdentity), errorCode: 'CANCELLED' })
+              await this.verify(record!, root)
+              this.assertHeldLock(record!, root)
+              this.release(record!.id, lease)
+              cleanupStagingRoot(root, { identity: record!.rootIdentity })
+              update({ phase: 'cleaned' })
+            })
+            else update({ errorCode: 'CANCELLED' })
+          } catch {
+            markMaintenanceCleanupFailure()
+            try { update({ errorCode: 'STAGING_CLEANUP_FAILED' }) } catch { /* 保存失败也不能覆盖收尾失败结论 */ }
+            return { ...outcome, failure: { ...outcome.failure, code: 'STAGING_CLEANUP_FAILED', detail: '取消后的暂存收尾未完成，已保留可确认的资料，请检查恢复记录。', retryable: true } }
+          }
+          return outcome
+        }
         if (record && outcome.failure) {
           if (record.rootIdentity && this.locate(record) === 'staging') {
             try { update({ phase: 'interrupted', fingerprint: await fingerprintRestoredRoot(record.stagingRoot, record.rootIdentity) }) }
