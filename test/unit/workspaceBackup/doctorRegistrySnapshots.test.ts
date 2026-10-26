@@ -15,7 +15,7 @@ function fixture() {
 it('没有快照时只读检查不创建私有目录', () => {
   const home = fixture()
   const report = scanRegistrySnapshotProtection(home)
-  expect(report).toMatchObject({ id: 'REGISTRY_SNAPSHOT_PROTECTION', severity: 'notice' })
+  expect(report).toMatchObject({ id: 'REGISTRY_SNAPSHOT_PROTECTION', severity: 'ok', facts: { verified: 0 } })
   expect(readdirSync(join(home, '.mimir'))).toEqual([])
 })
 it('历史平铺快照保护未知，原字节不动，不自动迁移', () => {

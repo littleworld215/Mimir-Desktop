@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('workspaceBackupMaintenance', Object.freeze({
   taskStatus: request => ipcRenderer.invoke('workspaceBackup:taskStatus', request),
   cancelTask: request => ipcRenderer.invoke('workspaceBackup:taskCancel', request),
   overview: () => ipcRenderer.invoke('workspaceBackup:overview'),
+  archiveDetails: request => ipcRenderer.invoke('workspaceBackup:archiveDetails', request),
   recoveryList: cursor => ipcRenderer.invoke('workspaceBackup:recoveryList', cursor),
   recoveryAction: request => ipcRenderer.invoke('workspaceBackup:recoveryAction', request),
   // 恢复路径仅作原生选择窗口建议，执行使用主进程原生选择结果。

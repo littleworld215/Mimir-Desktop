@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type {
   DoctorCheck,
@@ -22,6 +22,8 @@ import './maintenance.css'
 import { RestoreRecoveryPanel } from '../components/maintenance/RestoreRecoveryPanel'
 import { MaintenanceTaskControls } from '../components/maintenance/MaintenanceTaskControls'
 import { TaskProgressGuard } from '../components/maintenance/taskProgress'
+import { BackupScopeView } from '../components/maintenance/BackupScopeView'
+import { BackupArchiveDetails } from '../components/maintenance/BackupArchiveDetails'
 
 declare global { interface Window { workspaceBackupMaintenance: WorkspaceBackupMaintenanceApi } }
 
@@ -38,6 +40,10 @@ function failureText(code: string): string {
       return '目标路径无效：请确认填写的是绝对路径，且其父目录已存在。'
     case 'LOCK_UNAVAILABLE':
       return '维护会话不可用（可能已有其它窗口在写入）。请关闭其它实例后重试。'
+    case 'REGISTRY_PROTECTION_FAILED':
+      return '本机注册快照权限验证未通过，恢复资料已保留，请查看恢复记录。'
+    case 'REGISTRY_CHANGED':
+      return '本机登记或快照已变化，请重新核对恢复记录。'
     case 'NOT_LOCAL_DISK':
       return '目标不在本机磁盘上（可能是网络盘）。请选择本机目录后重试。'
     case 'RECHECK_FAILED':
@@ -201,8 +207,16 @@ function MaintenanceApp() {
   const [backupProgress, setBackupProgress] = useState<MaintenanceBackupProgress>()
   const [recoveryBusy, setRecoveryBusy] = useState(false)
   const [recoveryVersion, setRecoveryVersion] = useState(0)
+  const [detailsId, setDetailsId] = useState<string>()
+  const [detailsRunning, setDetailsRunning] = useState(false)
+  const detailsEpoch = useRef<number>()
+  const updateDetailsBusy = useCallback((active: boolean) => {
+    if (active) { detailsEpoch.current = progressGuard.begin('doctor'); setDoctorProgress(undefined) }
+    else if (detailsEpoch.current !== undefined) { progressGuard.end(detailsEpoch.current); detailsEpoch.current = undefined }
+    setDetailsRunning(active)
+  }, [progressGuard])
   const readOnly = result?.ok === true && result.writable === false
-  const writeBusy = busy || doctorRunning || recoveryBusy || backupRunningId !== undefined || retentionBusy
+  const writeBusy = busy || doctorRunning || detailsRunning || recoveryBusy || backupRunningId !== undefined || retentionBusy
 
   const api = window.workspaceBackupMaintenance
 
@@ -486,6 +500,8 @@ function MaintenanceApp() {
           ? <ul>{result.archives.map(archive => <li key={archive.path}>
               {archive.name}（{(archive.bytes / 1024 / 1024).toFixed(1)} MB，{new Date(archive.modifiedAt).toLocaleString()}）
               {!archive.remappable && <span role="note">（无法自动改写论文路径，恢复后需人工确认）</span>}
+              {archive.scopeUnavailable ? <p role="note">说明不可读；恢复时将独立校验。</p> : <BackupScopeView scope={archive.scope} verification="not-run" />}
+              {archive.archiveId && <button type="button" disabled={writeBusy} onClick={() => setDetailsId(archive.archiveId)}>展开范围说明</button>}
               <button type="button" disabled={writeBusy || readOnly} onClick={() => openForm(archive)}>恢复为新空间…</button>
             </li>)}</ul>
           : <p>未发现备份归档。</p>}
@@ -506,6 +522,7 @@ function MaintenanceApp() {
         {!backupResult.hasAssetsDb && <span role="note">（该空间无资产库，归档不含数据库）</span>}
       </p>}
       {backupResult && !backupResult.ok && <p role="alert">{backupResult.detail}</p>}
+      {backupResult?.ok && <BackupScopeView scope={backupResult.scope} verification="passed" />}
     </section>
 
     {/* 自检面板（放在「归档候选」之下）：只读报告，只陈述技术事实，不做任何汇总结论。 */}
@@ -606,6 +623,8 @@ function MaintenanceApp() {
               ? ` 保留 ${restoreResult.associations.externalSnapshotBuckets} 个外部项目快照索引；外部项目资料未纳入本次备份，请人工确认。` : ''}` : ''}`
         : `${failureText(restoreResult.code)}（${restoreResult.code}）${restoreResult.detail}`}
     </p>}
+    {restoreResult?.ok && <BackupScopeView scope={restoreResult.scope} verification="passed" />}
+    {detailsId && <BackupArchiveDetails key={detailsId} api={api} archiveId={detailsId} progress={doctorProgress} onClose={() => setDetailsId(undefined)} onBusyChange={updateDetailsBusy} />}
 
     {/* 审计查看（页面底部）：只读列表，无删除按钮。 */}
     <section aria-label="最近维护审计">

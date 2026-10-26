@@ -19,6 +19,9 @@ import { MaintenanceWriteGate } from './maintenanceWriteGate'
 import { MaintenanceTaskManager, reportMaintenanceProgress } from './maintenanceTask'
 import { selectRestoreRequest } from './maintenanceSelection'
 import { registerMaintenanceTaskHandlers } from './maintenanceTaskHandler'
+import { MaintenanceArchiveCatalog } from './maintenanceArchiveCatalog'
+import { buildArchiveDetailsHandler, registerArchiveDetailsHandler } from './maintenanceArchiveHandler'
+import { confirmSelectedRestoreScope } from './maintenanceScopeConfirmation'
 import {
   WORKSPACE_BACKUP_CHANNELS,
   type MaintenanceArchiveCandidate,
@@ -78,6 +81,8 @@ void app.whenReady().then(async () => {
     return lock
   }
   const recovery = new RestoreRecovery({ homeDir: home, assertUsable: assertWritable, lockRoot: takeRootLock, assetsIntegrityOptions: nativeOptions })
+  const catalog = new MaintenanceArchiveCatalog()
+  registerArchiveDetailsHandler(ipcMain, trusted, buildArchiveDetailsHandler({ catalog, tasks, writeBusy: () => writes.running }))
   owner.on('close', event => {
     if (!writes.running && !tasks.running) return
     event.preventDefault()
@@ -86,6 +91,7 @@ void app.whenReady().then(async () => {
   app.on('before-quit', event => { if (writes.running || tasks.running) event.preventDefault() })
   /** 统一的只读清单：空间名 + 归档候选。**不建目录、不写任何东西**。 */
   const buildOverview = async (): Promise<MaintenanceOverview> => {
+    catalog.replace([])
     let spaces: Array<{ id: string; name: string }>
     try {
       spaces = readRegistryOverview(home)
@@ -96,7 +102,7 @@ void app.whenReady().then(async () => {
     // 绝不让「备份目录还没建」把整个维护窗口的只读清单拖成失败。
     let archives: MaintenanceArchiveCandidate[] = []
     try {
-      archives = await listRestoreArchives(archiveDirectory(home))
+      archives = catalog.replace(await listRestoreArchives(archiveDirectory(home)))
     } catch {
       archives = []
     }
@@ -121,6 +127,26 @@ void app.whenReady().then(async () => {
    * 此时 `buildRestoreHandler` 会以 `LOCK_UNAVAILABLE` 拒绝（绝不无锁写入）。
    */
   const restoreHandler = buildRestoreHandler({
+    confirmScope: selected => confirmSelectedRestoreScope(selected, {
+      confirm: async scope => {
+        const unknown = scope.metadata === 'legacy-unknown' || scope.coverage === 'unknown'
+        const choice = await dialog.showMessageBox(owner, {
+          type: 'warning', title: '恢复范围确认', message: '确认这份实际选中的归档范围后再恢复。',
+          detail: `内容校验尚未运行。范围说明${scope.metadata === 'legacy-unknown' ? '未知（旧格式1未保存说明）' : '已保存'}；未纳入超限项${scope.excludedCount}，已知外部引用${scope.externalCount}，未解析${scope.unresolvedCount}。${unknown ? '资料覆盖范围未知，不能声称完整备份。' : '仅识别已知结构字段，不扫描正文；外部目标未核实、未包含。'}`,
+          buttons: ['取消', '查看说明', '继续恢复'], defaultId: 0, cancelId: 0, noLink: true
+        })
+        return choice.response === 2 ? 'continue' : choice.response === 1 ? 'details' : 'cancel'
+      },
+      showDetails: async page => {
+        const lines = page.items.map(item => item.kind === 'excluded'
+          ? `未纳入：${item.entry.path}（${item.entry.size}字节，超限）`
+          : `未包含/未核实：${item.entry.target}\n引用：${item.entry.storeKey} ${item.entry.locator} ${item.entry.field}`)
+        const result = await dialog.showMessageBox(owner, { type: 'info', title: '归档范围说明', message: '只读说明，内容校验尚未运行。',
+          detail: lines.length ? lines.join('\n\n') : '没有可列出的声明。旧包或识别范围未知时不能据此认定没有遗漏。',
+          buttons: page.nextOffset === undefined ? ['返回确认'] : ['返回确认', '下一页'], defaultId: 0, cancelId: 0, noLink: true })
+        return result.response === 1 && page.nextOffset !== undefined ? 'next' : 'back'
+      }
+    }),
     selectRequest: request => selectRestoreRequest(request, {
       assertLocal: assertWindowsLocalDisk,
       pickArchive: async suggestion => {

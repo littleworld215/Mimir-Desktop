@@ -15,6 +15,7 @@ export const WORKSPACE_BACKUP_CHANNELS = {
   taskStatus: 'workspaceBackup:taskStatus',
   taskCancel: 'workspaceBackup:taskCancel',
   overview: 'workspaceBackup:overview',
+  archiveDetails: 'workspaceBackup:archiveDetails',
   /**
    * 恢复（批次 3 · T05 收口）。
    *
@@ -117,6 +118,9 @@ export const WORKSPACE_BACKUP_CHANNELS = {
  * 旧渲染层不认识 `archives` 时会忽略它，行为与之前完全一致。
  */
 export interface MaintenanceArchiveCandidate {
+  readonly archiveId?: string
+  readonly scope?: import('./workspaceBackupMetadata').BackupScopeSummary
+  readonly scopeUnavailable?: boolean
   /** 归档绝对路径（**仅供展示**；恢复时由主进程重新规范化，不用渲染层回传的字符串）。 */
   readonly path: string
   /** 展示用文件名。 */
@@ -147,6 +151,7 @@ export type MaintenanceOverview =
  * `path.resolve` 规范化并重新校验，**绝不**信任渲染层拼好的路径。
  */
 export interface WorkspaceBackupMaintenanceApi {
+  archiveDetails?(request: { archiveId: string; offset?: number }): Promise<MaintenanceArchiveDetailsResult>
   taskStatus?(request: MaintenanceTaskReference): Promise<MaintenanceTaskStatus>
   cancelTask?(request: MaintenanceTaskReference): Promise<MaintenanceCancelResult>
   overview(): Promise<MaintenanceOverview>
@@ -315,6 +320,7 @@ export type MaintenanceRestoreResult =
       rewritten: number
       /** 可选关联计数，旧主进程缺省；不含旧路径或模板内容。 */
       associations?: MaintenanceRestoreAssociations
+      scope?: import('./workspaceBackupMetadata').BackupScopeSummary
     }
   | {
       ok: false
@@ -623,6 +629,9 @@ export interface MaintenanceBackupProgress {
 export type MaintenanceTaskKind = 'backup' | 'restore' | 'doctor'
 export type MaintenanceTaskState = 'running' | 'cancelling' | 'committing' | 'done' | 'failed' | 'cancelled'
 export interface MaintenanceTaskReference { readonly taskId: string }
+export type MaintenanceArchiveDetailsResult =
+  | { readonly ok: true; readonly page: import('./workspaceBackupMetadata').BackupScopeDetailsPage; readonly verification: 'not-run' }
+  | { readonly ok: false; readonly code: string; readonly detail: string }
 export interface MaintenanceTaskView extends MaintenanceTaskReference {
   readonly kind: MaintenanceTaskKind
   readonly state: MaintenanceTaskState

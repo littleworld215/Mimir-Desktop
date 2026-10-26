@@ -23,7 +23,8 @@ export type {
 
 import type { DoctorCheck, DoctorReport } from '../../shared/workspaceBackupContracts'
 import { readRegistryOverview } from './registryView'
-import { verifyBackup } from './verify'
+import { verifyBackupWithScope } from './archiveScope'
+import { scanRegistrySnapshotProtection } from './doctorRegistrySnapshots'
 import { listRestoreArchives } from './restoreMain'
 import type { AssetsIntegrityOptions } from './assetsIntegrity'
 import { checkOptionalAssetsCopy } from './assetsRestore'
@@ -143,7 +144,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   const archiveDir = deps.archiveDir ?? archiveDirectory(home)
   const readRegistry = deps.readRegistry ?? readRegistryOverview
   const listArchives = deps.listArchives ?? listRestoreArchives
-  const verifyArchive = deps.verifyArchive ?? verifyBackup
+  const verifyArchive = deps.verifyArchive ?? verifyBackupWithScope
   const checkSpaceIntegrity = deps.checkSpaceIntegrity ?? (dbPath => checkOptionalAssetsCopy(dbPath, deps.assetsIntegrityOptions))
   const resolveSpaces = deps.resolveSpaces ?? readRegistrySpacePaths
   const residualScanner = deps.scanResiduals ?? listResidualStagingRoots
@@ -179,10 +180,15 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
   }
 
   // ---- C2 归档验包 ----
+  await maintenanceCheckpoint()
+  checks.push(scanRegistrySnapshotProtection(home))
+  await maintenanceCheckpoint()
   deps.onProgress?.({ stage: 'doctor', detail: '正在检查归档…' })
   try {
     const archives = await listArchives(archiveDir)
-    checks.push(await scanArchives(archives, verifyArchive))
+    let scopeCheck: DoctorCheck | undefined
+    checks.push(await scanArchives(archives, verifyArchive, check => { scopeCheck = check }))
+    if (scopeCheck) checks.push(scopeCheck)
   } catch (error) {
     checkMaintenanceCancellation()
     // 归档列举本身失败（非单份验包失败）→ 该项 warning，不吞报告。

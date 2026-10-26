@@ -41,6 +41,7 @@ import { dirname, join, normalize } from 'node:path'
 import { runRestore, type RestoreInput, type RestoreOutcome, type RestoreSteps } from './restoreRunner'
 import { createRestoreSteps, type RestoreAdapterOptions } from './restoreAdapter'
 import { oldRootFromArchive, readArchiveManifest } from './restoreArchive'
+import { readBoundArchiveManifest } from './archiveScope'
 import { checkRestoredAssetsIntegrity, type AssetsIntegrityOptions } from './assetsIntegrity'
 import { prepareStagedAssets } from './assetsRestore'
 import { stagingPathFor } from './stagingRoot'
@@ -49,6 +50,7 @@ import { RestoreError } from './restoreContracts'
 
 /** 维护窗口可见的归档候选。 */
 export interface RestoreArchiveCandidate {
+  readonly scopeReceipt?: import('./archiveScope').ArchiveScopeReceipt
   /** 归档绝对路径。 */
   readonly path: string
   /** 展示用文件名。 */
@@ -157,11 +159,13 @@ export async function listRestoreArchives(directory: string): Promise<RestoreArc
       continue
     }
     let remappable = false
+    let scopeReceipt: import('./archiveScope').ArchiveScopeReceipt | undefined
     try {
       // ⚠️ 判据是「归档清单是否含**绝对**源根 `sourceRoot`」，**不是**能否推导出相对根：
       // T03 的 `matchRootPrefix` 要求旧根为绝对路径，相对根永不命中（实测 `rewritten=0`）。
       // 详见 restoreArchive.ts 文件头的实测更正。
-      const manifest = await readArchiveManifest(path)
+      const { manifest, receipt } = await readBoundArchiveManifest(path)
+      scopeReceipt = receipt
       remappable = typeof manifest.sourceRoot === 'string' && manifest.sourceRoot.trim() !== ''
     } catch {
       // 清单不可读（损坏 / 非本应用归档）：**仍然列出**，但标注不可自动改写。
@@ -173,7 +177,8 @@ export async function listRestoreArchives(directory: string): Promise<RestoreArc
       name: entry.name,
       bytes: stats.size,
       modifiedAt: stats.mtime.toISOString(),
-      remappable
+      remappable,
+      ...(scopeReceipt ? { scopeReceipt } : {})
     })
   }
   return out.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))

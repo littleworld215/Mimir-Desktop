@@ -52,26 +52,41 @@ export function extractErrorCode(error: unknown, fallback = 'UNKNOWN'): string {
  */
 export async function scanArchives(
   archives: ReadonlyArray<{ readonly path: string; readonly name: string }>,
-  verify: (path: string) => Promise<unknown>
+  verify: (path: string) => Promise<unknown>,
+  onScope?: (check: DoctorCheck) => void
 ): Promise<DoctorCheck> {
   const outcomes: ArchiveVerifyOutcome[] = []
+  const coverage = { total: archives.length, declared: 0, unknown: 0, excluded: 0, external: 0, unresolved: 0 }
   for (const archive of archives) {
     await maintenanceCheckpoint()
     // 归档文件名一律以 basename 呈现，并再经 redactText 兜底（即便 name 被塞进绝对路径也不外泄）。
     const safeName = redactText(basename(archive.name || archive.path))
     try {
-      await verify(archive.path)
+      const checked = await verify(archive.path)
+      const scope = checked && typeof checked === 'object' && 'scope' in checked ? (checked as { scope: unknown }).scope : undefined
+      const value = scope && typeof scope === 'object' ? scope as Record<string, unknown> : undefined
+      if (value && (value.metadata === 'present' || value.metadata === 'legacy-unknown')
+        && (value.coverage === 'unknown' || value.coverage === 'known-structured-fields')
+        && ['excludedCount', 'externalCount', 'unresolvedCount'].every(k => Number.isSafeInteger(value[k]) && Number(value[k]) >= 0)) {
+        if (value.metadata === 'present') coverage.declared++
+        if (value.metadata === 'legacy-unknown' || value.coverage === 'unknown') coverage.unknown++
+        coverage.excluded += Number(value.excludedCount); coverage.external += Number(value.externalCount); coverage.unresolved += Number(value.unresolvedCount)
+      } else coverage.unknown++
       outcomes.push({ name: safeName, verified: true, code: '' })
     } catch (error) {
       checkMaintenanceCancellation()
       // ⚠️ 单份失败只降为该项 warning——绝不 catch 后上抛吞掉整份报告。
       outcomes.push({ name: safeName, verified: false, code: extractErrorCode(error, 'VERIFY_FAILED') })
+      coverage.unknown++
     }
   }
 
   const total = outcomes.length
   const failed = outcomes.filter((outcome) => !outcome.verified)
   const verified = total - failed.length
+  if (total > 0) onScope?.({ id: 'ARCHIVE_SCOPE', title: '归档覆盖范围',
+    severity: coverage.excluded + coverage.external + coverage.unresolved > 0 ? 'warning' : coverage.unknown > 0 ? 'notice' : 'ok',
+    detail: `范围声明可读${coverage.declared}份，覆盖未知${coverage.unknown}份；超限未纳入${coverage.excluded}项，已知外部引用${coverage.external}项，未解析${coverage.unresolved}项。内容验包与覆盖范围独立；只识别已知结构字段，不核实外部目标。`, facts: coverage })
 
   if (total === 0) {
     return {

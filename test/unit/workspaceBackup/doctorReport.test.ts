@@ -79,12 +79,13 @@ describe('buildDoctorReport · 全绿组', () => {
 
     expect(report.checks.map((check) => check.id)).toEqual([
       'REGISTRY_READABLE',
+      'REGISTRY_SNAPSHOT_PROTECTION',
       'ARCHIVE_VERIFY',
       'SPACE_INTEGRITY',
       'RESIDUAL_ARTIFACTS'
     ])
     expect(report.checks.every((check) => check.severity === 'ok')).toBe(true)
-    expect(report.summary).toEqual({ ok: 4, notice: 0, warning: 0, error: 0 })
+    expect(report.summary).toEqual({ ok: 5, notice: 0, warning: 0, error: 0 })
     expect(typeof report.at).toBe('string')
   })
 
@@ -140,7 +141,7 @@ describe('buildDoctorReport · 逐项降级组（单份失败不吞报告）', (
     expect(report.checks.find((check) => check.id === 'REGISTRY_READABLE')?.severity).toBe('ok')
     expect(report.checks.find((check) => check.id === 'SPACE_INTEGRITY')?.severity).toBe('ok')
     expect(report.checks.find((check) => check.id === 'RESIDUAL_ARTIFACTS')?.severity).toBe('ok')
-    expect(report.summary).toEqual({ ok: 3, notice: 0, warning: 1, error: 0 })
+    expect(report.summary).toEqual({ ok: 4, notice: 1, warning: 1, error: 0 })
   })
 
   it('单个空间资产库校验抛错 → 该项 warning，记录空间名（非路径）', async () => {
@@ -193,7 +194,7 @@ describe('buildDoctorReport · C1 注册表不可读', () => {
     expect(report.checks.some((check) => check.id === 'ARCHIVE_VERIFY')).toBe(true)
     expect(report.checks.some((check) => check.id === 'RESIDUAL_ARTIFACTS')).toBe(true)
     expect(report.summary.error).toBe(1)
-    expect(report.checks).toHaveLength(4)
+    expect(report.checks).toHaveLength(5)
   })
 
   it('空间路径解析失败（条目非法）→ C3 降级 notice（绝不 loadStore）', async () => {
