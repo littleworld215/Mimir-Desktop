@@ -107,10 +107,10 @@ export class RestoreJournal {
     if (current.revision !== record.revision) throw new RestoreError('CONTROL_BLOCKED', '恢复记录已更新，请重新读取后操作。')
     const next = { ...record, ...patch, id: record.id, revision: record.revision + 1, updatedAt: new Date().toISOString() }
     validate(next, record.id)
-    this.write(next, false)
+    this.write(next, false, current)
     return next
   }
-  private write(record: RestoreOperationRecord, initial: boolean): void {
+  private write(record: RestoreOperationRecord, initial: boolean, prior?: RestoreOperationRecord): void {
     const file = join(this.directory, `${record.id}.json`), temp = join(this.directory, `.tmp-${record.id}-${randomUUID()}`)
     let fd: number | undefined
     try {
@@ -122,11 +122,36 @@ export class RestoreJournal {
       try { closeSync(fd) } catch (error) { markMaintenanceCleanupFailure(); throw error }
       fd = undefined
       if (initial) { linkSync(temp, file); unlinkSync(temp) }
-      else renameSync(temp, file)
+      else this.replace(temp, file, prior!)
     } catch { throw new RestoreError('RECHECK_FAILED', '恢复操作记录未能安全保存，已阻止继续写入。') }
     finally {
       if (fd !== undefined) { try { closeSync(fd) } catch { markMaintenanceCleanupFailure() } }
       if (existsSync(temp)) { try { unlinkSync(temp) } catch { markMaintenanceCleanupFailure() } }
+    }
+  }
+  /** Windows共享拒绝可能短暂阻止替换；只重试相同原字节/修订和相同暂存文件。 */
+  private replace(temp: string, file: string, prior: RestoreOperationRecord): void {
+    const observe = (path: string) => {
+      const before = lstatSync(path, { bigint: true })
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size > 65536n) throw invalid()
+      const bytes = readFileSync(path), after = lstatSync(path, { bigint: true })
+      const stamp = (s: typeof before) => `${s.dev}:${s.ino}:${s.birthtimeNs}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`
+      if (stamp(before) !== stamp(after)) throw invalid()
+      return { bytes, stamp: stamp(after) }
+    }
+    const baseline = observe(file), prepared = observe(temp)
+    if (JSON.stringify(JSON.parse(baseline.bytes.toString('utf8'))) !== JSON.stringify(prior)) throw invalid()
+    for (let attempt = 0; ; attempt++) {
+      this.assertDirectory(false)
+      const current = observe(file), pending = observe(temp)
+      if (current.stamp !== baseline.stamp || !current.bytes.equals(baseline.bytes)
+        || pending.stamp !== prepared.stamp || !pending.bytes.equals(prepared.bytes)) throw invalid()
+      try { renameSync(temp, file); return } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (process.platform !== 'win32' || (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') || attempt >= 3) throw error
+        // 同步契约保持；总延迟上限140ms，绝不无限重试或降级为非原子覆盖。
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * 2 ** attempt)
+      }
     }
   }
   scan(cursor?: string): { records: RestoreOperationRecord[]; invalidRecords: number; truncated: boolean; nextCursor?: string } {
