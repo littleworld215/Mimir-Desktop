@@ -211,6 +211,7 @@ void app.whenReady().then(async () => {
    */
   const backupHandler = buildBackupHandler({
     ...nativeOptions,
+    producer: { application: 'Mimir-Desktop', version: app.getVersion(), platform: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' ? process.platform : 'unknown' },
     homeDir: home,
     session: session === undefined ? undefined : { assertUsable: () => session!.assertUsable() },
     onProgress: progress => reportMaintenanceProgress(progress)

@@ -111,6 +111,7 @@ export interface SpaceLockHandle {
  * 服务层依赖（除 `home` 外全部可选，缺省即生产行为）。
  */
 export interface BackupSpaceDeps {
+  readonly producer?: import('../../shared/workspaceBackupMetadata').BackupProducer
   /** 用户 home 目录（本机数据根；归档落 `<home>/backups`，审计落 `<home>/.mimir/logs`）。 */
   readonly home: string
   /** 注入时钟（测试用）；缺省 `() => new Date()`。 */
@@ -204,6 +205,8 @@ export function defaultAcquireSpaceLock(spaceRoot: string): SpaceLockHandle {
 
 /** 解析后的有效依赖（缺省值补齐）。 */
 interface ResolvedDeps {
+  readonly producer?: import('../../shared/workspaceBackupMetadata').BackupProducer
+  readonly assetsIntegrityOptions: import('./assetsIntegrity').AssetsIntegrityOptions
   readonly home: string
   readonly now: () => Date
   readonly resolveSpaces: (home: string) => SpacePathView[]
@@ -218,6 +221,8 @@ interface ResolvedDeps {
 function resolveDeps(deps: BackupSpaceDeps): ResolvedDeps {
   return {
     home: deps.home,
+    producer: deps.producer,
+    assetsIntegrityOptions: { isPackaged: deps.isPackaged, resourcesPath: deps.resourcesPath, appRoot: deps.appRoot, nativeBinding: deps.nativeBinding },
     now: deps.now ?? (() => new Date()),
     resolveSpaces: deps.resolveSpaces ?? readRegistrySpacePaths,
     openAssetsDb:
@@ -401,6 +406,8 @@ async function packAndPublish(
   // ── ⑦ 打包（createBackup 内部生成清单 → 快照注入 → 写暂存 → fsync → 原子 rename） ──
   resolved.emit('packing', '正在打包归档…')
   const result = await resolved.createBackup({
+    producer: resolved.producer,
+    assetsIntegrityOptions: resolved.assetsIntegrityOptions,
     root: space.path,
     sourceSpaceId: space.id,
     // 同时给 destination 与 spaceName → packer 走「受管命名校验」分支（`packer.ts:124`）：
@@ -440,6 +447,7 @@ async function packAndPublish(
     totalBytes: result.totalBytes,
     archiveBytes: result.archiveBytes,
     excluded: result.excluded.length,
-    hasAssetsDb
+    hasAssetsDb,
+    ...(result.scope ? { scope: result.scope } : {})
   }
 }

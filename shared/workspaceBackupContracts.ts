@@ -602,6 +602,7 @@ export type MaintenanceBackupResult =
       readonly excluded: number
       /** 是否含资产库快照（空间无 `assets.db` 时为 false）。 */
       readonly hasAssetsDb: boolean
+      readonly scope?: import('./workspaceBackupMetadata').BackupScopeSummary
     }
   | {
       readonly ok: false

@@ -23,7 +23,12 @@ import { randomUUID } from 'node:crypto'
 import yazl from 'yazl'
 import type Database from 'better-sqlite3'
 import { maintenanceCheckpoint, maintenanceSignal, enterMaintenanceCommit, checkMaintenanceCancellation, markMaintenanceCleanupFailure } from './maintenanceTask'
-import { buildManifest, manifestPathKey, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
+import { buildManifest, manifestPathKey, DEFAULT_MAX_FILE_BYTES, type ManifestLimits, type ManifestOverrides, type ExcludedEntry } from './manifest'
+import { buildBackupMetadata } from './backupMetadata'
+import { summarizeBackupScope } from './archiveMetadata'
+import { DEFAULT_ARCHIVE_READ_LIMITS } from './archivePolicy'
+import type { AssetsIntegrityOptions } from './assetsIntegrity'
+import type { BackupProducer, BackupScopeSummary } from '../../shared/workspaceBackupMetadata'
 import { deriveArchiveName, isManagedArchive } from './archiveNaming'
 import { verifyBackup } from './verify'
 import { BackupSourceError, assertBackupPathsOutsideSource, captureBackupSource, assertBackupSourceUnchanged } from './backupSource'
@@ -72,6 +77,8 @@ export interface BackupRequest {
   /** 相对空间根的 assets.db 路径（与清单中的 path 一致），用于定位快照注入点。 */
   assetsDbRelPath?: string
   limits?: ManifestLimits
+  producer?: BackupProducer
+  assetsIntegrityOptions?: AssetsIntegrityOptions
 }
 
 export interface BackupResult {
@@ -88,6 +95,7 @@ export interface BackupResult {
    * 调用方必须把它展示/持久化给用户，不能静默丢弃。为空数组表示全部纳入。
    */
   excluded: ExcludedEntry[]
+  scope?: BackupScopeSummary
 }
 
 class BackupError extends Error {
@@ -205,6 +213,10 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
 
     // ② 清单：按「归档内实际内容」计算（含快照替换），供打包与验包共用同一基准。
     const manifest = await buildManifest(root, limits, overrides)
+    const metadata = await buildBackupMetadata({ root, entries: manifest.entries, excluded: manifest.excluded,
+      maxFileBytes: limits?.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES, producer: request.producer,
+      ...(snapshotPath && normalizedDbRel ? { snapshot: { path: snapshotPath, relativePath: normalizedDbRel } } : {}),
+      assetsIntegrityOptions: request.assetsIntegrityOptions })
     assertOutputs()
 
     // ③ 写归档：目录条目与文件条目都进；assets.db 用快照内容替换实时文件。
@@ -245,8 +257,12 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
         generatedAt: new Date().toISOString(),
         sourceRoot: resolve(root),
         ...(request.sourceSpaceId !== undefined ? { sourceSpaceId: request.sourceSpaceId } : {}),
-        entries: manifest.entries
+        entries: manifest.entries,
+        metadata
       }), 'utf8')
+      if (manifestBuffer.length > Math.min(limits?.maxManifestBytes ?? DEFAULT_ARCHIVE_READ_LIMITS.maxManifestBytes, DEFAULT_ARCHIVE_READ_LIMITS.maxManifestBytes)) {
+        throw new BackupError('MANIFEST_LIMIT', '包含范围说明的完整清单超过字节上限。')
+      }
       zip.addBuffer(manifestBuffer, MANIFEST_IN_ARCHIVE, { mtime: new Date(0) })
       zip.end()
       await writing
@@ -291,7 +307,8 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
       totalBytes: manifest.totalBytes,
       archiveBytes,
       archiveSha256,
-      excluded: manifest.excluded
+      excluded: manifest.excluded,
+      scope: summarizeBackupScope(metadata)
     }
   } catch (error) {
     if (!published) {
@@ -304,7 +321,18 @@ export async function createBackup(request: BackupRequest): Promise<BackupResult
     // 成功后只移除同一文件的临时名字；清理失败不删已验证的正式包。
     if (published) { try { if (sameDirectory(stagingRoot, stagingIdentity)) unlinkSync(stagingArchive) } catch { /* 残留暂存不作为正式归档。 */ } }
     if (snapshotPath) {
-      try { if (sameDirectory(stagingRoot, stagingIdentity)) unlinkSync(snapshotPath) } catch { /* 身份不明时保留现场。 */ }
+      // 只读查询WAL模式的独立快照也可能产生空WAL/SHM；它们属于本次唯一快照。
+      // 必须等元信息读取句柄实际关闭后清理，不能留在staging或假报取消成功。
+      let clean = false
+      try {
+        if (sameDirectory(stagingRoot, stagingIdentity)) {
+          for (const path of [snapshotPath, snapshotPath + '-wal', snapshotPath + '-shm']) {
+            try { unlinkSync(path) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+          }
+          clean = true
+        }
+      } catch { /* 身份不明或删除失败时保留现场并阻断成功。 */ }
+      if (!clean) { markMaintenanceCleanupFailure(); throw new BackupError('TASK_CLEANUP_FAILED', '本次快照资源收尾未完成，请检查维护记录。') }
     }
     if (maintenanceSignal()?.aborted) {
       let clean = false

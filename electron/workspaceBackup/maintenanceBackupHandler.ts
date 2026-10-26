@@ -61,6 +61,7 @@ const MAX_SPACE_ID_LENGTH = 512
  * - `isPackaged` / `resourcesPath` / `appRoot` 原生绑定解析选项，透传给 `runSpaceBackup`。
  */
 export interface BackupHandlerDeps {
+  readonly producer?: import('../../shared/workspaceBackupMetadata').BackupProducer
   /** 注册表 home（生产 = `homedir()`；测试 = 合成目录）。 */
   readonly homeDir: string
   /** 会话健康检查（**只有** assertUsable；见纪律 7——绝不要 select）。 */
@@ -184,6 +185,7 @@ export function buildBackupHandler(deps: BackupHandlerDeps): BackupHandler {
       try {
         return await runBackup(normalized, {
           home: deps.homeDir,
+          ...(deps.producer ? { producer: deps.producer } : {}),
           ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
           ...(deps.isPackaged !== undefined ? { isPackaged: deps.isPackaged } : {}),
           ...(deps.resourcesPath !== undefined ? { resourcesPath: deps.resourcesPath } : {}),

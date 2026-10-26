@@ -3,6 +3,7 @@ import type yauzl from 'yauzl'
 import { validateArchivePaths } from './archivePaths'
 import { BACKUP_FORMAT_VERSION, MANIFEST_IN_ARCHIVE, type ArchiveManifest } from './archiveFormat'
 import type { ManifestEntry } from './manifest'
+import { validateBackupMetadata } from './archiveMetadata'
 
 export interface ArchiveReadLimits {
   maxEntries: number
@@ -62,6 +63,11 @@ export function parseArchiveManifest(buffer: Buffer, limits: ArchiveReadLimits):
   const manifest = value as unknown as ArchiveManifest
   try { validateArchivePaths(manifest.entries, limits.maxEntries) } catch (error) {
     throw new VerifyError('UNSAFE_ENTRY', `清单路径无效：${error instanceof Error ? error.message : '未知错误'}`)
+  }
+  if (Object.hasOwn(value, 'metadata')) {
+    try { manifest.metadata = validateBackupMetadata(value.metadata, manifest.entries) } catch (error) {
+      throw new VerifyError((error as { code?: string }).code === 'VERSION_UNSUPPORTED' ? 'VERSION_UNSUPPORTED' : 'MANIFEST_INVALID', '归档范围说明无效或不受支持。')
+    }
   }
   return manifest
 }

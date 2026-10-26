@@ -10,10 +10,11 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export function collectPathReferences(store: Record<string, unknown>): StructuredPathReference[] {
+export function collectPathReferences(store: Record<string, unknown>, options: { includeNonString?: boolean } = {}): StructuredPathReference[] {
   const refs: StructuredPathReference[] = []
   const add = (container: object, field: string, storeKey: string, locator: string, kind: StructuredPathReference['kind']) => {
-    if (Object.hasOwn(container, field) && typeof Reflect.get(container, field) === 'string') refs.push({ container, field, storeKey, locator, kind })
+    const value: unknown = Reflect.get(container, field)
+    if (Object.hasOwn(container, field) && (typeof value === 'string' || (options.includeNonString && value !== null && value !== undefined))) refs.push({ container, field, storeKey, locator, kind })
   }
   for (const [storeKey, field, kind] of [['library:papers', 'pdfPath', 'pdf'], ['library:projects', 'paperDir', 'project']] as const) {
     const table = store[storeKey]
