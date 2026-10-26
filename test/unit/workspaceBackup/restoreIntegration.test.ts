@@ -193,8 +193,10 @@ it('端到端：打包真实空间 → 恢复到新目录，源空间逐字节�
   expect(after.defaultWorkspaceId).toBe('origin-space')
 
   // 保护快照存在（写前留原字节）
-  const snapshots = readdirSync(join(home, '.mimir')).filter((name) => name.includes('.pre-restore-'))
+  const snapshotDirectory = join(home, '.mimir', 'restore-registry-snapshots')
+  const snapshots = readdirSync(snapshotDirectory).filter((name) => name.includes('.pre-restore-'))
   expect(snapshots.length).toBeGreaterThanOrEqual(1)
+  for (const snapshot of snapshots) expect(readFileSync(join(snapshotDirectory, snapshot), 'utf8')).toBe(registryBefore)
   expect(registryBefore).toBe(JSON.stringify(HOME_REGISTRY, null, 2))
 })
 

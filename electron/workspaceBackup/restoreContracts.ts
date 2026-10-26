@@ -80,6 +80,8 @@ export type RestoreErrorCode =
   // 注册
   | 'REGISTER_FAILED'
   | 'REGISTRY_INVALID'
+  | 'REGISTRY_PROTECTION_FAILED'
+  | 'REGISTRY_CHANGED'
   | 'LOCK_UNAVAILABLE'
   // 控制
   | 'CONTROL_TIMEOUT'

@@ -173,9 +173,9 @@ it('重复登记不重复追加，不新增保护快照', async () => {
   const f = await pending(); f.release()
   const id = f.record().id, fresh = f.fresh()
   await fresh.register(id)
-  const before = readdirSync(join(f.homeDir, '.mimir')).filter(n => n.startsWith('store.json.pre-restore-'))
+  const before = readdirSync(join(f.homeDir, '.mimir/restore-registry-snapshots')).filter(n => n.startsWith('store.json.pre-restore-'))
   expect((await fresh.register(id)).alreadyRegistered).toBe(true)
-  expect(readdirSync(join(f.homeDir, '.mimir')).filter(n => n.startsWith('store.json.pre-restore-'))).toEqual(before)
+  expect(readdirSync(join(f.homeDir, '.mimir/restore-registry-snapshots')).filter(n => n.startsWith('store.json.pre-restore-'))).toEqual(before)
   expect(JSON.parse(readFileSync(f.registry, 'utf8'))['workspaces:list']).toHaveLength(2)
 })
 

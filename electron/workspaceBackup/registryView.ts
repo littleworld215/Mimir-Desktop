@@ -18,7 +18,10 @@ export function readRegistryOverview(home: string): RegistrySpaceView[] {
   const file = entry(path)
   if (!file) return []
   if (!file.isFile() || file.isSymbolicLink() || file.size > 64 * 1024 * 1024) throw Error('REGISTRY_INVALID')
-  const value: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  return registryOverviewFromValue(JSON.parse(readFileSync(path, 'utf8')))
+}
+/** 从同一已绑定原字节对象验证，避免追加流程重复读到不同基线。 */
+export function registryOverviewFromValue(value: unknown): RegistrySpaceView[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('REGISTRY_INVALID')
   const spaces = (value as Record<string, unknown>)['workspaces:list']
   if (spaces === undefined) return []

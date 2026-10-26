@@ -9,9 +9,10 @@
  *   同理**不使用** `saveWorkspaces`（模块私有）与 `setActiveWorkspaceId`（会改指针）。
  * - **S1 只追加**：`settings` / `servers:list` / `activeWorkspaceId` / `defaultWorkspaceId`
  *   及其它既有键**逐字保留**（整体展开后仅替换 `workspaces:list`）。
- * - **S3 本机保护快照**：写前把原文件**字节**复制为 `store.json.pre-restore-<ISO>-<短uuid>.bak`；
+ * - **S3 本机保护快照**：G-07先验证新私有目录权限，再保存原文件字节；
  *   命名**故意**不匹配保留策略的 prune 模式（prune 不得清理它）。
- * - **S4 原子写**：同目录临时文件 → `writeFileSync` → `renameSync`；失败清临时文件并上抛。
+ * - **S4 原子写**：新全局登记仅走protectedRegistry，同卷私有临时文件验证后原子发布；
+ *   writeRegistryAtomic只保留供空间JSON重映射，不承担全局权限保护。
  * - **S9 幂等重试**：`id` 已存在则 `appended:false` 直接返回，避免 retry 产生重复记录。
  * - **S7 路径只由主进程生成**：入参 `path` 必须是绝对路径，否则 `REGISTRY_INVALID`。
  *
@@ -25,12 +26,13 @@
  *    逻辑分叉。`chmodSync` 在 win32 跳过（对齐 `tightenFileMode`）。
  */
 
-import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { RestoreError } from './restoreContracts'
 import { readRegistryOverview } from './registryView'
 import { normalizeRootForMatch } from './remapRules'
+import { readRegistryForAppend, captureProtectedSnapshot, publishProtectedRegistry } from './protectedRegistry'
 
 /** 注册表文件名（本机，非空间层）。 */
 const REGISTRY_FILE_NAME = 'store.json'
@@ -85,11 +87,6 @@ function registryFilePath(homeDir: string): string {
   return join(homeDir, '.mimir', REGISTRY_FILE_NAME)
 }
 
-/** ISO 时间戳（去掉 Windows 文件名非法的 `:` 与 `.`）。 */
-function stampForFileName(date: Date): string {
-  return date.toISOString().replace(/[:.]/g, '-')
-}
-
 /**
  * 原子写 JSON：同目录临时文件 → `writeFileSync` → `renameSync`。
  *
@@ -138,43 +135,11 @@ export function writeRegistryAtomic(path: string, value: Record<string, unknown>
 /**
  * 本机保护快照：把注册表原**字节**复制一份（写前调用）。
  *
- * @returns 快照路径 `<home>/.mimir/store.json.pre-restore-<ISO>-<短uuid>.bak`
+ * @returns 已验证私有目录中的快照路径；历史平铺快照不迁移。
  * @throws RestoreError `REGISTRY_INVALID`（原文件不存在）
  */
 export function snapshotRegistryFile(homeDir: string): string {
-  const path = registryFilePath(homeDir)
-  if (!existsSync(path)) {
-    throw new RestoreError('REGISTRY_INVALID', `注册表文件不存在，无法快照：${path}`)
-  }
-  // 短 uuid 后缀：同毫秒内连续重试不会互相覆盖快照。
-  const snapshotPath = join(dirname(path), `${REGISTRY_SNAPSHOT_PREFIX}${stampForFileName(new Date())}-${randomUUID().slice(0, 8)}.bak`)
-  try {
-    copyFileSync(path, snapshotPath)
-  } catch (error) {
-    throw new RestoreError('REGISTER_FAILED', `注册表快照失败：${snapshotPath}（${(error as Error).message}）`)
-  }
-  return snapshotPath
-}
-
-/** 读取注册表**原始**对象（不用 `loadStore()`，见文件头 S2 说明）。 */
-function readRegistryRaw(homeDir: string): Record<string, unknown> {
-  const path = registryFilePath(homeDir)
-  let raw = ''
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch (error) {
-    throw new RestoreError('REGISTRY_INVALID', `注册表读取失败：${path}（${(error as Error).message}）`)
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (error) {
-    throw new RestoreError('REGISTRY_INVALID', `注册表不是合法 JSON：${path}（${(error as Error).message}）`)
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new RestoreError('REGISTRY_INVALID', `注册表顶层不是 JSON 对象：${path}`)
-  }
-  return parsed as Record<string, unknown>
+  return captureProtectedSnapshot(homeDir, readRegistryForAppend(homeDir)).path
 }
 
 /** 取出 `workspaces:list`（缺失视为空表；存在但非数组 → `REGISTRY_INVALID`）。 */
@@ -227,9 +192,8 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
 
   const path = registryFilePath(homeDir)
   // ① 原始对象（绝不走 loadStore）
-  try { readRegistryOverview(homeDir) }
-  catch { throw new RestoreError('REGISTRY_INVALID', '现有空间登记未通过检查，未修改原文件。') }
-  const registry = readRegistryRaw(homeDir)
+  const source = readRegistryForAppend(homeDir)
+  const registry = source.value
   // ② 判重（**先于**快照：幂等命中不写盘，就没有需要保护的变更）
   const spaces = readSpacesList(registry, path)
   if (spaces.some(space => !space || typeof space !== 'object' || Array.isArray(space))) throw new RestoreError('REGISTRY_INVALID', '空间登记条目格式不正确。')
@@ -243,7 +207,8 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
     return { appended: false, snapshotPath: '', spaces: spaces.length }
   }
   // ③ 本机保护快照（仅在确定要写盘之后拍，避免 retry 堆积无用快照）
-  const snapshotPath = snapshotRegistryFile(homeDir)
+  const snapshot = captureProtectedSnapshot(homeDir, source)
+  const snapshotPath = snapshot.path
 
   // ④ 只替换 workspaces:list；其余键（settings / servers:list / active / default …）逐字保留。
   const record: Record<string, unknown> = {
@@ -256,7 +221,7 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
   const next: Record<string, unknown> = { ...registry, 'workspaces:list': [...spaces, record] }
 
   // ⑤ 原子写（失败上抛 REGISTER_FAILED）
-  writeRegistryAtomic(path, next)
+  publishProtectedRegistry(homeDir, next, source, snapshot)
 
   // ⑥ 复核：新 id 必须出现在注册表概览里（读不到 = 注册未完成，绝不静默成功）。
   let view: Array<{ id: string; name: string }> = []

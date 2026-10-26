@@ -289,7 +289,8 @@ it('home 下不出现除 .mimir 之外的目录（未创建默认空间、未 lo
   const inside = readdirSync(join(root, '.mimir')).sort()
   expect(inside).toHaveLength(2)
   expect(inside).toContain('store.json')
-  expect(inside).toContain(outcome.snapshotPath.split(/[\\/]/).pop())
+  expect(inside).toContain('restore-registry-snapshots')
+  expect(readdirSync(join(root, '.mimir', 'restore-registry-snapshots'))).toContain(outcome.snapshotPath.split(/[\\/]/).pop())
 })
 
 it('空注册表（无 workspaces:list）也能只追加，不创建默认空间', async () => {
