@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { RestoreError } from './restoreContracts'
 import { assertRestoreDirectory, restoreRootIdentity, sameRestorePath, type RestoreFingerprint, type RestoreRootIdentity } from './restoreFingerprint'
 import { stagingPathFor } from './stagingRoot'
+import { publishInitialJournal } from './journalPublication'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const phases = ['prepared', 'inspecting', 'extracting', 'verifying', 'verified', 'publishing', 'published', 'registering', 'registered', 'interrupted', 'cleaning', 'cleaned'] as const
@@ -117,6 +118,11 @@ export class RestoreJournal {
       this.assertDirectory(true)
       const raw = JSON.stringify(record)
       if (Buffer.byteLength(raw) > 65536) throw invalid()
+      if (initial && process.platform === 'win32') {
+        // 首次发布器独占temp及占位清理权，旧finally不得按名称再次删除。
+        publishInitialJournal({ file, temp, bytes: Buffer.from(raw), assertDirectory: () => { this.assertDirectory(false) }, cleanupFailed: markMaintenanceCleanupFailure })
+        return
+      }
       fd = openSync(temp, 'wx', 0o600)
       writeFileSync(fd, raw, 'utf8'); fsyncSync(fd)
       try { closeSync(fd) } catch (error) { markMaintenanceCleanupFailure(); throw error }
@@ -126,7 +132,7 @@ export class RestoreJournal {
     } catch { throw new RestoreError('RECHECK_FAILED', '恢复操作记录未能安全保存，已阻止继续写入。') }
     finally {
       if (fd !== undefined) { try { closeSync(fd) } catch { markMaintenanceCleanupFailure() } }
-      if (existsSync(temp)) { try { unlinkSync(temp) } catch { markMaintenanceCleanupFailure() } }
+      if (!(initial && process.platform === 'win32') && existsSync(temp)) { try { unlinkSync(temp) } catch { markMaintenanceCleanupFailure() } }
     }
   }
   /** Windows共享拒绝可能短暂阻止替换；只重试相同原字节/修订和相同暂存文件。 */

@@ -11,11 +11,40 @@ import { RestoreError } from '../../../electron/workspaceBackup/restoreContracts
 import type { RestoreAdapterOptions } from '../../../electron/workspaceBackup/restoreAdapter'
 import { MaintenanceTaskManager } from '../../../electron/workspaceBackup/maintenanceTask'
 
-const fault = vi.hoisted(() => ({ assetLockAtRegisterCommit: false, denyJournal: false }))
+const fault = vi.hoisted(() => ({
+  assetLockAtRegisterCommit: false, denyJournal: false,
+  initial: '' as '' | 'reserve' | 'write' | 'sync' | 'close' | 'rename' | 'capture',
+  paths: new Map<number, string>(), inspectCalls: 0, stagingCalls: 0, appendCalls: 0
+}))
 vi.mock('node:fs', async importOriginal => {
   const fs = await importOriginal<typeof import('node:fs')>()
   const path = await import('node:path')
-  return { ...fs, renameSync: (from: string, to: string) => {
+  const failure = (code: string) => Object.assign(Error('synthetic initial journal fault'), { code })
+  return { ...fs, openSync: (...args: Parameters<typeof fs.openSync>) => {
+    const file = String(args[0])
+    if (fault.initial === 'reserve' && file.includes('restore-operations') && file.endsWith('.json') && args[1] === 'wx') throw failure('EEXIST')
+    const fd = fs.openSync(...args)
+    if (file.includes('restore-operations')) fault.paths.set(fd, file)
+    return fd
+  }, fstatSync: (fd: number, options?: { bigint?: boolean }) => {
+    if (fault.initial === 'capture' && fault.paths.has(fd)) throw failure('EIO')
+    return fs.fstatSync(fd, options)
+  }, writeFileSync: (...args: Parameters<typeof fs.writeFileSync>) => {
+    if (fault.initial === 'write' && typeof args[0] === 'number' && fault.paths.has(args[0])) {
+      fs.writeSync(args[0], 'partial')
+      throw failure('ENOSPC')
+    }
+    return fs.writeFileSync(...args)
+  }, fsyncSync: (fd: number) => {
+    if (fault.initial === 'sync' && fault.paths.has(fd)) throw failure('ENOSPC')
+    fs.fsyncSync(fd)
+  }, closeSync: (fd: number) => {
+    const journal = fault.paths.has(fd)
+    fault.paths.delete(fd)
+    fs.closeSync(fd)
+    if (fault.initial === 'close' && journal) throw failure('EIO')
+  }, renameSync: (from: string, to: string) => {
+    if (fault.initial === 'rename' && to.includes('restore-operations')) throw failure('EPERM')
     if (fault.denyJournal && to.includes('restore-operations')) throw Object.assign(Error('synthetic journal write failure'), { code: 'ENOSPC' })
     fs.renameSync(from, to)
     if (fault.assetLockAtRegisterCommit && to.includes('restore-operations') && to.endsWith('.json')) {
@@ -27,12 +56,23 @@ vi.mock('node:fs', async importOriginal => {
     }
   } }
 })
+vi.mock('../../../electron/workspaceBackup/restoreAdapter', async original => {
+  const mod = await original<typeof import('../../../electron/workspaceBackup/restoreAdapter')>()
+  return { ...mod, createMaintenanceRestoreSteps: (...args: Parameters<typeof mod.createMaintenanceRestoreSteps>) => {
+    const steps = mod.createMaintenanceRestoreSteps(...args)
+    return { ...steps,
+      inspect: (...input: Parameters<typeof steps.inspect>) => { fault.inspectCalls++; return steps.inspect(...input) },
+      createStaging: (...input: Parameters<typeof steps.createStaging>) => { fault.stagingCalls++; return steps.createStaging(...input) }
+    }
+  } }
+})
 
 const roots: string[] = []
 const leases: Array<{ release(): void }> = []
 afterEach(() => {
   fault.assetLockAtRegisterCommit = false
   fault.denyJournal = false
+  fault.initial = ''; fault.paths.clear(); fault.inspectCalls = 0; fault.stagingCalls = 0; fault.appendCalls = 0
   for (const lease of leases.splice(0)) { try { lease.release() } catch { /* negative lock-replacement probe */ } }
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -59,6 +99,7 @@ async function fixture() {
   const options = {
     homeDir, assertUsable: () => { if (!writable) throw Error('blocked') }, lockRoot,
     append: (input: Parameters<typeof appendWorkspaceRecord>[1]) => {
+      fault.appendCalls++
       if (failAppend) throw new RestoreError('REGISTER_FAILED', 'synthetic append fault')
       const result = appendWorkspaceRecord(homeDir, input)
       if (failAfterAppend) throw new RestoreError('REGISTER_FAILED', 'synthetic receipt fault')
@@ -76,6 +117,42 @@ async function fixture() {
   return { root, homeDir, source, targetRoot, archivePath, registry, original, recovery, fresh, run, recordFile, record, release, unchanged,
     setWritable: (v: boolean) => { writable = v }, setFailAppend: (v: boolean) => { failAppend = v }, setFailAfterAppend: (v: boolean) => { failAfterAppend = v } }
 }
+it.runIf(process.platform === 'win32').each(['reserve', 'write', 'sync', 'close', 'rename', 'capture'] as const)('Windows首次记录%s失败不进入任何恢复业务步骤', async stage => {
+  const f = await fixture(), before = readFileSync(f.registry), tasks = new MaintenanceTaskManager()
+  fault.initial = stage
+  const result = await tasks.run('restore', async () => {
+    const outcome = await f.run()
+    return { ok: outcome.failure === null, code: outcome.failure?.code }
+  })
+  expect(result).toMatchObject({ ok: false, code: ['write', 'close', 'capture'].includes(stage) ? 'TASK_CLEANUP_FAILED' : 'LOCK_UNAVAILABLE' })
+  expect(fault.inspectCalls).toBe(0)
+  expect(fault.stagingCalls).toBe(0)
+  expect(fault.appendCalls).toBe(0)
+  expect(existsSync(f.targetRoot)).toBe(false)
+  expect(readdirSync(f.root).some(name => name.startsWith('.mimir-restore-staging-'))).toBe(false)
+  expect(readFileSync(f.registry)).toEqual(before)
+  f.unchanged()
+})
+it('空或较新损坏记录重启仅报告invalid，完整prepared仅报告no-output，均不写空间', async () => {
+  const f = await fixture()
+  const { RestoreJournal } = await import('../../../electron/workspaceBackup/restoreJournal')
+  const journal = new RestoreJournal(f.homeDir), record = journal.create(f.targetRoot, '合成待开始')
+  const before = readFileSync(f.registry), samples = ['', 'broken', JSON.stringify({ ...record, version: 99 })]
+  const paths = samples.map((bytes, index) => {
+    const file = join(journal.directory, `00000000-0000-4000-8000-${String(index).padStart(12, '0')}.json`)
+    writeFileSync(file, bytes); return file
+  })
+  const view = await f.fresh().list()
+  expect(view.invalidRecords).toBe(3)
+  expect(view.items).toHaveLength(1)
+  expect(view.items[0]).toMatchObject({ operationId: record.id, status: 'no-output' })
+  expect(journal.read(record.id)).toEqual(record)
+  expect(paths.map(file => readFileSync(file, 'utf8'))).toEqual(samples)
+  expect(existsSync(record.stagingRoot)).toBe(false)
+  expect(existsSync(f.targetRoot)).toBe(false)
+  expect(readFileSync(f.registry)).toEqual(before)
+  f.unchanged()
+})
 it('取消后的目录定位失败须报告收尾失败并保留两处现场', async () => {
   const f = await fixture(), tasks = new MaintenanceTaskManager()
   let moved = ''

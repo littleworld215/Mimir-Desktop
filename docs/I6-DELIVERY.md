@@ -1,5 +1,9 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+<!-- JOURNAL-PUBLICATION-STATUS -->
+2026-10-27批次（2026-10-28收齐验证）：Windows恢复记录首次发布修复已完成源码与本机合成验证。独占空占位、文件/完整父链身份及原字节重验后原子替换；已有记录不覆盖，未知残留保留，关闭/清理失败明确报告。最终默认完整类型/测试/构建exit0，2662通过/9既有跳过（2671项、294文件）；开发/最终独立包各52/52、零重试exit0，单/四进程500份及2000次更新无最终失败。一次静态复核集中修复已留RED/GREEN，不称独立运行QA；源码提交见实际记录，日常仍20261027-g08-01，I5/I6/I10条件验收保持。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-journal-initial-publication-fix-20261027.md)。
+<!-- /JOURNAL-PUBLICATION-STATUS -->
+
 <!-- I6-V15-STATUS -->
 2026-10-27 V15恢复目录安全修复：拒绝目标与源、已登记空间及控制目录重叠；实际junction反例已集中修复，定向52/52。最终单worker完整类型/测试/构建exit0，2628通过、9既有跳过（2637项、292文件）；开发及独立新目录包的受影响恢复组合各50/50，零重试exit0，双ABI各7/7。默认四worker原失败保留；本项源码与候选包已验证，日常安装未更新。初始记录发布短设计另行待审，未实现，不合并为已修复。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-target-safety-20261027.md)。
 <!-- /I6-V15-STATUS -->

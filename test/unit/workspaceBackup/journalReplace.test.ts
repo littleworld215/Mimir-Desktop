@@ -23,6 +23,7 @@ function fixture() {
   const home = mkdtempSync(join(tmpdir(), 'mimir-journal-replace-')); roots.push(home)
   mkdirSync(join(home, '.mimir'))
   const journal = new RestoreJournal(home), record = journal.create(join(home, 'restored'), '合成空间')
+  control.attempts = 0
   const file = join(journal.directory, `${record.id}.json`), before = readFileSync(file)
   return { journal, record, file, before }
 }
