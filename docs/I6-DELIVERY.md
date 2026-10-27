@@ -1,5 +1,11 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+<!-- JOURNAL-DEPLOYMENT-20261028 -->
+2026-10-28：首次发布修复产品4f87deb已完成备份优先部署，日常独立目录现为20261028-journal-01。566文件摘要一致；实际安装8/8、与两代旧版互斥2/2，均零重试exit0；原profile入口和维护取消通过。配置/profile/空间原始副本及23条目正式备份均保留，未结束进程或处理残锁；注册与科研业务字节不变，公开会议缓存刷新单列。Windows Shell两入口正常启动并复用同一主进程，真实屏幕观察待用户确认。旧G08保留可回退；I5/I6/I10及真实课题剩余验收保持。以下历史条目的“未部署”和旧日常版本只描述当时批次，当前状态以此段为准。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-journal-20261028.md)。
+<!-- /JOURNAL-DEPLOYMENT-20261028 -->
+
+本轮仅更新交付说明，重新执行类型检查、默认全量测试及构建均exit0：2662通过/9既有跳过（2671项、294文件），216.41秒；43个重建文件与已安装产物审计一致。当前产品代码仍为4f87deb，未借文档提交改动运行中配置。
+
 <!-- JOURNAL-PUBLICATION-STATUS -->
 2026-10-27批次（2026-10-28收齐验证）：Windows恢复记录首次发布修复已完成源码与本机合成验证。独占空占位、文件/完整父链身份及原字节重验后原子替换；已有记录不覆盖，未知残留保留，关闭/清理失败明确报告。最终默认完整类型/测试/构建exit0，2662通过/9既有跳过（2671项、294文件）；开发/最终独立包各52/52、零重试exit0，单/四进程500份及2000次更新无最终失败。一次静态复核集中修复已留RED/GREEN，不称独立运行QA；源码提交见实际记录，日常仍20261027-g08-01，I5/I6/I10条件验收保持。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-journal-initial-publication-fix-20261027.md)。
 <!-- /JOURNAL-PUBLICATION-STATUS -->
