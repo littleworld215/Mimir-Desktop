@@ -68,8 +68,8 @@ test('真实系统重启进入同profile维护，备份合成空间并释放维�
         ? Promise.resolve(new Response('- title: SYNTHETIC\n  confs:\n    - id: s2026\n      year: 2026\n'))
         : actualFetch(input, init)
     })
-    await expect.poll(async () => { if (spawnError) throw spawnError; return endpoint() }, { timeout: 20_000 }).not.toBe('')
-    const originalEndpoint = await endpoint()
+    let originalEndpoint = ''
+    await expect.poll(async () => { if (spawnError) throw spawnError; originalEndpoint = await endpoint(); return originalEndpoint }, { timeout: 20_000 }).not.toBe('')
     browser = await chromium.connectOverCDP(originalEndpoint)
     await expect.poll(() => browser!.contexts()[0]?.pages().length ?? 0).toBeGreaterThan(0)
     const cache = join(seed.workspaces[0]!.path, '.mimir/venue-deadlines.cache.json')
@@ -90,8 +90,9 @@ test('真实系统重启进入同profile维护，备份合成空间并释放维�
     await page.screenshot({ path: testInfo.outputPath('maintenance-confirmation.png') })
     await page.getByRole('button', { name: '关闭工作台并进入维护', exact: true }).click()
     await expect.poll(() => child.exitCode, { timeout: 20_000 }).toBe(0)
-    await expect.poll(async () => { const value = await endpoint(); return value && value !== originalEndpoint ? value : '' }, { timeout: 20_000 }).not.toBe('')
-    browser = await chromium.connectOverCDP(await endpoint())
+    let maintenanceEndpoint = ''
+    await expect.poll(async () => { const value = await endpoint(); maintenanceEndpoint = value && value !== originalEndpoint ? value : ''; return maintenanceEndpoint }, { timeout: 20_000 }).not.toBe('')
+    browser = await chromium.connectOverCDP(maintenanceEndpoint)
     await expect.poll(() => browser!.contexts()[0]?.pages().length ?? 0).toBeGreaterThan(0)
     const maintenancePage = browser.contexts()[0]!.pages()[0]!
     await expect(maintenancePage.getByRole('heading', { name: '备份与恢复维护窗口', exact: true })).toBeVisible()

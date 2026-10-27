@@ -35,6 +35,8 @@ export const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 export interface LaunchOptions {
   /** 仅合成维护回归：允许原生选择桩采用隔离根内的建议位置。产品不读取此选项。 */
   maintenanceRestoreSuggestions?: boolean
+  /** 仅合成维护恢复的显式范围继续；默认仍拒绝，且须先选中隔离根内的归档和目标。 */
+  maintenanceRestoreScope?: boolean
   /** 仅显式人工验收保留真实确认框；默认自动测试继续固定拒绝。 */
   nativeMessageBoxes?: boolean
   /** Explicit packaged executable; no development main entry is passed. */
@@ -159,6 +161,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     await app.evaluate(
       async ({ dialog }, payload) => {
         const paths = process.getBuiltinModule('path') as typeof import('node:path')
+        let selectedArchive: string | undefined, selectedTarget: string | undefined
         const suggestion = (value: unknown): string | undefined => {
           if (!payload.maintenanceRestoreSuggestions || typeof value !== 'string' || !paths.isAbsolute(value)) return
           const relative = paths.relative(payload.isolationRoot, paths.resolve(value))
@@ -169,6 +172,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
           const options = args[args.length - 1] as { title?: string; defaultPath?: string }
           if (payload.maintenanceRestoreSuggestions && options.title === '选择要恢复的备份归档') {
             const path = suggestion(options.defaultPath)
+            selectedArchive = path
             return { canceled: !path, filePaths: path ? [path] : [] }
           }
           return { canceled: false, filePaths: payload.openPaths }
@@ -179,17 +183,25 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
           const options = args[args.length - 1] as { title?: string; defaultPath?: string }
           if (payload.maintenanceRestoreSuggestions && options.title === '选择尚不存在的新空间目录') {
             const path = suggestion(options.defaultPath)
+            selectedTarget = path
             return { canceled: !path, filePath: path }
           }
           return { canceled: false, filePath: payload.savePath }
         }
         dialog.showSaveDialogSync = () => payload.savePath
         if (!payload.nativeMessageBoxes) {
-          dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
+          dialog.showMessageBox = async (...args: unknown[]) => {
+            const options = args[args.length - 1] as { title?: string; defaultId?: number; cancelId?: number; buttons?: string[] }
+            if (payload.maintenanceRestoreScope && options.title === '恢复范围确认') {
+              if (!selectedArchive || !selectedTarget || options.defaultId !== 0 || options.cancelId !== 0 || options.buttons?.[0] !== '取消' || options.buttons?.[2] !== '继续恢复') throw Error('Synthetic restore scope not authorized')
+              return { response: 2, checkboxChecked: false }
+            }
+            return { response: 0, checkboxChecked: false }
+          }
           dialog.showMessageBoxSync = () => 0
         }
       },
-      { openPaths, savePath, nativeMessageBoxes: options.nativeMessageBoxes === true, isolationRoot: tempHome.root, maintenanceRestoreSuggestions: options.maintenanceRestoreSuggestions === true }
+      { openPaths, savePath, nativeMessageBoxes: options.nativeMessageBoxes === true, isolationRoot: tempHome.root, maintenanceRestoreSuggestions: options.maintenanceRestoreSuggestions === true, maintenanceRestoreScope: options.maintenanceRestoreScope === true }
     )
 
     const page = firstWindow

@@ -1,5 +1,5 @@
 /** 注册凭据专用I/O；绝不替换空间JSON的通用写入器。 */
-import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync, type BigIntStats } from 'node:fs'
+import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync, type BigIntStats } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { RestoreError } from './restoreContracts'
@@ -110,12 +110,14 @@ function preserveError(error: unknown): never { if (error instanceof RestoreErro
 /** 空私有目录先保护/回读；快照发布前核对原字节，历史快照从不迁移或修权。 */
 export function captureProtectedSnapshot(homeDir: string, source: RegistrySourceReceipt): ProtectedSnapshotReceipt {
   const aclDeadline = performance.now() + 10_000, directory = join(homeDir, '.mimir', REGISTRY_PRIVATE_DIRECTORY)
+  let createdIdentity: string | undefined
   try {
     assertSource(homeDir, source)
     let created = false
     try { mkdirSync(directory, { mode: 0o700 }); created = true }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
     const before = identity(assertPlainRegistryPath(directory, 'directory'))
+    if (created) createdIdentity = before
     if (created) protectNewPrivateDirectory(directory, aclDeadline)
     else verifyPrivatePath(directory, 'directory', aclDeadline)
     if (identity(assertPlainRegistryPath(directory, 'directory')) !== before) throw changed()
@@ -123,7 +125,19 @@ export function captureProtectedSnapshot(homeDir: string, source: RegistrySource
     const path = join(directory, `store.json.pre-restore-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.bak`)
     const receipt = writeCredentialFile(path, source.bytes, aclDeadline)
     return { path, stamp: receipt.stamp, sourceSha256: source.sha256, aclDeadline, directoryIdentity: before }
-  } catch (error) { preserveError(error) }
+  } catch (error) {
+    // 初次保护失败时允许重试；绝不修复/删除既有目录，或递归清理未知内容。
+    if (createdIdentity) {
+      try {
+        if (identity(assertPlainRegistryPath(directory, 'directory')) === createdIdentity
+          && readdirSync(directory).length === 0
+          && identity(assertPlainRegistryPath(directory, 'directory')) === createdIdentity) rmdirSync(directory)
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') markMaintenanceCleanupFailure()
+      }
+    }
+    preserveError(error)
+  }
 }
 
 /** 同卷原子发布后若验证失败，报告失败并保留真实状态，不假装回滚。 */
@@ -151,6 +165,8 @@ export function publishProtectedRegistry(homeDir: string, next: Record<string, u
     if (fileIdentity(actual.stamp) !== fileIdentity(prepared.stamp) || actual.sha256 !== prepared.sha256) throw changed()
   } catch (error) {
     if (!published && prepared) unlinkOwned(temp, fileIdentity(prepared.stamp))
+    if (published) throw new RestoreError(error instanceof RestoreError ? error.code : 'REGISTER_FAILED',
+      '新空间登记已发布，但最终权限或内容复核未完成；原字节快照和恢复资料均保留，请重新检查维护记录。')
     preserveError(error)
   }
 }

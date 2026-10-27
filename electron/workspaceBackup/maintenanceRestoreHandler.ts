@@ -181,7 +181,9 @@ export function buildRestoreHandler(deps: RestoreHandlerDeps): RestoreHandler {
         }
       } catch (error) {
         const code = (error as { code?: string }).code
-        return { ok: false, code: code && ['INVALID_REQUEST', 'TARGET_EXISTS', 'INVALID_TARGET', 'CANCELLED', 'VERSION_UNSUPPORTED', 'MANIFEST_INVALID', 'RECHECK_FAILED'].includes(code) ? code : 'SELECTION_CHANGED', detail: '恢复选择或范围说明未通过确认，未开始恢复，请重新选择并检查归档。', retryable: false }
+        return { ok: false, code: code && ['INVALID_REQUEST', 'TARGET_EXISTS', 'INVALID_TARGET', 'CANCELLED', 'VERSION_UNSUPPORTED', 'MANIFEST_INVALID', 'RECHECK_FAILED',
+          'OPEN_FAILED', 'READ_FAILED', 'ENTRY_LIMIT', 'MANIFEST_LIMIT', 'TOTAL_LIMIT', 'LIMIT_INVALID', 'MANIFEST_MISSING',
+          'UNSAFE_ENTRY', 'DUPLICATE_ENTRY', 'MISSING_ENTRY', 'EXTRA_ENTRY', 'SIZE_MISMATCH', 'DIGEST_MISMATCH', 'PATH_ESCAPE'].includes(code) ? code : 'SELECTION_CHANGED', detail: '恢复选择或范围说明未通过确认，未开始恢复，请重新选择并检查归档。', retryable: false }
       }
     }
     // ① 规范化（§4.2 S7）。空值就地拒绝 —— 注意：此时**尚未取锁、未建任何目录**。

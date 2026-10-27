@@ -40,6 +40,17 @@ it('旧格式1无metadata仍合法', () => {
   expect(old).not.toHaveProperty('metadata')
 })
 
+it.each([
+  { ...metadata(), producer: { ...metadata().producer, platform: ['win32'] } },
+  { ...metadata(), external: { coverage: ['unknown'], reason: 'missing-store', unresolved: 0, references: [] } },
+  { ...metadata(), external: { coverage: 'unknown', reason: ['missing-store'], unresolved: 0, references: [] } },
+  { ...metadata(), external: { coverage: 'known-structured-fields', unresolved: 0, references: [
+    { storeKey: 'library:papers', locator: 'synthetic', field: 'pdfPath', kind: ['pdf'], target: 'Q:/synthetic.pdf', status: 'not-included-unchecked' }
+  ] } }
+])('声明中的枚举数组不能通过字符串强转伪装成有效说明 %j', value => {
+  expect(() => parse(value)).toThrowError(expect.objectContaining({ code: 'MANIFEST_INVALID' }))
+})
+
 it('缺失字段只能在旧清单分支处理；纯校验不接受undefined或稀疏数组', () => {
   expect(() => validateBackupMetadata(undefined, [])).toThrow()
   expect(() => validateBackupMetadata({ ...metadata(), excluded: new Array(1) }, [])).toThrow()

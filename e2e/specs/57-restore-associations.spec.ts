@@ -29,7 +29,7 @@ for (const scenario of ['source-id', 'legacy-unique', 'legacy-ambiguous', 'snaps
     let sourceRoot = '', sourceId = ''
     const paperId = 'doi:10.1/g04', title = 'G04合成文献'
     const pdfName = `${encodeURIComponent(paperId)}.pdf`
-    const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
+    const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
       sourceRoot = seed.workspaces[0].path; sourceId = seed.workspaces[0].id
       const project = join(sourceRoot, '科研项目'), artifact = join(sourceRoot, 'outputs/产物.txt')
       return { ...seed, spaceData: {

@@ -16,14 +16,14 @@ export function validateBackupMetadata(value: unknown, entries: readonly Manifes
   if (value.version !== 1) fail('VERSION_UNSUPPORTED')
   fields(value.producer, ['application', 'version', 'platform'])
   if (value.producer.application !== 'Mimir-Desktop' || (value.producer.version !== null && !text(value.producer.version, 64))
-    || !['win32', 'darwin', 'linux', 'unknown'].includes(String(value.producer.platform))) fail()
+    || typeof value.producer.platform !== 'string' || !['win32', 'darwin', 'linux', 'unknown'].includes(value.producer.platform)) fail()
   if (!size(value.maxFileBytes) || value.exclusionPolicyVersion !== 1 || !Array.isArray(value.excluded)) fail()
   fields(value.external, ['coverage', 'unresolved', 'references'], ['reason'])
   const external = value.external
-  if (!['known-structured-fields', 'unknown'].includes(String(external.coverage)) || !size(external.unresolved)
+  if (typeof external.coverage !== 'string' || !['known-structured-fields', 'unknown'].includes(external.coverage) || !size(external.unresolved)
     || !Array.isArray(external.references) || value.excluded.length + external.references.length > 100_000) fail()
   if (external.coverage === 'known-structured-fields' ? external.reason !== undefined || external.unresolved !== 0
-    : !['missing-store', 'invalid-store', 'oversize-store', 'ambiguous-reference'].includes(String(external.reason))) fail()
+    : typeof external.reason !== 'string' || !['missing-store', 'invalid-store', 'oversize-store', 'ambiguous-reference'].includes(external.reason)) fail()
   const excludedPaths: { path: string; kind: 'file' }[] = []
   for (const item of value.excluded) {
     fields(item, ['path', 'reason', 'size', 'defaultDisposition'])
@@ -37,7 +37,7 @@ export function validateBackupMetadata(value: unknown, entries: readonly Manifes
   for (const item of external.references) {
     fields(item, ['storeKey', 'locator', 'field', 'kind', 'target', 'status'])
     if (!text(item.storeKey, 2048) || !text(item.locator, 2048) || !text(item.field, 2048) || !text(item.target, 32768)
-      || !['pdf', 'project', 'artifact'].includes(String(item.kind)) || item.status !== 'not-included-unchecked') fail()
+      || typeof item.kind !== 'string' || !['pdf', 'project', 'artifact'].includes(item.kind) || item.status !== 'not-included-unchecked') fail()
     const identity = JSON.stringify([item.storeKey, item.locator, item.field])
     if (identities.has(identity)) fail()
     identities.add(identity)

@@ -18,7 +18,7 @@ function contents(root: string) {
 }
 async function prepare() {
   let source = '', sourceId = ''
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
     source = seed.workspaces[0].path; sourceId = seed.workspaces[0].id
     return { ...seed, spaceData: { 'g05-synthetic': '合成科研资料', unknown: { original: source } } }
   } })
@@ -157,10 +157,10 @@ test('登记失败后真实重启，从界面复核同一目录和UUID，不重�
     expect(registry['workspaces:list']).toHaveLength(2)
     expect(registry['workspaces:list'][1]).toMatchObject({ id: record.spaceId, path: f.targetRoot })
     expect(contents(f.targetRoot)).toEqual(before)
-    const snapshots = readdirSync(join(ctx.tempHome.home, '.mimir')).filter(n => n.startsWith('store.json.pre-restore-'))
+    const snapshots = readdirSync(join(ctx.tempHome.home, '.mimir/restore-registry-snapshots')).filter(n => n.startsWith('store.json.pre-restore-'))
     const duplicate = await restarted.page.evaluate(async operationId => window.workspaceBackupMaintenance.recoveryAction!({ operationId, action: 'register' }), record.id)
     expect(duplicate).toMatchObject({ ok: true, alreadyRegistered: true, spaceId: record.spaceId })
-    expect(readdirSync(join(ctx.tempHome.home, '.mimir')).filter(n => n.startsWith('store.json.pre-restore-'))).toEqual(snapshots)
+    expect(readdirSync(join(ctx.tempHome.home, '.mimir/restore-registry-snapshots')).filter(n => n.startsWith('store.json.pre-restore-'))).toEqual(snapshots)
     unchanged(f)
   } finally { if (restarted) await restarted.app.close(); await ctx.cleanup() }
 })

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { appendWorkspaceRecord } from '../../../electron/workspaceBackup/registryAppend'
 import { captureProtectedSnapshot, publishProtectedRegistry, readRegistryForAppend } from '../../../electron/workspaceBackup/protectedRegistry'
 
-const control = vi.hoisted(() => ({ deny: false, denyPublished: false, io: '', files: new Map<number, string>(), onNative: undefined as (() => void) | undefined }))
+const control = vi.hoisted(() => ({ deny: false, denyPublished: false, tamperPublished: false, io: '', files: new Map<number, string>(), onNative: undefined as (() => void) | undefined }))
 vi.mock('node:fs', async original => {
   const fs = await original<typeof import('node:fs')>()
   return { ...fs,
@@ -40,6 +40,7 @@ vi.mock('node:child_process', async original => {
     if (options?.env?.MIMIR_REGISTRY_ACL_PATH) {
       if (control.deny || (control.denyPublished && options.env.MIMIR_REGISTRY_ACL_PATH.replace(/\\/g, '/').endsWith('/.mimir/store.json'))) return { pid: 0, output: [null, '', ''], stdout: '', stderr: 'synthetic denied', status: 1, signal: null }
       const result = cp.spawnSync(file, args, options)
+      if (control.tamperPublished && options.env.MIMIR_REGISTRY_ACL_PATH.replace(/\\/g, '/').endsWith('/.mimir/store.json')) writeFileSync(options.env.MIMIR_REGISTRY_ACL_PATH, 'CHANGED-AFTER-PUBLISH-SYNTHETIC')
       const callback = control.onNative; control.onNative = undefined; callback?.()
       return result
     }
@@ -58,7 +59,7 @@ function fixture() {
   return { home, registry, original, input }
 }
 afterEach(() => {
-  control.deny = false; control.denyPublished = false; control.io = ''; control.files.clear(); control.onNative = undefined
+  control.deny = false; control.denyPublished = false; control.tamperPublished = false; control.io = ''; control.files.clear(); control.onNative = undefined
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -69,6 +70,15 @@ it('Windows权限设置或回读失败时原登记不变，未保护的父目录
   expect(readFileSync(f.registry)).toEqual(f.original)
   const names = readdirSync(join(f.home, '.mimir'))
   expect(names.filter(n => n !== 'store.json' && n !== 'restore-registry-snapshots')).toEqual([])
+})
+
+it('初次空目录保护失败后可重新登记，不自动修复既有目录', () => {
+  if (process.platform !== 'win32') return
+  const f = fixture(); control.deny = true
+  expect(() => appendWorkspaceRecord(f.home, f.input)).toThrow()
+  expect(readFileSync(f.registry)).toEqual(f.original)
+  control.deny = false
+  expect(appendWorkspaceRecord(f.home, f.input)).toMatchObject({ appended: true })
 })
 
 it('快照位于私有目录且逐字节保留原文，追加不改原配置或激活指针', () => {
@@ -121,7 +131,9 @@ it.each(['write', 'sync', 'close', 'rename'])('%s失败不改原登记，已恢�
 it('登记已发布后的权限回读失败不假装回滚，已验证原字节快照仍保留', () => {
   if (process.platform !== 'win32') return
   const f = fixture(); control.denyPublished = true
-  expect(() => appendWorkspaceRecord(f.home, f.input)).toThrowError(expect.objectContaining({ code: 'REGISTRY_PROTECTION_FAILED' }))
+  let failure: unknown
+  try { appendWorkspaceRecord(f.home, f.input) } catch (error) { failure = error }
+  expect(failure).toMatchObject({ code: 'REGISTRY_PROTECTION_FAILED', message: expect.stringContaining('登记已发布') })
   expect(JSON.parse(readFileSync(f.registry, 'utf8'))['workspaces:list']).toEqual([f.input])
   const directory = join(f.home, '.mimir', 'restore-registry-snapshots')
   const snapshots = readdirSync(directory).filter(n => n.endsWith('.bak'))
@@ -137,6 +149,19 @@ it('同名独占创建冲突不覆盖或删除已有文件', () => {
   const files = readdirSync(directory)
   expect(files).toHaveLength(1)
   expect(readFileSync(join(directory, files[0]), 'utf8')).toBe('FOREIGN-SYNTHETIC')
+})
+
+it('登记发布后内容核对失败回执明确已发布，保留外来改写及原字节快照', () => {
+  if (process.platform !== 'win32') return
+  const f = fixture(); control.tamperPublished = true
+  let failure: unknown
+  try { appendWorkspaceRecord(f.home, f.input) } catch (error) { failure = error }
+  expect(failure).toMatchObject({ code: 'REGISTRY_CHANGED', message: expect.stringContaining('登记已发布') })
+  expect(readFileSync(f.registry, 'utf8')).toBe('CHANGED-AFTER-PUBLISH-SYNTHETIC')
+  const directory = join(f.home, '.mimir', 'restore-registry-snapshots')
+  const files = readdirSync(directory).filter(n => n.endsWith('.bak'))
+  expect(files).toHaveLength(1)
+  expect(readFileSync(join(directory, files[0]))).toEqual(f.original)
 })
 
 it('登记沿用捕获快照的截止点，过期后不重新获得ACL预算', () => {

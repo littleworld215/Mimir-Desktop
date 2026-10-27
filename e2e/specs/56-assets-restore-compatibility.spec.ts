@@ -25,7 +25,7 @@ for (const scenario of [0, 1, 2, 3, 4, 'future', 'missing-history', 'invalid-own
   test(`真实维护恢复资产库 ${scenario}：版本/历史附件与源资料保护`, async () => {
     let sourceRoot = ''
     const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED,
-      maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => { sourceRoot = seed.workspaces[0].path; return seed }
+      maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => { sourceRoot = seed.workspaces[0].path; return seed }
     })
     try {
       if (process.env.MIMIR_E2E_PACKAGED) await ctx.app.evaluate((_electron, cwd) => process.chdir(cwd), ctx.tempHome.root)

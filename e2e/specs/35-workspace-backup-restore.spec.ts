@@ -37,7 +37,7 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
   const ordinaryFiles = ['notes/实验-journal', '.hidden/项目-wal/记录.txt', 'other/cache.db-shm']
   const ctx = await launchApp({
     executablePath: process.env.MIMIR_E2E_PACKAGED,
-    maintenanceRestoreSuggestions: true, extraArgs: ['--workspace-maintenance'],
+    maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'],
     transformSeed: seed => {
       sourceRoot = seed.workspaces[0].path
       return { ...seed, spaceData: {

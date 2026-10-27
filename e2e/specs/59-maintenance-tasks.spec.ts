@@ -25,6 +25,13 @@ async function nativeChoice(ctx: LaunchedApp, archive: string, target: string) {
   await ctx.app.evaluate(({ dialog }, choice) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [choice.archive] })
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: choice.target })
+    dialog.showMessageBox = async (_window, options) => {
+      if (options.title === '恢复范围确认') {
+        if (options.defaultId !== 0 || options.cancelId !== 0) throw Error('Unexpected restore scope defaults')
+        return { response: 2, checkboxChecked: false }
+      }
+      return { response: 0, checkboxChecked: false }
+    }
   }, { archive, target })
 }
 test('原生选择取消不执行渲染层文本路径，匿名取消被拒绝', async () => {
