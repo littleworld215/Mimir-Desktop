@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { existsSync, mkdirSync, openSync, closeSync, unlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { assetsLayout } from './paths'
 import { resolveAssetsNativeBinding } from './nativeBinding'
 import { initializeSchema, inspectStore, snapshotBeforeMigration } from './migrations'
@@ -21,7 +22,12 @@ import { getActiveWorkspace, currentSpaceEpoch } from '../library/store'
 /** 每个实体库只允许一个进程内 writer；锁文件同时拒绝第二进程 writer。 */
 const writers = new Set<string>()
 export const assetsDatabaseFactory: DatabaseFactory = (path, options) => {
-  const binding = resolveAssetsNativeBinding({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath })
+  const binding = resolveAssetsNativeBinding({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    // 源码electron/assets与构建out/main都距应用根两级，系统启动或重启cwd不参与解析。
+    appRoot: resolve(fileURLToPath(new URL('../..', import.meta.url)))
+  })
   return new Database(path, { ...options, nativeBinding: binding.nativeBinding })
 }
 

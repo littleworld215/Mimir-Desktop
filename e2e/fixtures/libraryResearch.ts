@@ -5,6 +5,7 @@ import { createEvidence, reviseEvidence } from '../../electron/library/evidence/
 import { saveQuestion } from '../../electron/library/research/questionService'
 import { savePack } from '../../electron/library/research/packService'
 import type { ResearchContext } from '../../electron/library/research/evidenceAccess'
+import type { EvidenceCard } from '../../shared/libraryEvidenceContracts'
 import type { PaperRecord, ProjectRecord } from '../../electron/library/types'
 import type { SeedData } from './seed'
 import { evidencePdf } from './libraryEvidence'
@@ -18,7 +19,7 @@ export function seedResearch(seed: SeedData) {
   const projects: ProjectRecord[] = ['research-project', 'second-project', 'lost-project'].map((id, i) => ({ id, title: ['合成研究课题', '第二课题', '失联课题'][i]!, createdAt: '2026-10-18', updatedAt: '2026-10-18' }))
   const papers: PaperRecord[] = Array.from({ length: 10 }, (_, i) => ({ arxivId: `doi:10.9/research-${i}`, title: `研究文献${i}`, authors: ['合成作者'], summary: '离线合成资料', url: 'https://example.org/synthetic', notes: '旧阅读笔记', tags: [], projectIds: ['research-project', 'second-project'], addedAt: '2026-10-18', ...(i === 0 ? { pdfPath } : {}) }))
   const ctx: ResearchContext = { scope: { id: seed.workspaces[0]!.id, epoch: 'fixture', root }, signal: new AbortController().signal, assertCurrent() {}, catalog: { papers: () => papers, projects: () => projects }, sourceObservations: () => new Map() }
-  const cards = []; let eRevision = 0
+  const cards: EvidenceCard[] = []; let eRevision = 0
   for (let i = 0; i < 20; i++) {
     const reply = createEvidence(ctx, { paperId: papers[Math.floor(i / 2)]!.arxivId, projectIds: projects.map(p => p.id), question: `合成证据问题${i}`, claim: '人工判断，不能当作结论', quote: i === 0 ? researchQuote : `原始摘录${i}`, method: '合成方法', datasetOrMaterial: '合成材料', finding: '条件成立', limitation: '样本局限', comment: '', relation: (['supports', 'opposes', 'mixed', 'unassessed'] as const)[i % 4]!, locator: { pageStart: 1 } }, eRevision)
     eRevision = reply.document.revision; cards.push(reply.card)

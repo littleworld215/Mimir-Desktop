@@ -184,7 +184,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
           if (payload.maintenanceRestoreSuggestions && options.title === '选择尚不存在的新空间目录') {
             const path = suggestion(options.defaultPath)
             selectedTarget = path
-            return { canceled: !path, filePath: path }
+            return { canceled: !path, filePath: path ?? '' }
           }
           return { canceled: false, filePath: payload.savePath }
         }
