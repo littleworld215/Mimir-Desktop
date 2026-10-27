@@ -33,6 +33,7 @@ import { RestoreError } from './restoreContracts'
 import { readRegistryOverview } from './registryView'
 import { normalizeRootForMatch } from './remapRules'
 import { readRegistryForAppend, captureProtectedSnapshot, publishProtectedRegistry } from './protectedRegistry'
+import { assertRestoreTargetSafe } from './restoreTargetSafety'
 
 /** 注册表文件名（本机，非空间层）。 */
 const REGISTRY_FILE_NAME = 'store.json'
@@ -206,6 +207,8 @@ export function appendWorkspaceRecord(homeDir: string, input: RegistryAppendInpu
     // `snapshotPath` 为 '' = 未写入故未拍快照（它是必填 string，不用 undefined 强转）。
     return { appended: false, snapshotPath: '', spaces: spaces.length }
   }
+  // 已有同ID/同路径的幂等返回在前；新追加必须互不嵌套，失败不先拍凭据快照。
+  assertRestoreTargetSafe({ targetRoot: input.path, registry, controlRoot: join(homeDir, '.mimir'), code: 'REGISTRY_INVALID' })
   // ③ 本机保护快照（仅在确定要写盘之后拍，避免 retry 堆积无用快照）
   const snapshot = captureProtectedSnapshot(homeDir, source)
   const snapshotPath = snapshot.path

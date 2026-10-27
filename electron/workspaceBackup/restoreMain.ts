@@ -47,6 +47,8 @@ import { prepareStagedAssets } from './assetsRestore'
 import { stagingPathFor } from './stagingRoot'
 import type { ManifestEntry } from './manifest'
 import { RestoreError } from './restoreContracts'
+import { assertRestoreTargetSafe } from './restoreTargetSafety'
+import { readRegistryForAppend } from './protectedRegistry'
 
 /** 维护窗口可见的归档候选。 */
 export interface RestoreArchiveCandidate {
@@ -363,6 +365,17 @@ export async function runMaintenanceRestore(
     report('inspecting', `无法读取归档清单，恢复后不自动改写论文路径：${(error as Error).message}`)
   }
 
+  const assertTargetSafe = () => assertRestoreTargetSafe({
+    targetRoot: request.targetRoot,
+    sourceRoot: oldRoot,
+    controlRoot: join(deps.homeDir, '.mimir'),
+    registry: readRegistryForAppend(deps.homeDir).value
+  })
+  // 先于操作记录/暂存创建，且在各选路重验点读取最新登记；不能只在最终追加时拒绝。
+  try { assertTargetSafe() }
+  catch { return failedEarly('INVALID_TARGET', '恢复目标无法确认与源空间、已登记空间和控制目录互不重叠，请另选目录或先自检登记资料。', now()) }
+  const assertSelection = () => { deps.adapter?.assertSelection?.(); assertTargetSafe() }
+
   // ── ④ 编排（真适配器 + 真完整性钩子 + 暂存根内写锁） ─────────────
   let operation: ReturnType<NonNullable<MaintenanceRestoreDeps['beginOperation']>> | undefined
   try { operation = deps.beginOperation?.() }
@@ -384,7 +397,7 @@ export async function runMaintenanceRestore(
   //
   // `lockStagingRoot` 由调用方注入（生产 = `acquireMigratableWriterLock` 包装），
   // 适配器会在 `createStaging` 内、**解压之前**用它取锁（§4.2 S5 锁先行）。
-  const baseSteps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, { ...deps.adapter, ...(operation ? { stagingToken: operation.id } : {}) }, deps.assetsIntegrityOptions)
+  const baseSteps = createMaintenanceRestoreSteps(false, deps.lockStagingRoot, { ...deps.adapter, assertSelection, ...(operation ? { stagingToken: operation.id } : {}) }, deps.assetsIntegrityOptions)
   const steps = operation ? operation.decorate(baseSteps, input) : baseSteps
 
   report('extracting', '开始解压到同盘暂存根…')

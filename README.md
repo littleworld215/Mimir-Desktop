@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- I6-V15-STATUS -->
+2026-10-27 V15恢复目录安全修复：拒绝目标与源、已登记空间及控制目录重叠；实际junction反例已集中修复，定向52/52。最终单worker完整类型/测试/构建exit0，2628通过、9既有跳过（2637项、292文件）；开发及独立新目录包的受影响恢复组合各50/50，零重试exit0，双ABI各7/7。默认四worker原失败保留；本项源码与候选包已验证，日常安装未更新。初始记录发布短设计另行待审，未实现，不合并为已修复。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-restore-target-safety-20261027.md)。
+<!-- /I6-V15-STATUS -->
+
 <!-- G08-CURRENT-STATUS -->
 2026-10-27 G-08本机验证及独立目录部署完成：正常资产库绑定定位已修复；单worker完整类型/测试/构建exit0，2614通过、9既有跳过（2623项、291文件）。开发/候选包Electron各51/51；实际安装6/6、旧新版互斥1/1、补正维护测试开发3/3，均零重试exit0。566文件复制摘要一致；正式空间备份23条目、独立验包通过，原注册表与科研正文/资产库未变，公共会议派生缓存刷新单列。两处入口已切换到20261027-g08-01，Windows Shell启动及复用同主实例已核对，用户已实际确认窗口正常显示、可以操作。默认四worker失败、间歇RECHECK触发者、M盘ACL限制及I5/I6/I10条件验收保留；不称全范围终验或独立运行QA。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-comprehensive-20261027.md)。
 <!-- /G08-CURRENT-STATUS -->
