@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- PAGE-CYCLE-20261028 -->
+2026-10-28查询回归补验：在真实临时SQLite内存入自循环/双节点循环，完整保留外键约束，实际递归读取能结束并返回与旧summary一致的CYCLE错误；单文件14/14、exit0。仅增加测试，不改产品逻辑、schema、接口或安装包。完整类型/全量/构建exit0，2682通过/9既有跳过（2691项、297文件），43重建文件与实际发布一致；部署的PID54568两把残锁仍待确认，日常入口未切换。 [补验记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-page-metadata-20261028.md)。
+<!-- /PAGE-CYCLE-20261028 -->
+
 <!-- PAGE-METADATA-20261028 -->
 2026-10-28当前页批量查询已实现：仅批量读取本页版本、标签与必要分类祖先；事务守卫、检索范围、排序分页和摘要保持。双层50/200条页业务读取由202/802降至5，旧新完整DTO逐字一致。专项28项、完整类型/全量/构建exit0，2680通过/9既有跳过（2689项、297文件）；开发4/4、候选8/8均零重试exit0，两运行时数据库各7/7。末尾静态复核0阻断/1项非阻断测试补充，详见报告；日常journal-01未替换，整体待验范围不变。 [专项证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-page-metadata-20261028.md)。
 <!-- /PAGE-METADATA-20261028 -->

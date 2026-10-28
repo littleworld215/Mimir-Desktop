@@ -127,6 +127,20 @@ it.each(['missing', 'cycle'])('损坏分类%s保留原错误码和文本', varia
   }))
 })
 
+it.each(['self', 'two-node'])('真实SQLite分类%s循环：递归读取终止并保留旧CYCLE错误', variant => {
+  ctx.write(s => {
+    if (variant === 'self') s.run("UPDATE asset_category SET parent_code='leaf' WHERE code='leaf'")
+    else s.run("UPDATE asset_category SET parent_code='leaf' WHERE code='parent'")
+    // Cycles satisfy native foreign keys; no schema or SQLite constraint is disabled.
+    expect(s.all('PRAGMA foreign_key_check')).toEqual([])
+  })
+  const { reads, wrapped } = observe()
+  const expected = expect.objectContaining({ code: 'CYCLE', message: '分类路径存在循环。' })
+  expect(() => listAssets(wrapped, { ids: [1] })).toThrow(expected)
+  expect(reads.filter(read => read.sql.startsWith('WITH RECURSIVE required'))).toHaveLength(1)
+  expect(() => ctx.write(s => summary(s, s.get<AssetRow>('SELECT * FROM asset WHERE id=1')!))).toThrow(expected)
+})
+
 it('缓存不跨请求，下一事务立即看到分类标签及版本更新', () => {
   listAssets(ctx)
   ctx.write(s => {
