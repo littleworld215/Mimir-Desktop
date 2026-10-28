@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- ORGANIZING-UI-20261028 -->
+2026-10-28：资产整理UI首批源码已实现：分类折叠/计数解释、标签候选搜索、可单项移除的条件摘要、卡片收藏与更新时间；原接口和全部能力保留。真实窄窗反例已集中修正，最终验证见专项。日常安装未更换，I7整体及其它条件验收未完成。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-organizing-20261028.md)。
+<!-- /ORGANIZING-UI-20261028 -->
+
 <!-- PAGE-DEPLOYED-20261028 -->
 2026-10-28已按批准完成备份优先部署：日常page-metadata-01，原配置/profile/空间及入口保护，正式23条目包独立验包0；仅隔离已批准PID54568两锁，最终152对象私有权限通过。原profile入口/维护取消、系统两入口启动及同主进程复用通过；旧journal保留。原564载荷未变，新增两个已核对空目录单独登记；用户已在本轮明确确认“正常显示，可以操作”，本版本窗口观察完成，整体待验保持。 以下旧版本/待确认记录只代表当时状态，当前以本段为准。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
 <!-- /PAGE-DEPLOYED-20261028 -->
