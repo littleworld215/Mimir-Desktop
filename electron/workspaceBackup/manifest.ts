@@ -123,9 +123,24 @@ const RUNTIME_LOCK_PATHS = new Set(['.mimir/workspace.writer-lock', '.mimir/asse
  * 1. **前缀**：`EXCLUDED_PREFIXES`（过程产物**目录**，需以 `/` 补齐后比前缀）。
  * 2. **精确路径**：受管写锁与资产库旁文件（大小写不敏感），其它同名资料保留。
  */
-export function isExcludedFromBackup(relPath: string): boolean {
+export function isExcludedFromBackup(relPath: string, root?: string): boolean {
   const withSlash = `${relPath}/`
   if (EXCLUDED_PREFIXES.some(prefix => withSlash.startsWith(prefix))) return true
+  // Windows的大小写别名只在目录身份相同时排除，不能误排大小写敏感目录中的普通资料。
+  const alias = process.platform === 'win32' && root
+    ? EXCLUDED_PREFIXES.find(prefix => withSlash.toLowerCase().startsWith(prefix)) : undefined
+  if (alias && root) {
+    try {
+      const managed = lstatSync(join(root, alias.slice(0, -1)), { bigint: true })
+      const candidate = lstatSync(join(root, relPath.slice(0, alias.length - 1)), { bigint: true })
+      if (!managed.isDirectory() || managed.isSymbolicLink() || !candidate.isDirectory() || candidate.isSymbolicLink()) return false
+      if (managed.ino === 0n || candidate.ino === 0n) throw new ManifestError('READ_FAILED', '无法确认受管暂存目录身份。')
+      return managed.dev === candidate.dev && managed.ino === candidate.ino && managed.birthtimeNs === candidate.birthtimeNs
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
   // 大小写不敏感：Windows 上 `ASSETS.DB-WAL` 也可能出现（NTFS 默认不区分大小写）。
   const lower = relPath.toLowerCase()
   if (RUNTIME_LOCK_PATHS.has(lower)) return true
@@ -171,7 +186,7 @@ async function walk(
     if (stat.isSymbolicLink()) throw new ManifestError('UNEXPECTED_LINK', `备份不跟随符号链接或联接：${relPrefix}`)
 
     const posixRel = relPrefix
-    if (posixRel !== '' && isExcludedFromBackup(posixRel)) return
+    if (posixRel !== '' && isExcludedFromBackup(posixRel, root)) return
     if (posixRel !== '' && overrides?.omit?.has(posixRel)) return
 
     if (stat.isDirectory()) {

@@ -72,7 +72,7 @@ export async function captureBackupSource(
     const children = new Map<string, string[]>()
     const observed = (path: string): boolean => {
       const lower = path.toLowerCase()
-      return !isExcludedFromBackup(path) || lower === '.mimir/assets/assets.db-wal' || lower === '.mimir/assets/assets.db-journal'
+      return !isExcludedFromBackup(path, root) || lower === '.mimir/assets/assets.db-wal' || lower === '.mimir/assets/assets.db-journal'
     }
     const childNames = (absolute: string, path: string) => readdirSync(absolute).sort()
       .filter(name => observed(path ? `${path}/${name}` : name))

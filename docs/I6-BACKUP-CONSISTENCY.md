@@ -1,5 +1,9 @@
 # 整空间备份一致性补强（G-01）
 
+## Windows受管暂存目录身份（2026-10-28）
+
+清单与来源观察均传入固定来源根。规范staging路径按既有规则排除；混合大小写仅在Windows确认与规范路径是同一普通目录时排除，使用bigint设备/文件号及创建时间，不跟随链接。不同/不存在的规范目录不因此删除用户资料，未知身份或读取失败阻断成功。项目内同名staging及staging-copy、staging.bak仍保存。真实别名与元数据身份控制分别记录，不称大小写敏感Windows模式或其它平台实机已验；1GiB排除与格式1不变。
+
 2026-10-24。对应来源[I6证据矩阵G-01](https://github.com/littleworld215/research-asset-library/blob/main/docs/I6-ACCEPTANCE-MATRIX.md)，只补来源复核与发布完整性，不代表I6全部终验。日常安装6645129不会因源码修复自动更新。
 
 ## 核心逻辑

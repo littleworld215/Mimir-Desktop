@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- STAGING-CASE-20261028 -->
+2026-10-28受管staging大小写修复：Windows真实别名曾把未提交文件写入ZIP；现在清单与来源观察共同核对实际目录身份，保留不同目录及相似名称的普通资料。真实3项RED后集中修正，专项56/56；完整类型/默认全量/构建exit0，2667通过/9既有跳过（2676项、295文件）；开发及候选35号各4/4零重试exit0，Node/Electron SQLite各7/7。一次静态复核无问题，候选审计及剩余边界见专项报告。日常安装仍journal-01，未自动替换；I5/I6/I10整体待验保持。 [专项证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-staging-case-20261028.md)。
+<!-- /STAGING-CASE-20261028 -->
+
 <!-- JOURNAL-DEPLOYMENT-20261028 -->
 2026-10-28：首次发布修复产品4f87deb已完成备份优先部署，日常独立目录现为20261028-journal-01。566文件摘要一致；实际安装8/8、与两代旧版互斥2/2，均零重试exit0；原profile入口和维护取消通过。配置/profile/空间原始副本及23条目正式备份均保留，未结束进程或处理残锁；注册与科研业务字节不变，公开会议缓存刷新单列。Windows Shell两入口正常启动并复用同一主进程，用户于2026-10-28明确确认“正常显示，可以操作”。旧G08保留可回退；I5/I6/I10及真实课题剩余验收保持。以下历史条目的“未部署”和旧日常版本只描述当时批次，当前状态以此段为准。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-journal-20261028.md)。
 <!-- /JOURNAL-DEPLOYMENT-20261028 -->

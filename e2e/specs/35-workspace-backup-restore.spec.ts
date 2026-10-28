@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { ASSETS_DDL, ASSETS_SCHEMA_VERSION } from '../../electron/assets/schema'
 import { createBackup } from '../../electron/workspaceBackup/packer'
@@ -10,6 +10,10 @@ import { launchApp } from '../fixtures/launch'
 import { createEditingRepository } from '../../electron/libraryEditing/repository'
 import { randomUUID } from 'node:crypto'
 import { reopenEvidenceApp } from '../fixtures/libraryEvidence'
+import { scanArchive } from '../../electron/workspaceBackup/archiveReader'
+import { resolveArchiveLimits } from '../../electron/workspaceBackup/archivePolicy'
+import { verifyBackup } from '../../electron/workspaceBackup/verify'
+import { attachBackupEvidence } from '../fixtures/backupEvidence'
 
 /** 对照源字节；SQLite共享内存与运行锁不属于业务资料。WAL另行核对。 */
 function sourceHashes(root: string): Record<string, string> {
@@ -28,13 +32,14 @@ function sourceHashes(root: string): Record<string, string> {
 }
 
 for (const scenario of ['backup-restore', 'restore-only', 'invalid-db', 'case-db'] as const) {
-test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 'packaged' : 'development'})`, async () => {
+test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 'packaged' : 'development'})`, async ({}, testInfo) => {
   test.skip(process.platform !== 'win32' || process.arch !== 'x64', 'I6维护首版限Windows x64')
   let sourceDb: Database.Database | undefined
   let sourceRoot = ''
   const pdfName = '论文😀.pdf'
   const contents = ['  第一版\n\n', '第二版😀\n']
-  const ordinaryFiles = ['notes/实验-journal', '.hidden/项目-wal/记录.txt', 'other/cache.db-shm']
+  const ordinaryFiles = ['notes/实验-journal', '.hidden/项目-wal/记录.txt', 'other/cache.db-shm',
+    'project/staging/preserved.txt', '.mimir/assets/staging-copy/preserved.txt', '.mimir/assets/staging.bak/preserved.txt']
   const ctx = await launchApp({
     executablePath: process.env.MIMIR_E2E_PACKAGED,
     maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'],
@@ -84,6 +89,13 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
       mkdirSync(dirname(join(sourceRoot, file)), { recursive: true })
       writeFileSync(join(sourceRoot, file), `普通资料 ${file}`)
     }
+    if (scenario === 'case-db') {
+      expect(existsSync(join(sourceRoot, '.mimir/assets/staging'))).toBe(false)
+      mkdirSync(join(sourceRoot, '.mimir/assets/StAgInG'))
+      writeFileSync(join(sourceRoot, '.mimir/assets/StAgInG/pending.bin'), 'uncommitted synthetic body')
+      expect(readdirSync(join(sourceRoot, '.mimir/assets'))).toContain('StAgInG')
+      expect(existsSync(join(sourceRoot, '.mimir/assets/staging/pending.bin'))).toBe(true)
+    }
     const walPath = `${dbPath}-wal`
     expect(statSync(walPath).size).toBeGreaterThan(0)
     const before = sourceHashes(sourceRoot)
@@ -107,6 +119,23 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
       await createBackup({ root: sourceRoot, stagingDir,
         destination: join(archiveDir, 'mimir-backup-prepared-20261016-000000.zip'),
         assetsDb: sourceDb, assetsDbRelPath: '.mimir/assets/assets.db' })
+    }
+    if (scenario === 'case-db') {
+      const overview = await ctx.page.evaluate(() =>
+        (window as unknown as { workspaceBackupMaintenance: WorkspaceBackupMaintenanceApi }).workspaceBackupMaintenance.overview())
+      if (!overview.ok || !overview.archives?.length) throw Error('No case-staging archive')
+      const archivePath = overview.archives[0].path
+      const verified = await verifyBackup(archivePath)
+      const { manifest } = await scanArchive(archivePath, resolveArchiveLimits())
+      const stagingIncluded = manifest.entries.some(entry => /^\.mimir\/assets\/staging(?:\/|$)/i.test(entry.path))
+      copyFileSync(archivePath, testInfo.outputPath('staging-case-archive.zip'))
+      await attachBackupEvidence(testInfo, 'staging-case-archive', {
+        nativeCaseDirectory: 'StAgInG', stagingOmitted: !stagingIncluded,
+        archivePaths: manifest.entries.map(entry => entry.path),
+        verified, sourcePendingSha256: before['.mimir/assets/StAgInG/pending.bin'.replaceAll('/', process.platform === 'win32' ? '\\' : '/')]
+      })
+      expect(stagingIncluded).toBe(false)
+      for (const path of ordinaryFiles) expect(manifest.entries.some(entry => entry.path === path)).toBe(true)
     }
     expect(sourceHashes(sourceRoot)).toEqual(before)
     expect(readFileSync(walPath)).toEqual(walBefore)
@@ -136,6 +165,7 @@ test(`维护IPC真实SQLite/WAL ${scenario} (${process.env.MIMIR_E2E_PACKAGED ? 
     } finally { restoredDb.close() }
     expect(readFileSync(join(targetRoot, '.hidden/资料.bin'))).toEqual(Buffer.from([0, 255, 10, 42]))
     for (const file of ordinaryFiles) expect(readFileSync(join(targetRoot, file), 'utf8')).toBe(`普通资料 ${file}`)
+    if (scenario === 'case-db') expect(existsSync(join(targetRoot, '.mimir/assets/staging/pending.bin'))).toBe(false)
     expect(readFileSync(join(targetRoot, 'papers', pdfName))).toEqual(readFileSync(join(sourceRoot, 'papers', pdfName)))
     const sourceStore = JSON.parse(readFileSync(join(sourceRoot, '.mimir/store.json'), 'utf8'))
     const restoredStore = JSON.parse(readFileSync(join(targetRoot, '.mimir/store.json'), 'utf8'))
