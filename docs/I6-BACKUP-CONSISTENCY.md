@@ -1,7 +1,7 @@
 # 整空间备份一致性补强（G-01）
 
 <!-- PAGE-DEPLOYED-20261028 -->
-2026-10-28：已按备份优先部署page-metadata-01，原配置/空间保护、正式包独立验包、原profile业务字节及两处系统入口已核对；指定两把残锁获授权后隔离，新运行锁未动。实际窗口观察待本版本确认，下方journal/未部署记录只描述当时阶段。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
+2026-10-28：已按备份优先部署page-metadata-01，原配置/空间保护、正式包独立验包、原profile业务字节及两处系统入口已核对；指定两把残锁获授权后隔离，新运行锁未动。用户已在本轮明确确认本版本窗口显示和操作正常，下方journal/未部署记录只描述当时阶段。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
 <!-- /PAGE-DEPLOYED-20261028 -->
 
 ## Windows受管暂存目录身份（2026-10-28）
