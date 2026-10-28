@@ -1,7 +1,8 @@
 import type { AssetPage, AssetSummary } from '../../shared/assetsContracts'
 import type { AssetsContext, AssetsWriteSession } from './types'
 import { AssetsStoreError } from './types'
-import { summary, type AssetRow } from './assetRepository'
+import type { AssetRow } from './assetRepository'
+import { pageSummaries } from './pageMetadata'
 import { selectCategory, selectDescendantCodes } from './categoryRepository'
 import { literalLike, literalPhrase, readSearchQuery, type SearchQuery } from './searchQuery'
 
@@ -99,8 +100,9 @@ export function searchAssetsInSession(s: AssetsWriteSession, query: SearchQuery)
       order = `CASE ${conditions.map(([condition, score, value]) => { rankParams.push(value); return `WHEN ${condition} THEN ${score}` }).join(' ')} ELSE 0 END DESC,${order}`
     }
     const rows = s.all<AssetRow>(`SELECT a.* FROM asset a${clause} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, ...rankParams, query.pageSize, (query.page - 1) * query.pageSize)
-    const items = rows.map(row => {
-      const item = summary(s, row)
+    const summaries = pageSummaries(s, rows)
+    const items = rows.map((row, index) => {
+      const item = summaries[index]
       if (query.q) {
         const candidates = query.searchIn === 'body' ? [] : query.searchIn === 'source' ? [row.source_task] : query.searchIn === 'title' ? [row.name] : [row.name, row.description, row.notes, row.source_task]
         if (query.searchIn === 'organization') candidates.push(...item.tags.map(t => t.name), ...item.categoryPath)

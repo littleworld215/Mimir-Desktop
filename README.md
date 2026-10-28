@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- PAGE-METADATA-20261028 -->
+2026-10-28当前页批量查询已实现：仅批量读取本页版本、标签与必要分类祖先；事务守卫、检索范围、排序分页和摘要保持。双层50/200条页业务读取由202/802降至5，旧新完整DTO逐字一致。专项28项、完整类型/全量/构建exit0，2680通过/9既有跳过（2689项、297文件）；开发4/4、候选8/8均零重试exit0，两运行时数据库各7/7。末尾静态复核0阻断/1项非阻断测试补充，详见报告；日常journal-01未替换，整体待验范围不变。 [专项证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-page-metadata-20261028.md)。
+<!-- /PAGE-METADATA-20261028 -->
+
 <!-- STAGING-CASE-20261028 -->
 2026-10-28受管staging大小写修复：Windows真实别名曾把未提交文件写入ZIP；现在清单与来源观察共同核对实际目录身份，保留不同目录及相似名称的普通资料。真实3项RED后集中修正，专项56/56；完整类型/默认全量/构建exit0，2667通过/9既有跳过（2676项、295文件）；开发及候选35号各4/4零重试exit0，Node/Electron SQLite各7/7。一次静态复核无问题，候选审计及剩余边界见专项报告。日常安装仍journal-01，未自动替换；I5/I6/I10整体待验保持。 [专项证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-staging-case-20261028.md)。
 <!-- /STAGING-CASE-20261028 -->
