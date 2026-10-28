@@ -1,5 +1,9 @@
 # 整空间备份一致性补强（G-01）
 
+<!-- PAGE-DEPLOYED-20261028 -->
+2026-10-28：已按备份优先部署page-metadata-01，原配置/空间保护、正式包独立验包、原profile业务字节及两处系统入口已核对；指定两把残锁获授权后隔离，新运行锁未动。实际窗口观察待本版本确认，下方journal/未部署记录只描述当时阶段。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
+<!-- /PAGE-DEPLOYED-20261028 -->
+
 ## Windows受管暂存目录身份（2026-10-28）
 
 清单与来源观察均传入固定来源根。规范staging路径按既有规则排除；混合大小写仅在Windows确认与规范路径是同一普通目录时排除，使用bigint设备/文件号及创建时间，不跟随链接。不同/不存在的规范目录不因此删除用户资料，未知身份或读取失败阻断成功。项目内同名staging及staging-copy、staging.bak仍保存。真实别名与元数据身份控制分别记录，不称大小写敏感Windows模式或其它平台实机已验；1GiB排除与格式1不变。

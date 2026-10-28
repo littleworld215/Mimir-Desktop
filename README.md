@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- PAGE-DEPLOYED-20261028 -->
+2026-10-28已按批准完成备份优先部署：日常page-metadata-01，原配置/profile/空间及入口保护，正式23条目包独立验包0；仅隔离已批准PID54568两锁，最终152对象私有权限通过。原profile入口/维护取消、系统两入口启动及同主进程复用通过；旧journal保留。原564载荷未变，新增两个已核对空目录单独登记；真实窗口观察待本版本确认，整体待验保持。 以下旧版本/待确认记录只代表当时状态，当前以本段为准。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
+<!-- /PAGE-DEPLOYED-20261028 -->
+
 <!-- PAGE-CYCLE-20261028 -->
 2026-10-28查询回归补验：在真实临时SQLite内存入自循环/双节点循环，完整保留外键约束，实际递归读取能结束并返回与旧summary一致的CYCLE错误；单文件14/14、exit0。仅增加测试，不改产品逻辑、schema、接口或安装包。完整类型/全量/构建exit0，2682通过/9既有跳过（2691项、297文件），43重建文件与实际发布一致；部署的PID54568两把残锁仍待确认，日常入口未切换。 [补验记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-page-metadata-20261028.md)。
 <!-- /PAGE-CYCLE-20261028 -->

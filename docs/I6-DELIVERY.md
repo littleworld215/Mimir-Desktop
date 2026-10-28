@@ -1,5 +1,9 @@
 # I6 整科研空间备份、恢复与自检 —— 交付文档
 
+<!-- PAGE-DEPLOYED-20261028 -->
+2026-10-28已按批准完成备份优先部署：日常page-metadata-01，原配置/profile/空间及入口保护，正式23条目包独立验包0；仅隔离已批准PID54568两锁，最终152对象私有权限通过。原profile入口/维护取消、系统两入口启动及同主进程复用通过；旧journal保留。原564载荷未变，新增两个已核对空目录单独登记；真实窗口观察待本版本确认，整体待验保持。 以下旧版本/待确认记录只代表当时状态，当前以本段为准。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-page-metadata-20261028.md)。
+<!-- /PAGE-DEPLOYED-20261028 -->
+
 <!-- STAGING-CASE-20261028 -->
 2026-10-28受管staging大小写修复：Windows真实别名曾把未提交文件写入ZIP；现在清单与来源观察共同核对实际目录身份，保留不同目录及相似名称的普通资料。真实3项RED后集中修正，专项56/56；完整类型/默认全量/构建exit0，2667通过/9既有跳过（2676项、295文件）；开发及候选35号各4/4零重试exit0，Node/Electron SQLite各7/7。一次静态复核无问题，候选审计及剩余边界见专项报告。日常安装仍journal-01，未自动替换；I5/I6/I10整体待验保持。 [专项证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-backup-staging-case-20261028.md)。
 <!-- /STAGING-CASE-20261028 -->
