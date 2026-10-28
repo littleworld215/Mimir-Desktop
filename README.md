@@ -1,5 +1,10 @@
 # Mimir Desktop
 
+<!-- CLIPBOARD-VERIFY-20261029 -->
+2026-10-29：用户已采用复制回读核验。详情、快速取用、填值与任务包均在核验后才成功及记使用；失败保留输入，不自动重试/换通道，不输出回读内容。四反例RED→GREEN，聚焦30项及开发Electron4/4通过；完整三闸门exit0（2705通过、9既有跳过），末尾静态复核无问题，候选复制与失败核验2/2通过；日常部署和窗口观察另以证据页为准。 [当前证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-clipboard-20261029.md)。
+<!-- /CLIPBOARD-VERIFY-20261029 -->
+
+
 <!-- ORGANIZING-UI-20261028 -->
 2026-10-28：资产整理UI首批源码已实现：分类折叠/计数解释、标签候选搜索、可单项移除的条件摘要、卡片收藏与更新时间；原接口和全部能力保留。真实窄窗反例已集中修正，最终验证见专项。日常安装未更换，I7整体及其它条件验收未完成。 [本轮证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-organizing-20261028.md)。
 <!-- /ORGANIZING-UI-20261028 -->

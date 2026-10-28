@@ -4,6 +4,7 @@ import type {AssetDetail,AssetListQuery,AssetPage,AssetSummary,WorkspaceRequest}
 import {assetsApi} from './assetsApi'
 import {AssetError,AssetModal,controlClass,errorMessage,useAssetsEditorGuard} from './assetsUi'
 import {readPins,takeAndRecord} from './assetTake'
+import {copyAssetText} from './assetClipboard'
 import { searchInputError } from './assetSearchInput'
 
 const TemplateFill=lazy(()=>import('./TemplateFill').then(m=>({default:m.TemplateFill})))
@@ -41,14 +42,14 @@ export function QuickUse({scope,write,onChanged,onClose}:{scope:WorkspaceRequest
   function pin(){if(!asset)return;const next=pins.includes(asset.id)?pins.filter(id=>id!==asset.id):[asset.id,...pins].slice(0,20);try{localStorage.setItem(pinKey,JSON.stringify(next));setPins(next)}catch{setError('无法保存本机置顶，请检查浏览器存储。')}}
   async function take(close:boolean){
     if(!asset||saving.current||asset.archivedAt)return
-    saving.current=true;setBusy(true);setError('');const selected=asset
+    saving.current=true;setBusy(true);setError('');setNotice('');const selected=asset
     try {
       const notice=await write(s=>takeAndRecord(async()=>{
         if(selected.storageType==='file'){
           const destination=await window.electronAPI!.showSaveDialog({title:'快速取用文件（选择新路径）',defaultPath:selected.currentFileName??selected.name}) as {canceled:boolean;filePath?:string}
           if(destination.canceled||!destination.filePath)return false
           await assetsApi.saveFile({...s,assetId:selected.id,destinationPath:destination.filePath})
-        }else await navigator.clipboard.writeText(selected.storageType==='external_link'?selected.externalUrl??'':selected.currentContent)
+        }else await copyAssetText(selected.storageType==='external_link'?selected.externalUrl??'':selected.currentContent)
         return true
       },()=>assetsApi.recordUsage({...s,assetIds:[selected.id]})))
       if(alive.current&&notice){setNotice(notice);onChanged();if(close&&!notice.includes('未保存'))onClose()}

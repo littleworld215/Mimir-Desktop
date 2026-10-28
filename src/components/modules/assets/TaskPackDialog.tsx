@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import {Button} from '@/components/ui/button'
+import {copyAssetText} from './assetClipboard'
 import type {AssetDetail,ExchangeDocument,WorkspaceRequest} from '../../../../shared/assetsContracts'
 import {buildTaskPack,copyTaskPack,normalizeTaskPackTemplate,taskPackSectionKey} from '@/lib/assets/bundleTemplate'
 import {assetsApi} from './assetsApi'
@@ -40,7 +41,7 @@ export function TaskPackDialog({scope,ids,write,onChanged,onClose}:{scope:Worksp
   async function copy(){
     if(working.current||composing.current||!pack?.assetIds.length)return
     const snapshot=pack;working.current=true;setBusy(true);setNotice('')
-    try{const result=await write(s=>copyTaskPack(snapshot,text=>navigator.clipboard.writeText(text),assetIds=>assetsApi.recordUsage({...s,assetIds})));if(alive.current){setNotice(result);onChanged()}}catch(e){if(alive.current)setNotice(`复制失败：${errorMessage(e)}；选择与预览已保留。`)}finally{working.current=false;if(alive.current)setBusy(false)}
+    try{const result=await write(s=>copyTaskPack(snapshot,copyAssetText,assetIds=>assetsApi.recordUsage({...s,assetIds})));if(alive.current){setNotice(result);onChanged()}}catch(e){if(alive.current)setNotice(`复制失败：${errorMessage(e)}；选择与预览已保留。`)}finally{working.current=false;if(alive.current)setBusy(false)}
   }
   function move(index:number,delta:number){setItems(old=>{const next=[...old],key=taskPackSectionKey(next[index].kind);let destination=index+delta;while(destination>=0&&destination<next.length&&taskPackSectionKey(next[destination].kind)!==key)destination+=delta;if(destination>=0&&destination<next.length)[next[index],next[destination]]=[next[destination],next[index]];return next})}
   return <AssetModal title="任务包组合复制" onClose={()=>{if(!working.current&&!composing.current)onClose()}} onEscape={()=>working.current||composing.current}>

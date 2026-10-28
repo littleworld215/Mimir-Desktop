@@ -4,6 +4,7 @@ import {initialTemplateValues,renderConfiguredTemplate,parseVariables} from '@/l
 import {AssetError,AssetModal,errorMessage,useAssetsEditorGuard} from './assetsUi'
 import {TemplateFields} from './TemplateFields'
 import {takeAndRecord} from './assetTake'
+import {copyAssetText} from './assetClipboard'
 
 export function TemplateFill({template,config,onRecord,onClose}:{template:string;config?:unknown;onRecord:()=>Promise<unknown>;onClose:()=>void}) {
   const [values,setValues]=useState(()=>initialTemplateValues(template,config)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
@@ -16,7 +17,7 @@ export function TemplateFill({template,config,onRecord,onClose}:{template:string
     if(working.current||previewError||composing.current)return
     working.current=true;setBusy(true);setError('');setNotice('')
     try {
-      const result=await takeAndRecord(async()=>{await navigator.clipboard.writeText(preview);return true},onRecord)
+      const result=await takeAndRecord(async()=>{await copyAssetText(preview);return true},onRecord)
       if(alive.current){setNotice(result??'');if(close&&result==='取用成功。')onClose()}
     }catch(e){if(alive.current)setError(errorMessage(e))}
     finally{working.current=false;if(alive.current)setBusy(false)}

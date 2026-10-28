@@ -17,6 +17,7 @@ import { AssetFilters } from './AssetFilters'
 import { AssetReferences } from './AssetReferences'
 import { AssetError, errorMessage } from './assetsUi'
 import {takeAndRecord} from './assetTake'
+import {copyAssetText} from './assetClipboard'
 const SavedFilters=lazy(()=>import('./SavedFilters').then(m=>({default:m.SavedFilters})))
 const QuickUse=lazy(()=>import('./QuickUse').then(m=>({default:m.QuickUse})))
 const ImportDialog=lazy(()=>import('./ImportDialog').then(m=>({default:m.ImportDialog})))
@@ -88,7 +89,8 @@ export function Assets(): React.JSX.Element {
   }
   async function copy() {
     const asset = data.selected; if (!asset) return
-    const result=await data.write(context=>takeAndRecord(async()=>{await navigator.clipboard.writeText(asset.storageType === 'external_link' ? asset.externalUrl ?? '' : asset.currentContent);return true},()=>asset.archivedAt?Promise.resolve():assetsApi.recordUsage({...context,assetIds:[asset.id]})))
+    setNotice('')
+    const result=await data.write(context=>takeAndRecord(async()=>{await copyAssetText(asset.storageType === 'external_link' ? asset.externalUrl ?? '' : asset.currentContent);return true},()=>asset.archivedAt?Promise.resolve():assetsApi.recordUsage({...context,assetIds:[asset.id]})))
     if(result){setNotice(result);void data.refresh()}
   }
   async function favorite(){const a=data.selected;if(!a)return;await data.write(context=>assetsApi.setFavorite({...context,assetId:a.id,favorite:!a.isFavorite}));await data.select(a.id);void data.refresh()}
