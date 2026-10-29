@@ -30,6 +30,7 @@ const AiAssist=lazy(()=>import('./AiAssist').then(m=>({default:m.AiAssist})))
 const AiDrafts=lazy(()=>import('./AiDrafts').then(m=>({default:m.AiDrafts})))
 const AiTags=lazy(()=>import('./AiTags').then(m=>({default:m.AiTags})))
 const AssetsHelp=lazy(()=>import('./AssetsHelp').then(m=>({default:m.AssetsHelp})))
+const actionButtonClass = 'h-auto min-h-8 min-w-0 max-w-full whitespace-normal'
 type Modal = {kind:'ai-drafts';draft?:import('../../../../shared/assetsAiContracts').AiDraft} | {kind:'ai'|'ai-tags'} | {kind:'fill';asset:Detail} | { kind: 'edit'; asset?: Detail } | { kind: 'category'; category?: AssetCategory } | { kind: 'tags' | 'history' | 'delete' | 'import-json' | 'export' | 'batch' | 'folder' | 'saved-filters' | 'quick-use' | 'task-pack' | 'help' } | null
 
 export function Assets(): React.JSX.Element {
@@ -96,12 +97,41 @@ export function Assets(): React.JSX.Element {
   async function favorite(){const a=data.selected;if(!a)return;await data.write(context=>assetsApi.setFavorite({...context,assetId:a.id,favorite:!a.isFavorite}));await data.select(a.id);void data.refresh()}
   async function applySaved(query:AssetListQuery){if(!await requestAssetsLeave())return;setSelection(new Map());data.accept(null);data.setQuery({...query,page:1,pageSize:data.query.pageSize});setModal(null)}
   return <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4 lg:overflow-hidden">
-    <header className="flex flex-wrap items-center justify-between gap-2"><h1 className="module-title flex items-center gap-2 text-lg font-medium"><Boxes className="h-5 w-5" />资产库</h1><div className="flex gap-2"><Button size="sm" variant="outline" disabled={data.busy || data.loading} onClick={() => void requestAssetsLeave().then(ok => { if (ok) void refreshAll() })}><RefreshCw className="mr-1 h-4 w-4" />刷新</Button><Button size="sm" variant="outline" disabled={disabled} onClick={() => void open({ kind: 'tags' })}>标签管理</Button><Button size="sm" disabled={disabled} onClick={() => void open({ kind: 'edit' })}>新建资产</Button></div></header>
+    <header><h1 className="module-title flex items-center gap-2 text-lg font-medium"><Boxes className="h-5 w-5" />资产库</h1></header>
     <p className="text-xs text-muted-foreground">科研空间：{data.scope?.workspaceId ?? '正在读取…'}</p>
     <AssetError message={data.error} />{notice && <p role="status" className="text-sm">{notice}</p>}
-    <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={disabled} onClick={()=>void open({kind:'quick-use'})}>快速取用（Ctrl/Cmd+Shift+K）</Button><Button size="sm" variant="outline" disabled={disabled} onClick={()=>void open({kind:'saved-filters'})}>保存筛选</Button><Button size="sm" variant="outline" onClick={()=>void open({kind:'help'})}>使用指南</Button></div>
     {data.error && <Button variant="outline" size="sm" className="self-start" disabled={data.busy} onClick={() => void data.refresh()}>重试读取</Button>}
-    <div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" disabled={disabled} onClick={()=>void open({kind:'import-json'})}>导入JSON</Button><Button size="sm" variant="outline" disabled={disabled} onClick={()=>void open({kind:'folder'})}>导入文件夹</Button><Button size="sm" variant="outline" disabled={disabled} onClick={()=>void open({kind:'export'})}>导出</Button><Button size="sm" variant="outline" disabled={disabled||!data.page.items.length} onClick={togglePage}>选择／取消当前页</Button><span className="text-xs">已选 {selection.size} / 500</span><Button size="sm" variant="outline" disabled={disabled||!selection.size} onClick={()=>setSelection(new Map())}>清空选择</Button><Button size="sm" variant="outline" disabled={disabled||!selection.size} onClick={()=>void open({kind:'batch'})}>批量整理</Button><Button size="sm" variant="outline" disabled={disabled||!selection.size} onClick={()=>void open({kind:'task-pack'})}>组合任务包</Button></div>
+    <section aria-label="资产操作" className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1.5fr)]">
+      <div role="group" aria-label="常用取用" className="min-w-0 space-y-2 rounded-md border border-border bg-muted/20 p-2">
+        <h2 className="text-xs font-medium text-muted-foreground">常用取用</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" className={actionButtonClass} disabled={disabled} onClick={() => void open({ kind: 'edit' })}>新建资产</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={data.busy || data.loading} onClick={() => void requestAssetsLeave().then(ok => { if (ok) void refreshAll() })}><RefreshCw className="mr-1 h-4 w-4 shrink-0" />刷新</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'quick-use' })}>快速取用（Ctrl/Cmd+Shift+K）</Button>
+        </div>
+      </div>
+      <div role="group" aria-label="资料管理" className="min-w-0 space-y-2 rounded-md border border-border bg-muted/20 p-2">
+        <h2 className="text-xs font-medium text-muted-foreground">资料管理</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'tags' })}>标签管理</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'saved-filters' })}>保存筛选</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'import-json' })}>导入JSON</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'folder' })}>导入文件夹</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'export' })}>导出</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" onClick={() => void open({ kind: 'help' })}>使用指南</Button>
+        </div>
+      </div>
+      <div role="group" aria-label="批量整理" className="min-w-0 space-y-2 rounded-md border border-border bg-muted/20 p-2 sm:col-span-2 lg:col-span-1">
+        <h2 className="text-xs font-medium text-muted-foreground">批量整理</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled || !data.page.items.length} onClick={togglePage}>选择／取消当前页</Button>
+          <span className="text-xs">已选 {selection.size} / 500</span>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled || !selection.size} onClick={() => setSelection(new Map())}>清空选择</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled || !selection.size} onClick={() => void open({ kind: 'batch' })}>批量整理</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled || !selection.size} onClick={() => void open({ kind: 'task-pack' })}>组合任务包</Button>
+        </div>
+      </div>
+    </section>
     <AssetFilters key={data.scope?data.scope.workspaceId+data.scope.spaceEpoch:'pending'} categories={data.categories} query={data.query} tags={data.tags} disabled={disabled} onChange={filter} />
     {data.loading && <p role="status" className="text-sm text-muted-foreground">正在读取资产…</p>}
     <main className="flex min-h-96 shrink-0 flex-1 flex-col gap-4 overflow-y-auto lg:min-h-0 lg:shrink lg:grid lg:grid-cols-[190px_280px_minmax(0,1fr)]">

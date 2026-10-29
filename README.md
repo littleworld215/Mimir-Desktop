@@ -1,5 +1,10 @@
 # Mimir Desktop
 
+<!-- ASSET-ACTIONS-20261029 -->
+2026-10-29：已按采用的短设计实现资产操作分组与详情层级：13按钮保留，先阅读取用、再管理历史，永久删除独立但确认流程不变；长文操作可达、完整正文和复制核验保持。最终类型/构建、完整2705通过/9既有跳过、来源自检均exit0；独立候选包8/8真实Electron通过、零重试，末尾静态复核C0/I0/M0（非独立运行QA）。源码与候选已验证，日常仍clipboard-01，尚未更换安装。 [本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-action-layout-20261029.md)。
+<!-- /ASSET-ACTIONS-20261029 -->
+
+
 <!-- CLIPBOARD-VERIFY-20261029 -->
 2026-10-29：用户已采用复制回读核验。详情、快速取用、填值与任务包均在核验后才成功及记使用；失败保留输入，不自动重试/换通道，不输出回读内容。四反例RED→GREEN，聚焦30项及开发Electron4/4通过；完整三闸门exit0（2705通过、9既有跳过），末尾静态复核无问题，候选复制与失败核验2/2通过；日常部署和窗口观察另以证据页为准。 [当前证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-clipboard-20261029.md)。
 <!-- /CLIPBOARD-VERIFY-20261029 -->
