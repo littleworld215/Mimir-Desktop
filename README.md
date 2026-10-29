@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- RESEARCH-WORKFLOW-A1-20261030 -->
+2026-10-30六项科研优化开始执行：A1分空间浏览偏好底座已实现，64KiB/最近20篇/白名单及失败保留；六项行为RED→GREEN，最终类型/默认全量/构建exit0，2738通过+9既有跳过（2747项、303文件，216.01秒）。尚未接入导航或UI；A2及其余任务继续，不称六项验收。日常file-health-01、真实资料及应用锁保持。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
+<!-- /RESEARCH-WORKFLOW-A1-20261030 -->
+
 <!-- ASSET-FILE-HEALTH-20261029 -->
 2026-10-29轻量文件健康报告已按采用的短设计落目标源码：手动分批检查文件资产与历史/归档，明确路径/归属/缺失/可打开状态，摘要未建立、非内容完整性；取消/重检/切换丢弃旧响应，不改库、不读正文、不持久化或自动修复。最终类型/构建、默认全量2732通过/9既有跳过（302文件/2741项，204.40秒）及来源自检exit0；开发Electron6/6、候选10/10均零CLI重试exit0。唯一末尾静态复核C0/I0/M1，取消提示已RED→GREEN修正；不是独立运行QA。已备份优先部署至file-health-01（产品a1bac9f）；实际安装14/14、旧新版互斥2/2均零CLI重试exit0，两处入口正常启动复用同一主窗口；用户已确认本版本正常显示、可以操作。原配置检查只打开健康报告，未主动扫描真实文件，原注册和科研业务字节保持；此前共享系统剪贴板末尾空值的两次失败及未定触发者单列保留。 [本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-file-health-20261029.md)。
 <!-- /ASSET-FILE-HEALTH-20261029 -->
