@@ -7,6 +7,21 @@ import * as apiModule from '../../../src/lib/libraryResearchApi'
 import type { ResearchApi } from '../../../shared/libraryResearchContracts'
 import { uiFixtures, uiScope, uiState } from './uiFixtures'
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
+it('恢复越界页先读取有效页，再以当前修订恢复所选问题', async () => {
+  const { summary, questionReply } = uiFixtures()
+  const detail = { ok: true, ...questionReply, selectedVersion: 1, rows: [], total: 0, page: 1, pageSize: 50, relationCounts: { supports: 0, opposes: 0, mixed: 0, unassessed: 0, unknown: 0 } }
+  const api = {
+    overview: vi.fn().mockResolvedValue({ ok: true, ...uiState, scope: uiScope, questionCount: 1, packCount: 0 }),
+    listQuestions: vi.fn().mockImplementation(request => Promise.resolve({ ok: true, ...uiState, total: 1, page: request.page, pageSize: 50, items: request.page === 1 ? [summary] : [] })),
+    questionDetail: vi.fn().mockResolvedValue(detail)
+  }
+  vi.spyOn(apiModule, 'libraryResearchApi').mockReturnValue(api as unknown as ResearchApi)
+  render(<ResearchWorkspace projectId="project-1" papers={[]} projects={[{ id: 'project-1', title: '课题', createdAt: '', updatedAt: '' }]}
+    initialBrowseState={{ kind: 'questions', keyword: '', archive: 'exclude', page: 7, scrollTop: 0, selected: { kind: 'question', id: summary.id } }} />)
+  await waitFor(() => expect(api.questionDetail).toHaveBeenCalledOnce())
+  expect(api.listQuestions.mock.calls.map(([request]) => request.page)).toEqual([7, 1])
+  expect((await screen.findByLabelText('问题标题') as HTMLInputElement).value).toBe(summary.title)
+})
 it('列表重新读取不会替换正在编辑的表单；取消离开保留内容', async () => {
   const { summary, questionReply } = uiFixtures()
   const api = {

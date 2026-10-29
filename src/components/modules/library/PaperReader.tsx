@@ -13,6 +13,7 @@ import type { SourceOpenResult } from '../../../../shared/libraryEvidenceContrac
 import type { EditingDraft, EditingScope } from '../../../../shared/libraryEditingContracts'
 import { usePaperRecoveryDraft } from './usePaperRecoveryDraft'
 import { PaperDraftChoices } from './PaperDraftRecovery'
+import type { LibraryReadingPosition } from '@/lib/libraryBrowseState'
 
 interface PaperReaderProps {
   scope?: EditingScope
@@ -26,6 +27,8 @@ interface PaperReaderProps {
   projectId?: string
   papers?: PaperRecord[]
   projects?: ProjectRecord[]
+  initialReadingPosition?: LibraryReadingPosition
+  onReadingPositionChange?(position: LibraryReadingPosition): void
 }
 
 export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper, onClose, onUpdateNotes, onOpenExternal, initialTab = 'notes', projectId, papers, projects }: PaperReaderProps) {

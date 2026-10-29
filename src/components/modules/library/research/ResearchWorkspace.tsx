@@ -17,22 +17,44 @@ import { ReferenceRefreshDialog } from './ReferenceRefreshDialog'
 import { MaterialExportDialog } from './MaterialExportDialog'
 import { referenceWarnings, ResearchContent, researchSourceLabel } from './ResearchContent'
 import { researchControl, researchMessage, useResearchBusy } from './useResearchForm'
+import type { LibraryBrowseSnapshot } from '@/lib/libraryBrowseState'
 
 type Choice = { kind: 'question'; base: ResearchReadState; detail?: ResearchQuestionDetail } | { kind: 'pack'; base: ResearchReadState; detail?: ResearchPackDetail }
 const emptyState: ResearchReadState = { revision: 0, evidenceRevision: 0, evidenceState: 'absent' }
-export function ResearchWorkspace({ projectId, projects }: { projectId?: string; papers: PaperRecord[]; projects: ProjectRecord[] }) {
+export function ResearchWorkspace({ projectId, projects, initialBrowseState, onBrowseStateChange }: { projectId?: string; papers: PaperRecord[]; projects: ProjectRecord[]; initialBrowseState?: LibraryBrowseSnapshot['research']; onBrowseStateChange?(state: NonNullable<LibraryBrowseSnapshot['research']>): void }) {
   const projectKey = projectId ?? '', [boot, setBoot] = useState<{ scope: ResearchScope; projectKey: string }>(), [state, setState] = useState(emptyState), [bootRetry, setBootRetry] = useState(0)
-  const [kind, setKind] = useState<'questions' | 'packs'>('questions'), [keyword, setKeyword] = useState(''), [archive, setArchive] = useState<'exclude' | 'include' | 'only'>('exclude'), [page, setPage] = useState(1), [refresh, setRefresh] = useState(0)
+  const [kind, setKind] = useState<'questions' | 'packs'>(initialBrowseState?.kind ?? 'questions'), [keyword, setKeyword] = useState(initialBrowseState?.keyword ?? ''), [archive, setArchive] = useState<'exclude' | 'include' | 'only'>(initialBrowseState?.archive ?? 'exclude'), [page, setPage] = useState(initialBrowseState?.page ?? 1), [refresh, setRefresh] = useState(0)
   const [questions, setQuestions] = useState<ResearchQuestionSummary[]>([]), [packs, setPacks] = useState<ResearchPackSummary[]>([]), [options, setOptions] = useState<ResearchQuestionSummary[]>([]), [total, setTotal] = useState(0)
   const [selected, setSelected] = useState<Choice>(), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [refreshOpen, setRefreshOpen] = useState(false), [exportOpen, setExportOpen] = useState(false), [readOnly, setReadOnly] = useState<{ cardId: string; evidence: EvidenceVersion }>(), [source, setSource] = useState<SourceOpenResult>()
   const bootGeneration = useRef(0), listGeneration = useRef(0), detailGeneration = useRef(0), busyRef = useRef(false), selection = useRef(selected), newButton = useRef<HTMLButtonElement>(null), restoreFocus = useRef(false)
   selection.current = selected
   const accepted = boot?.projectKey === projectKey ? boot.scope : undefined, scopeRef = useRef(accepted); scopeRef.current = accepted
+  const browseQueryKey = JSON.stringify([accepted?.workspaceId, accepted?.spaceEpoch, projectKey, kind, keyword, archive, page, refresh])
+  const [loadedBrowseKey, setLoadedBrowseKey] = useState('')
+  const firstBoot = useRef(true), restoreSelection = useRef(initialBrowseState?.selected), browseInteracted = useRef(false)
+  const browseChange = useRef(onBrowseStateChange); browseChange.current = onBrowseStateChange
+  const selectedId = selected?.kind === 'question' ? selected.detail?.question.id : selected?.detail?.pack.id
+  useEffect(() => {
+    if (!accepted || loading || error || loadedBrowseKey !== browseQueryKey) return
+    browseChange.current?.({ kind, keyword, archive, page, scrollTop: initialBrowseState?.scrollTop ?? 0,
+      ...(selectedId && selected ? { selected: { kind: selected.kind, id: selectedId } } : {}) })
+  }, [accepted?.workspaceId, accepted?.spaceEpoch, loading, error, kind, keyword, archive, page, selectedId, loadedBrowseKey, browseQueryKey])
+  useEffect(() => {
+    const saved = restoreSelection.current
+    if (!accepted || loading || !saved || error || loadedBrowseKey !== browseQueryKey) return
+    restoreSelection.current = undefined
+    if (browseInteracted.current || selection.current) return
+    const items = saved.kind === 'question' ? questions : packs
+    if (!items.some(item => item.id === saved.id)) { setNotice('上次选择已不在当前列表；原资料未恢复或改写。'); return }
+    let active = true
+    void requestEvidenceLeave().then(allowed => { if (active && allowed && !browseInteracted.current && !selection.current) void readDetail(saved.kind, saved.id) })
+    return () => { active = false }
+  }, [accepted?.workspaceId, accepted?.spaceEpoch, loading, error, loadedBrowseKey, browseQueryKey])
   useResearchBusy(busy)
   const put = (choice?: Choice) => { selection.current = choice; setSelected(choice) }
   useEffect(() => {
-    const token = ++bootGeneration.current; detailGeneration.current++; setBoot(undefined); put(undefined); setQuestions([]); setPacks([]); setPage(1); setLoading(true); setError(''); setReadOnly(undefined); setSource(undefined); setRefreshOpen(false); setExportOpen(false); busyRef.current = false; setBusy(false)
+    const token = ++bootGeneration.current; detailGeneration.current++; setBoot(undefined); setLoadedBrowseKey(''); put(undefined); setQuestions([]); setPacks([]); setPage(firstBoot.current ? initialBrowseState?.page ?? 1 : 1); firstBoot.current = false; setLoading(true); setError(''); setReadOnly(undefined); setSource(undefined); setRefreshOpen(false); setExportOpen(false); busyRef.current = false; setBusy(false)
     void (async () => {
       try {
         const reply = await libraryResearchApi().overview({})
@@ -53,12 +75,16 @@ export function ResearchWorkspace({ projectId, projects }: { projectId?: string;
           const reply = await api.listQuestions({ scope: accepted, filter, page })
           if (listGeneration.current !== token) return
           if (!reply.ok) throw Error(reply.message)
+          if (page > Math.max(1, Math.ceil(reply.total / 50))) { setPage(Math.max(1, Math.ceil(reply.total / 50))); return }
           setQuestions(reply.items); setState(reply); setTotal(reply.total)
+          setLoadedBrowseKey(browseQueryKey)
         } else {
           const reply = await api.listPacks({ scope: accepted, filter, page })
           if (listGeneration.current !== token) return
           if (!reply.ok) throw Error(reply.message)
+          if (page > Math.max(1, Math.ceil(reply.total / 50))) { setPage(Math.max(1, Math.ceil(reply.total / 50))); return }
           setPacks(reply.items); setState(reply); setTotal(reply.total)
+          setLoadedBrowseKey(browseQueryKey)
         }
       } catch (failure) { if (listGeneration.current === token) setError(researchMessage(failure)) }
       finally { if (listGeneration.current === token) setLoading(false) }
@@ -163,7 +189,7 @@ export function ResearchWorkspace({ projectId, projects }: { projectId?: string;
     if (restoreFocus.current && !selected && !busy && !loading && newButton.current && !newButton.current.disabled) { restoreFocus.current = false; newButton.current.focus() }
   }, [selected, busy, loading])
   const viewPinned = (item: ResearchResolvedItem) => { if (item.evidence) { setSource(undefined); setReadOnly({ cardId: item.item.cardId, evidence: item.evidence }) } else setError('引用版本不可读，原组织信息仍保留') }
-  return <section className="min-w-0 space-y-3 text-foreground" aria-label="研究问题与写作素材">
+  return <section className="min-w-0 space-y-3 text-foreground" aria-label="研究问题与写作素材" onPointerDownCapture={() => { browseInteracted.current = true }} onChangeCapture={() => { browseInteracted.current = true }} onKeyDownCapture={() => { browseInteracted.current = true }}>
     <p className="text-sm text-muted-foreground">围绕问题比较证据，再组织写作素材。人工整理，不自动生成科研结论。</p>
     <div className="flex flex-wrap gap-2"><Button variant={kind === 'questions' ? 'default' : 'outline'} onClick={() => void switchKind('questions')}>研究问题</Button><Button variant={kind === 'packs' ? 'default' : 'outline'} onClick={() => void switchKind('packs')}>写作素材</Button><Button ref={newButton} disabled={!accepted || loading || busy || !canCreate} onClick={() => void choose(kind === 'questions' ? 'question' : 'pack')}>{kind === 'questions' ? '新建问题' : '新建素材包'}</Button><Button variant="outline" disabled={busy} onClick={() => accepted ? setRefresh(v => v + 1) : setBootRetry(v => v + 1)}>刷新列表</Button></div>
     {!canCreate && <p className="text-xs">请先在项目栏选择一个有效课题再新建；全部范围仍可查看已有和失联记录。</p>}

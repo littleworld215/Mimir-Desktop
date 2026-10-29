@@ -21,9 +21,12 @@ import { PaperReader } from './PaperReader'
 import { PaperLifecycleDialog, PaperTrashDialog, type PaperLifecycleRequest } from './PaperLifecycleDialogs'
 import type { PaperLifecycleScope } from '../../../../shared/libraryLifecycle'
 import type { EditingDraft } from '../../../../shared/libraryEditingContracts'
-import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
+import { hasEvidenceWork, requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { consumePlanningHostIntent, samePlanningHostScope } from '@/lib/planningHostNavigation'
 import { EvidenceMatrix } from './evidence/EvidenceMatrix'
+import { useLibraryBrowseState } from './useLibraryBrowseState'
+import type { EvidenceScope } from '../../../../shared/libraryEvidenceContracts'
+import type { LibraryBrowseSnapshot, LibraryReadingPosition } from '@/lib/libraryBrowseState'
 import { handoffToAgent } from '@/lib/agentContext'
 import type {
   ArxivEntry,
@@ -46,11 +49,26 @@ export function Library() {
   // 项目
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [projectsReady, setProjectsReady] = useState(false)
 
   // 论文
   const [papers, setPapers] = useState<PaperRecord[]>([])
   const currentPapers = useRef<PaperRecord[]>([])
   const paperScope = useRef<PaperLifecycleScope | null>(null)
+  const [browseScope, setBrowseScope] = useState<EvidenceScope>()
+  const browse = useLibraryBrowseState(browseScope)
+  const [browseApplied, setBrowseApplied] = useState(false), [browseNotice, setBrowseNotice] = useState('')
+  const [matrixBrowse, setMatrixBrowse] = useState<LibraryBrowseSnapshot['matrix']>()
+  const [researchBrowse, setResearchBrowse] = useState<LibraryBrowseSnapshot['research']>()
+  const [readingPositions, setReadingPositions] = useState<LibraryReadingPosition[]>([])
+  const listContainer = useRef<HTMLDivElement>(null), paperScroll = useRef(0), returnPaper = useRef<string>()
+  const browseIntent = useRef(0), browseDirty = useRef(false), restoreSeen = useRef('')
+  const listFrame = useRef<number>(), restoringScroll = useRef<number>()
+  const alive = useRef(true), projectGeneration = useRef(0), paperGeneration = useRef(0)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; projectGeneration.current++; paperGeneration.current++; if (listFrame.current !== undefined) window.cancelAnimationFrame?.(listFrame.current) }
+  }, [])
   const [trashOpen, setTrashOpen] = useState(false)
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [recoverySelection, setRecoverySelection] = useState<EditingDraft>()
@@ -74,6 +92,11 @@ export function Library() {
   const [readerPaper, setReaderPaper] = useState<PaperRecord | null>(null)
   const [readerTab, setReaderTab] = useState<'notes' | 'evidence'>('notes')
   const [libraryView, setLibraryView] = useState<'papers' | 'matrix' | 'research'>('papers')
+  const [nestedReadyKey, setNestedReadyKey] = useState('')
+  const browseViewKey = JSON.stringify([browseScope?.workspaceId, browseScope?.spaceEpoch, selectedProjectId, libraryView])
+  const latestBrowseView = useRef(browseViewKey), viewStartIntent = useRef({ key: browseViewKey, intent: 0 })
+  latestBrowseView.current = browseViewKey
+  if (viewStartIntent.current.key !== browseViewKey) viewStartIntent.current = { key: browseViewKey, intent: browseIntent.current }
 
   // Zotero
   const [zoteroOpen, setZoteroOpen] = useState(false)
@@ -86,27 +109,43 @@ export function Library() {
   const [globalError, setGlobalError] = useState('')
 
   const loadProjects = useCallback(async () => {
+    const token = ++projectGeneration.current
     const res = await api.library.listProjects()
+    if (!alive.current || token !== projectGeneration.current) return false
     if (res.ok && res.projects) {
       setProjects(res.projects as ProjectRecord[])
+      setProjectsReady(true)
       return true
     }
     return false
   }, [])
 
   const loadPapers = useCallback(async () => {
+    const token = ++paperGeneration.current
     // 首次加载由初始状态显示占位；刷新不能卸载其它卡片中的未保存编辑。
     try {
       const res = await api.library.listPapers()
+      if (!alive.current || token !== paperGeneration.current) return
       if (res.ok && res.papers) {
+        const previous = paperScope.current, next = res.scope
+        if (previous && (!next || previous.workspaceId !== next.workspaceId || previous.spaceEpoch !== next.spaceEpoch)) {
+          if (hasEvidenceWork()) { setGlobalError('科研空间已变化，当前输入保留；请先处理编辑并重新打开文献库。'); return }
+          // Scope refresh can finish before the host remount. Old view state must not be persisted with the new scope.
+          browseDirty.current = false; browseIntent.current = 0; restoreSeen.current = ''
+          paperScroll.current = 0; returnPaper.current = undefined
+          setBrowseApplied(false); setSelectedProjectId(null); setLocalKeyword(''); setLibraryView('papers')
+          setMatrixBrowse(undefined); setResearchBrowse(undefined); setReadingPositions([]); setReaderPaper(null)
+          setProjectsReady(false); setProjects([]); void loadProjects()
+        }
         paperScope.current = res.scope ?? null
+        setBrowseScope(res.scope ?? undefined)
         currentPapers.current = res.papers as PaperRecord[]
         setPapers(res.papers as PaperRecord[])
       } else if (res.message) {
         setGlobalError(res.message)
       }
     } finally {
-      setLoadingPapers(false)
+      if (alive.current && token === paperGeneration.current) setLoadingPapers(false)
     }
   }, [])
 
@@ -124,6 +163,59 @@ export function Library() {
     loadPapers()
     loadSubscriptions()
   }, [loadProjects, loadPapers, loadSubscriptions])
+
+  const browseSnapshot = useRef<LibraryBrowseSnapshot>({ version: 1, projectId: null, view: 'papers', keyword: '', scrollTop: 0, readers: [] })
+  browseSnapshot.current = { version: 1, projectId: selectedProjectId, view: libraryView, keyword: localKeyword, scrollTop: paperScroll.current,
+    ...(returnPaper.current ? { returnPaperId: returnPaper.current } : {}), matrix: matrixBrowse, research: researchBrowse, readers: readingPositions }
+  function markBrowseIntent() {
+    browseIntent.current++; browseDirty.current = true
+    if (listFrame.current !== undefined) { window.cancelAnimationFrame?.(listFrame.current); listFrame.current = undefined }
+  }
+  useEffect(() => {
+    if (!browse.ready || !projectsReady || loadingPapers || !browseScope) return
+    const key = JSON.stringify([browseScope.workspaceId, browseScope.spaceEpoch])
+    if (restoreSeen.current === key) return
+    restoreSeen.current = key
+    let active = true
+    void (async () => {
+      const saved = browse.restored, intent = browseIntent.current
+      if (saved && !planningIntent && intent === 0 && await requestEvidenceLeave() && active && alive.current && browseIntent.current === intent) {
+        const validProject = saved.projectId === null || projects.some(project => project.id === saved.projectId)
+        setSelectedProjectId(validProject ? saved.projectId : null)
+        setLocalKeyword(saved.keyword); setLibraryView(saved.view)
+        setMatrixBrowse(validProject ? saved.matrix : undefined); setResearchBrowse(validProject ? saved.research : undefined)
+        setReadingPositions(saved.readers.filter(position => currentPapers.current.some(paper => paper.arxivId === position.paperId)))
+        paperScroll.current = saved.scrollTop
+        returnPaper.current = saved.returnPaperId && currentPapers.current.some(paper => paper.arxivId === saved.returnPaperId) ? saved.returnPaperId : undefined
+        if (!validProject) setBrowseNotice('上次项目已失效，已返回全部文献；不会恢复已回收文献。')
+      }
+      if (active && alive.current) setBrowseApplied(true)
+    })()
+    return () => { active = false }
+  }, [browse.ready, browseScope?.workspaceId, browseScope?.spaceEpoch, projectsReady, loadingPapers])
+  useEffect(() => {
+    if (browseApplied && browseDirty.current) browse.persist(browseSnapshot.current)
+  }, [browseApplied, selectedProjectId, localKeyword, libraryView, matrixBrowse, researchBrowse, readingPositions, browse.persist])
+  useEffect(() => {
+    if (!browseApplied || !listContainer.current) return
+    if (libraryView !== 'papers' && nestedReadyKey !== browseViewKey) return
+    const intent = viewStartIntent.current.intent
+    if (browseIntent.current !== intent) return
+    const target = libraryView === 'papers' ? paperScroll.current : libraryView === 'matrix' ? matrixBrowse?.scrollTop ?? 0 : researchBrowse?.scrollTop ?? 0
+    const restore = () => {
+      if (!alive.current || browseIntent.current !== intent || !listContainer.current) return
+      const element = listContainer.current
+      restoringScroll.current = Math.max(0, Math.min(target, element.scrollHeight - element.clientHeight))
+      element.scrollTop = restoringScroll.current
+      if (libraryView === 'papers' && returnPaper.current) {
+        const row = [...element.querySelectorAll<HTMLElement>('[data-library-paper-id]')].find(candidate => candidate.dataset.libraryPaperId === returnPaper.current)
+        if (row && !row.hidden) row.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
+      }
+    }
+    listFrame.current = window.requestAnimationFrame ? window.requestAnimationFrame(restore) : undefined
+    if (!window.requestAnimationFrame) restore()
+    return () => { if (listFrame.current !== undefined) window.cancelAnimationFrame?.(listFrame.current) }
+  }, [browseApplied, libraryView, loadingPapers, nestedReadyKey, browseViewKey])
 
   useEffect(() => {
     if (!planningIntent) return
@@ -239,6 +331,8 @@ export function Library() {
       return
     }
     setReaderTab(tab); setReaderPaper(paper)
+    returnPaper.current = paperId
+    browse.persist({ ...browseSnapshot.current, returnPaperId: paperId })
   }
   const handleOpenPdf = (paper: PaperRecord) => openReader(paper.arxivId, 'notes', true)
 
@@ -448,7 +542,12 @@ export function Library() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" onPointerDownCapture={markBrowseIntent} onChangeCapture={markBrowseIntent} onKeyDownCapture={markBrowseIntent} onWheelCapture={markBrowseIntent}>
+      <div className="flex flex-wrap items-center gap-2 px-5 py-1 text-xs text-muted-foreground">
+        <span>浏览位置与筛选词仅保存在本机，不保存笔记或证据正文，不随整空间备份。</span>
+        <Button size="sm" variant="ghost" disabled={!browse.ready} onClick={() => { browseDirty.current = false; browse.clear(); setBrowseNotice('已请求清除本空间浏览位置；当前资料和输入保留。') }}>清除本空间浏览位置</Button>
+        {(browse.warning || browseNotice) && <span role="status">{browse.warning || browseNotice}</span>}
+      </div>
       <div className="module-header">
         <div className="flex items-center gap-3">
           <span className="module-title">文献库</span>
@@ -480,7 +579,7 @@ export function Library() {
         <ProjectBar
           projects={projects}
           selectedProjectId={selectedProjectId}
-          onSelect={async id => { if (await requestEvidenceLeave()) setSelectedProjectId(id) }}
+          onSelect={async id => { if (await requestEvidenceLeave()) { setSelectedProjectId(id); setMatrixBrowse(undefined); setResearchBrowse(undefined) } }}
           onCreate={handleCreateProject}
           onRename={handleRenameProject}
           onDelete={handleDeleteProject}
@@ -525,7 +624,15 @@ export function Library() {
       </div>}
 
       {/* 论文列表 */}
-      <div className="flex-1 overflow-y-auto px-5 py-3">
+      <div ref={listContainer} role="region" aria-label="文献浏览列表" className="flex-1 overflow-y-auto px-5 py-3" onScroll={event => {
+        const top = event.currentTarget.scrollTop
+        if (restoringScroll.current !== undefined && Math.abs(restoringScroll.current - top) < 1) { restoringScroll.current = undefined; return }
+        restoringScroll.current = undefined; markBrowseIntent()
+        if (libraryView === 'papers') paperScroll.current = top
+        else if (libraryView === 'matrix' && matrixBrowse) setMatrixBrowse({ ...matrixBrowse, scrollTop: top })
+        else if (libraryView === 'research' && researchBrowse) setResearchBrowse({ ...researchBrowse, scrollTop: top })
+        browse.persist({ ...browseSnapshot.current, scrollTop: paperScroll.current })
+      }}>
         {lifecycleStatus && <p role="status" className="mb-3 text-sm text-muted-foreground">{lifecycleStatus}</p>}
         {globalError && (
           <div className="mb-3 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[11px] text-primary flex items-center justify-between">
@@ -536,7 +643,7 @@ export function Library() {
           </div>
         )}
 
-        {libraryView === 'research' ? <Suspense fallback={<p role="status">正在打开研究问题与写作素材…</p>}><ResearchWorkspace projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /></Suspense> : libraryView === 'matrix' ? <EvidenceMatrix projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} /> : loadingPapers ? (
+        {libraryView === 'research' ? <Suspense fallback={<p role="status">正在打开研究问题与写作素材…</p>}><ResearchWorkspace key={selectedProjectId ?? 'all'} projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} initialBrowseState={researchBrowse} onBrowseStateChange={state => { if (latestBrowseView.current === browseViewKey) { setResearchBrowse(state); setNestedReadyKey(browseViewKey) } }} /></Suspense> : libraryView === 'matrix' ? <EvidenceMatrix key={selectedProjectId ?? 'all'} projectId={selectedProjectId ?? undefined} papers={papers} projects={projects} initialBrowseState={matrixBrowse} onBrowseStateChange={state => { if (latestBrowseView.current === browseViewKey) { setMatrixBrowse(state); setNestedReadyKey(browseViewKey) } }} /> : loadingPapers ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin mb-2" />
             <p className="text-[12px]">加载文献库...</p>
@@ -556,7 +663,7 @@ export function Library() {
           <div className="space-y-2">
             {/* 临时关键词筛选只隐藏卡片，不能卸载其中尚未保存的笔记/标签。 */}
             {projectPapers.map((paper) => (
-              <div key={paper.arxivId} hidden={!visiblePaperIds.has(paper.arxivId)}>
+              <div key={paper.arxivId} data-library-paper-id={paper.arxivId} hidden={!visiblePaperIds.has(paper.arxivId)}>
                 <PaperCard
                   scope={paperScope.current ?? undefined}
                   onConfirmedPaper={applyConfirmedPaper}
@@ -624,6 +731,8 @@ export function Library() {
           projectId={selectedProjectId ?? undefined}
           projects={projects}
           papers={papers}
+          initialReadingPosition={readingPositions.find(position => position.paperId === readerPaper.arxivId)}
+          onReadingPositionChange={position => { if (position.paperId === readerPaper.arxivId) setReadingPositions(previous => [position, ...previous.filter(item => item.paperId !== position.paperId)]) }}
           onClose={() => setReaderPaper(null)}
           onUpdateNotes={(arxivId, notes) => handleUpdate({ arxivId, notes })}
           onOpenExternal={handleOpenExternal}

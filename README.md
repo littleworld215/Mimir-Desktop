@@ -1,7 +1,11 @@
 # Mimir Desktop
 
+<!-- RESEARCH-WORKFLOW-A2-20261030 -->
+2026-10-30六项科研优化A2源码验证完成：文献/矩阵/研究子视图按空间恢复有效项目、筛选、位置与当前详情，守卫优先、迟到响应隔离；矩阵加载后滚动及同宿主新scope刷新反例已修复。最终类型/默认全量/构建exit0，2749通过+9既有跳过（2758项、304文件，182.08秒）；开发Electron5/5零CLI重试exit0。PDF页码仅预留可靠位置接口，尚无增强阅读。A3及其它任务继续，日常file-health-01与真实资料不变。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
+<!-- /RESEARCH-WORKFLOW-A2-20261030 -->
+
 <!-- RESEARCH-WORKFLOW-A1-20261030 -->
-2026-10-30六项科研优化开始执行：A1分空间浏览偏好底座已实现，64KiB/最近20篇/白名单及失败保留；六项行为RED→GREEN，最终类型/默认全量/构建exit0，2738通过+9既有跳过（2747项、303文件，216.01秒）。尚未接入导航或UI；A2及其余任务继续，不称六项验收。日常file-health-01、真实资料及应用锁保持。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
+2026-10-30六项科研优化开始执行：A1分空间浏览偏好底座已实现，64KiB/最近20篇/白名单及失败保留；六项行为RED→GREEN，最终类型/默认全量/构建exit0，2738通过+9既有跳过（2747项、303文件，216.01秒）。该A1批次仅底座，后续A2接线见上方最新记录；其余任务继续，不称六项验收。日常file-health-01、真实资料及应用锁保持。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
 <!-- /RESEARCH-WORKFLOW-A1-20261030 -->
 
 <!-- ASSET-FILE-HEALTH-20261029 -->

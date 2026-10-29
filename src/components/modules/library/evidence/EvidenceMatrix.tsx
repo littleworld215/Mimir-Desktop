@@ -5,17 +5,23 @@ import { initialEvidenceFilter, libraryEvidenceApi } from '@/lib/libraryEvidence
 import { requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import type { EvidenceCardSummary, EvidenceFilter, EvidenceList, SourceOpenResult } from '../../../../../shared/libraryEvidenceContracts'
 import type { PaperRecord, ProjectRecord } from '../types'
+import type { LibraryBrowseSnapshot } from '@/lib/libraryBrowseState'
 import { EvidencePanel, evidenceSourceLabels } from './EvidencePanel'
 import { evidenceControl } from './EvidenceEditor'
 import { EvidenceExportDialog } from './EvidenceExportDialog'
 
-interface Props { projectId?: string; papers: PaperRecord[]; projects: ProjectRecord[] }
-export function EvidenceMatrix({ projectId, papers, projects }: Props) {
-  const [filter, setFilter] = useState<EvidenceFilter>(initialEvidenceFilter), [page, setPage] = useState(1), [currentProject, setCurrentProject] = useState(Boolean(projectId)), [refresh, setRefresh] = useState(0)
+interface Props { projectId?: string; papers: PaperRecord[]; projects: ProjectRecord[]; initialBrowseState?: LibraryBrowseSnapshot['matrix']; onBrowseStateChange?(state: NonNullable<LibraryBrowseSnapshot['matrix']>): void }
+export function EvidenceMatrix({ projectId, papers, projects, initialBrowseState, onBrowseStateChange }: Props) {
+  const [filter, setFilter] = useState<EvidenceFilter>(() => initialBrowseState ? { ...initialBrowseState.filter, projectId: undefined } : initialEvidenceFilter()), [page, setPage] = useState(initialBrowseState?.page ?? 1), [currentProject, setCurrentProject] = useState(initialBrowseState ? Boolean(initialBrowseState.filter.projectId) : Boolean(projectId)), [refresh, setRefresh] = useState(0)
   const [result, setResult] = useState<EvidenceList>(), [loading, setLoading] = useState(true), [error, setError] = useState(''), [exportOpen, setExportOpen] = useState(false)
   const [selected, setSelected] = useState<{ paperId: string; cardId?: string }>(), [source, setSource] = useState<SourceOpenResult>()
   const generation = useRef(0), selectedFilter: EvidenceFilter = { ...filter, ...(currentProject && projectId ? { projectId } : {}) }, filterKey = JSON.stringify(selectedFilter)
-  useEffect(() => { setPage(1) }, [projectId])
+  const previousProject = useRef(projectId), browseChange = useRef(onBrowseStateChange)
+  browseChange.current = onBrowseStateChange
+  useEffect(() => { if (previousProject.current !== projectId) { previousProject.current = projectId; setPage(1) } }, [projectId])
+  useEffect(() => {
+    if (result && !loading && !error) browseChange.current?.({ filter: selectedFilter, page, scrollTop: initialBrowseState?.scrollTop ?? 0 })
+  }, [filterKey, page, loading, result?.revision, error])
   useEffect(() => {
     const token = ++generation.current; setLoading(true); setError('')
     const timer = setTimeout(() => { void (async () => {
@@ -26,6 +32,8 @@ export function EvidenceMatrix({ projectId, papers, projects }: Props) {
         const reply = await api.list({ scope: boot.scope, filter: selectedFilter, page })
         if (generation.current !== token) return
         if (!reply.ok) throw Error(reply.message)
+        const lastPage = Math.max(1, Math.ceil(reply.total / 50))
+        if (page > lastPage) { setPage(lastPage); return }
         setResult(reply)
       } catch (failure) { if (generation.current === token) setError(failure instanceof Error ? failure.message : '矩阵读取失败，请重试') }
       finally { if (generation.current === token) setLoading(false) }
