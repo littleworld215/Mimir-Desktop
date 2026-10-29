@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createEvidence, reviseEvidence } from '../../electron/library/evidence/service'
 import { saveQuestion } from '../../electron/library/research/questionService'
 import { savePack } from '../../electron/library/research/packService'
@@ -36,8 +37,17 @@ export function seedResearch(seed: SeedData) {
   saveQuestion(ctx, { questionId: questions[0]!.id, input: { projectId: firstQuestion.projectId, title: firstQuestion.title, question: firstQuestion.question, note: '问题的新组织版本，素材仍固定旧版本', evidenceCardIds: firstQuestion.evidenceCardIds }, expectedRevision: pack.revision, expectedEvidenceRevision: checked.document.revision })
   return { root, pdf, papers, projects: projects.slice(0, 2), cards, questions, pack: pack.pack, evidenceRevision: checked.document.revision, seed: { ...seed, spaceData: { ...seed.spaceData, 'library:papers': Object.fromEntries(papers.map(p => [p.arxivId, p])), 'library:projects': projects.slice(0, 2) } } }
 }
+let evidenceDirectory: string | undefined
+export function researchEvidenceDirectory(): string {
+  if (evidenceDirectory) return evidenceDirectory
+  const parent = process.env.MIMIR_E2E_EVIDENCE_DIR ? resolve(process.env.MIMIR_E2E_EVIDENCE_DIR) : tmpdir()
+  if (parent.replaceAll('\\', '/').toLowerCase().includes('/.git/codex-integration/')) throw Error('请选择新的本轮证据目录，不覆盖历史记录')
+  mkdirSync(parent, { recursive: true })
+  evidenceDirectory = mkdtempSync(join(parent, 'mimir-research-views-'))
+  return evidenceDirectory
+}
 export async function captureResearchViews(page: Page, stage: string) {
-  const dir = join(process.cwd(), '../../.git/codex-integration/i9-execution/visual'); mkdirSync(dir, { recursive: true })
+  const dir = researchEvidenceDirectory()
   for (const theme of ['light', 'dark', 'system-light', 'system-dark']) for (const width of [1280, 800]) {
     await page.emulateMedia({ colorScheme: theme.endsWith('dark') ? 'dark' : 'light' })
     await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), theme.endsWith('dark'))

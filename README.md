@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- RESEARCH-WORKFLOW-A3-20261030 -->
+2026-10-30六项科研优化A组已验证：A1偏好底座、A2导航恢复及A3空证据库新建笔记/证据/矩阵/问题/固定素材/导出/重启闭环。A3开发Electron3/3（42.5秒、零CLI重试），完整类型/全量/构建exit0，2749通过+9既有跳过（2758项、304文件，220.98秒）；新截图目录不写历史I9证据，第二合成空间原字节保留。B组增强PDF/摘录/T2I及C/F组继续；日常file-health-01和真实资料未更换。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
+<!-- /RESEARCH-WORKFLOW-A3-20261030 -->
+
 <!-- RESEARCH-WORKFLOW-A2-20261030 -->
 2026-10-30六项科研优化A2源码验证完成：文献/矩阵/研究子视图按空间恢复有效项目、筛选、位置与当前详情，守卫优先、迟到响应隔离；矩阵加载后滚动及同宿主新scope刷新反例已修复。最终类型/默认全量/构建exit0，2749通过+9既有跳过（2758项、304文件，182.08秒）；开发Electron5/5零CLI重试exit0。PDF页码仅预留可靠位置接口，尚无增强阅读。A3及其它任务继续，日常file-health-01与真实资料不变。 [逐批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-workflow-20261030.md)。
 <!-- /RESEARCH-WORKFLOW-A2-20261030 -->
