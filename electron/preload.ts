@@ -584,6 +584,7 @@ const electronAPI: ElectronAPI = {
     importFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.importFile, request),
     saveFile: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.saveFile, request),
     listVersions: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.listVersions, request),
+    inspectFileHealth: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.inspectFileHealth, request),
     getVersion: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.getVersion, request),
     diffVersions: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.diffVersions, request),
     rollbackVersion: (request) => ipcRenderer.invoke(ASSETS_CHANNELS.rollbackVersion, request)

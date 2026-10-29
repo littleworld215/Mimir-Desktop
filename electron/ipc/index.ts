@@ -753,7 +753,10 @@ export function setupIpcHandlers(winRef: { current: BrowserWindow | null }): voi
   registerVenuesHandlers()
   registerPaperHandlers({ assertRendererPath })
   // 资产库域（`assets:*`）：I0-05 只注册 context / list 两条最小通路。
-  registerAssetsHandlers()
+  registerAssetsHandlers({ isTrustedSender: event => {
+    const win = winRef.current, request = event as { sender?: unknown; senderFrame?: unknown }
+    return Boolean(win && !win.isDestroyed() && request.sender === win.webContents && request.senderFrame === win.webContents.mainFrame)
+  } })
 }
 
 /**

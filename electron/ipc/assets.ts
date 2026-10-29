@@ -44,6 +44,7 @@ import { assertRendererPath, assertRendererFilePath, pickedPaths, claimAssetSave
 import { resolve } from 'node:path'
 import log from '../logger'
 import { registerAssetsAiHandlers } from './assetsAi'
+import { inspectFileHealthBatch } from '../assets/fileHealth'
 
 type Failure = {
   ok: false
@@ -158,7 +159,15 @@ export function parseWriteCondition(request: Record<string, unknown>): Record<st
 }
 
 /** 完整资产域固定通道（`assets:*`）。 */
-export function registerAssetsHandlers(): void {
+export function registerAssetsHandlers(options: { isTrustedSender?: (event: unknown) => boolean } = {}): void {
+  ipcMain.handle(ASSETS_CHANNELS.inspectFileHealth, async (event, request: unknown) => {
+    try {
+      if (!options.isTrustedSender?.(event)) throw new AssetsStoreError('BAD_REQUEST', '仅允许工作台主窗口检查文件。')
+      const scope = assertWorkspaceRequest(request)
+      const { workspaceId: _w, spaceEpoch: _e, ...input } = request as Record<string, unknown>
+      return { ok: true, batch: await assetsStoreManager.run(scope, ctx => inspectFileHealthBatch(ctx, input)) }
+    } catch (error) { return failure(error) }
+  })
   registerAssetsAiHandlers({ failure })
   ipcMain.handle(ASSETS_CHANNELS.scanFolder,async (_event,request:unknown)=>{
     try{

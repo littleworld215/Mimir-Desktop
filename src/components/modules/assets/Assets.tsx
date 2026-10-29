@@ -30,8 +30,9 @@ const AiAssist=lazy(()=>import('./AiAssist').then(m=>({default:m.AiAssist})))
 const AiDrafts=lazy(()=>import('./AiDrafts').then(m=>({default:m.AiDrafts})))
 const AiTags=lazy(()=>import('./AiTags').then(m=>({default:m.AiTags})))
 const AssetsHelp=lazy(()=>import('./AssetsHelp').then(m=>({default:m.AssetsHelp})))
+const FileHealthReport=lazy(()=>import('./FileHealthReport').then(m=>({default:m.FileHealthReport})))
 const actionButtonClass = 'h-auto min-h-8 min-w-0 max-w-full whitespace-normal'
-type Modal = {kind:'ai-drafts';draft?:import('../../../../shared/assetsAiContracts').AiDraft} | {kind:'ai'|'ai-tags'} | {kind:'fill';asset:Detail} | { kind: 'edit'; asset?: Detail } | { kind: 'category'; category?: AssetCategory } | { kind: 'tags' | 'history' | 'delete' | 'import-json' | 'export' | 'batch' | 'folder' | 'saved-filters' | 'quick-use' | 'task-pack' | 'help' } | null
+type Modal = {kind:'ai-drafts';draft?:import('../../../../shared/assetsAiContracts').AiDraft} | {kind:'ai'|'ai-tags'} | {kind:'fill';asset:Detail} | { kind: 'edit'; asset?: Detail } | { kind: 'category'; category?: AssetCategory } | { kind: 'tags' | 'history' | 'delete' | 'import-json' | 'export' | 'batch' | 'folder' | 'saved-filters' | 'quick-use' | 'task-pack' | 'help' | 'file-health' } | null
 
 export function Assets(): React.JSX.Element {
   const data = useAssets(), [modal, setModal] = useState<Modal>(null), [notice, setNotice] = useState('')
@@ -118,6 +119,7 @@ export function Assets(): React.JSX.Element {
           <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'import-json' })}>导入JSON</Button>
           <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'folder' })}>导入文件夹</Button>
           <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'export' })}>导出</Button>
+          <Button size="sm" className={actionButtonClass} variant="outline" disabled={disabled} onClick={() => void open({ kind: 'file-health' })}>文件健康检查</Button>
           <Button size="sm" className={actionButtonClass} variant="outline" onClick={() => void open({ kind: 'help' })}>使用指南</Button>
         </div>
       </div>
@@ -145,6 +147,7 @@ export function Assets(): React.JSX.Element {
     {modal?.kind === 'history' && data.scope && data.selected && <VersionHistory asset={data.selected} scope={data.scope} onRollback={rollback} onDownload={download} onClose={() => setModal(null)} />}
     {modal?.kind === 'delete' && data.scope && data.selected && <DeleteAssetDialog asset={data.selected} scope={data.scope} onDelete={remove} onClose={() => setModal(null)} />}
     <Suspense fallback={<p role="status">正在加载操作窗口…</p>}>
+      {modal?.kind==='file-health'&&data.scope&&<FileHealthReport key={`${data.scope.workspaceId}:${data.scope.spaceEpoch}`} scope={data.scope} onClose={()=>setModal(null)}/>}
       {modal?.kind==='ai'&&data.scope&&data.selected&&<AiAssist key={`${data.scope.workspaceId}:${data.scope.spaceEpoch}:${data.selected.id}`} asset={data.selected} scope={data.scope} write={data.write} returnFocus={aiFocus.current} onGenerated={draft=>setModal({kind:'ai-drafts',draft})} onClose={()=>setModal(null)}/>}
       {modal?.kind==='ai-drafts'&&data.scope&&data.selected&&<AiDrafts key={`${data.scope.workspaceId}:${data.scope.spaceEpoch}:${data.selected.id}`} asset={data.selected} scope={data.scope} categories={data.categories} write={data.write} initialDraft={modal.draft} returnFocus={aiFocus.current} onChanged={asset=>{if(asset)data.accept(asset);void data.refresh()}} onClose={()=>setModal(null)}/>}
       {modal?.kind==='ai-tags'&&data.scope&&data.selected&&<AiTags key={`${data.scope.workspaceId}:${data.scope.spaceEpoch}:${data.selected.id}`} asset={data.selected} scope={data.scope} write={data.write} returnFocus={aiFocus.current} onChanged={asset=>{if(asset)data.accept(asset);void data.refresh()}} onClose={()=>setModal(null)}/>}

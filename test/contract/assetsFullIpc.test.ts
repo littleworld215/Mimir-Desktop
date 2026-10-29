@@ -22,7 +22,8 @@ let root: string, epoch: string
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'assets-full-ipc-')); epoch = 'A#1'
   state.manager = new AssetsStoreManager({ active: () => ({ id: 'A', path: root }), epoch: () => epoch }, (p, o) => new Database(p, o))
-  state.handlers.clear(); registerAssetsHandlers()
+  // This suite tests scoped business calls as the trusted main window. Sender rejection has its own contract and native Electron counterexample.
+  state.handlers.clear(); registerAssetsHandlers({ isTrustedSender: () => true })
 })
 afterEach(async () => { await state.manager!.close(); rmSync(root, { recursive: true, force: true }) })
 async function call<T = Record<string, unknown>>(method: keyof typeof ASSETS_CHANNELS, input: Record<string, unknown> = {}) {

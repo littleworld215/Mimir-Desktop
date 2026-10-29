@@ -1,5 +1,10 @@
 # Mimir Desktop
 
+<!-- ASSET-FILE-HEALTH-20261029 -->
+2026-10-29轻量文件健康报告已按采用的短设计落目标源码：手动分批检查文件资产与历史/归档，明确路径/归属/缺失/可打开状态，摘要未建立、非内容完整性；取消/重检/切换丢弃旧响应，不改库、不读正文、不持久化或自动修复。最终类型/构建、默认全量2732通过/9既有跳过（302文件/2741项，204.40秒）及来源自检exit0；开发Electron6/6、候选10/10均零CLI重试exit0。唯一末尾静态复核C0/I0/M1，取消提示已RED→GREEN修正；不是独立运行QA。日常仍action-layout-01（产品fa85d56），尚未更新安装；此前共享系统剪贴板末尾空值的两次失败及未定触发者单列保留。 [本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-file-health-20261029.md)。
+<!-- /ASSET-FILE-HEALTH-20261029 -->
+
+
 <!-- ASSET-ACTIONS-20261029 -->
 2026-10-29：已按采用的短设计实现资产操作分组与详情层级：13按钮保留，先阅读取用、再管理历史，永久删除独立但确认流程不变；长文操作可达、完整正文和复制核验保持。最终类型/构建、完整2705通过/9既有跳过、来源自检均exit0；独立候选包8/8真实Electron通过、零重试，末尾静态复核C0/I0/M0（非独立运行QA）。已备份优先部署至action-layout-01（产品fa85d56）；实际安装12/12、两代旧新版互斥2/2，零CLI重试exit0。私有原始备份及23条目正式包保留，原注册和科研业务字节不变，缓存/审计/运行旁文件单列。两入口正常启动并复用同一主进程，用户已确认当前新版正常显示、可以操作；工具初始化失败、截图0仍保留。 [本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-action-layout-20261029.md)。
 <!-- /ASSET-ACTIONS-20261029 -->

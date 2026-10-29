@@ -11,6 +11,7 @@
  */
 
 import type { AssetsAiApi } from './assetsAiContracts'
+import type { FileHealthBatch, FileHealthCursor } from './assetsFileHealthContracts'
 
 export type StorageType = 'inline_text' | 'file' | 'external_link'
 
@@ -433,6 +434,7 @@ export interface AssetDeleteImpact {
 
 /** 渲染层可见的资产域 API（preload 暴露为 window.electronAPI.assets）。 */
 export interface AssetsApi extends AssetsAiApi {
+  inspectFileHealth(req: WorkspaceRequest & { cursor?: FileHealthCursor }): Promise<AssetsResult<{ batch: FileHealthBatch }>>
   setFavorite(req: AssetRef & {favorite:boolean}):Promise<AssetsResult<{favorite:boolean}>>
   recordUsage(req:WorkspaceRequest & {assetIds:number[]}):Promise<AssetsResult<{recordedAt:string}>>
   listSavedFilters(req:WorkspaceRequest):Promise<AssetsResult<{filters:SavedAssetFilter[]}>>
@@ -552,6 +554,7 @@ export const ASSET_SOURCE_JSON_MAX_BYTES = 64 * 1024
 
 /** assets:<method> IPC 通道名（preload 逐方法固定 invoke，不暴露任意通道）。 */
 export const ASSETS_CHANNELS = {
+  inspectFileHealth: 'assets:inspectFileHealth',
   generateAiDraft: 'assets:generateAiDraft',
   suggestAiTags: 'assets:suggestAiTags',
   cancelAiRequest: 'assets:cancelAiRequest',
