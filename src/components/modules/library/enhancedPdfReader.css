@@ -1,0 +1,21 @@
+/* Scoped coordinate styles for the installed PDF.js TextLayer; no viewer/scripting UI. */
+.enhanced-pdf-surface { position: relative; background: white; color-scheme: only light; }
+.enhanced-pdf-text {
+  position: absolute; inset: 0; overflow: clip; line-height: 1;
+  text-align: initial; letter-spacing: normal; word-spacing: normal;
+  text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0;
+  --min-font-size: 1;
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+}
+.enhanced-pdf-text :is(span, br) {
+  position: absolute; color: transparent; white-space: pre; cursor: text;
+  transform-origin: 0 0; user-select: text;
+}
+.enhanced-pdf-text > :not(.markedContent), .enhanced-pdf-text .markedContent span:not(.markedContent) {
+  --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.enhanced-pdf-text .markedContent { display: contents; }
+.enhanced-pdf-text ::selection { background: rgb(40 100 255 / 35%); color: transparent; }

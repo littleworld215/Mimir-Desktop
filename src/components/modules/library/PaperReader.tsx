@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ComponentType } from 'react'
 import { X, Maximize2, Minimize2, BookOpen, ExternalLink, Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -14,6 +14,7 @@ import type { EditingDraft, EditingScope } from '../../../../shared/libraryEditi
 import { usePaperRecoveryDraft } from './usePaperRecoveryDraft'
 import { PaperDraftChoices } from './PaperDraftRecovery'
 import type { LibraryReadingPosition } from '@/lib/libraryBrowseState'
+import type { EnhancedPdfReaderProps } from './EnhancedPdfReader'
 
 interface PaperReaderProps {
   scope?: EditingScope
@@ -31,7 +32,7 @@ interface PaperReaderProps {
   onReadingPositionChange?(position: LibraryReadingPosition): void
 }
 
-export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper, onClose, onUpdateNotes, onOpenExternal, initialTab = 'notes', projectId, papers, projects }: PaperReaderProps) {
+export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper, onClose, onUpdateNotes, onOpenExternal, initialTab = 'notes', projectId, papers, projects, initialReadingPosition, onReadingPositionChange }: PaperReaderProps) {
   const [fullscreen, setFullscreen] = useState(false)
   const [addingNote, setAddingNote] = useState(false)
   const [noteText, setNoteText] = useState('')
@@ -44,6 +45,27 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
   useEffect(() => { boundary.current.alive = true; return () => { boundary.current.alive = false } }, [])
   useEffect(() => { savingRef.current = false; setSaving(false) }, [scope?.workspaceId, scope?.spaceEpoch, paper.arxivId])
   const [tab, setTab] = useState(initialTab), [pdfUrl, setPdfUrl] = useState(pdfUrlOf(paper.arxivId)), [source, setSource] = useState<SourceOpenResult>()
+  const [readerMode, setReaderMode] = useState<'native' | 'enhanced'>('native')
+  const [EnhancedReader, setEnhancedReader] = useState<ComponentType<EnhancedPdfReaderProps>>()
+  const [readerLoadError, setReaderLoadError] = useState(''), [readerAttempt, setReaderAttempt] = useState(0)
+  const [readerPosition, setReaderPosition] = useState(initialReadingPosition?.paperId === paper.arxivId ? initialReadingPosition : undefined)
+  const sourceIdentity = JSON.stringify([scope?.workspaceId, scope?.spaceEpoch, paper.arxivId, paper.pdfPath])
+  const previousSource = useRef(sourceIdentity)
+  useEffect(() => {
+    if (previousSource.current === sourceIdentity) return
+    previousSource.current = sourceIdentity
+    setReaderMode('native'); setReaderPosition(undefined); setPdfUrl(pdfUrlOf(paper.arxivId)); setSource(undefined)
+  }, [sourceIdentity])
+  useEffect(() => {
+    if (readerMode !== 'enhanced' || EnhancedReader) return
+    let alive = true
+    setReaderLoadError('')
+    void import('./EnhancedPdfReader').then(module => { if (alive) setEnhancedReader(() => module.EnhancedPdfReader) }, () => { if (alive) setReaderLoadError('增强阅读组件加载失败，当前输入保留，可重试或返回原阅读。') })
+    return () => { alive = false }
+  }, [readerMode, EnhancedReader, readerAttempt])
+  async function changeReaderMode(next: 'native' | 'enhanced') {
+    if (readerMode !== next && await requestEvidenceLeave()) setReaderMode(next)
+  }
   const container = useRef<HTMLDivElement>(null)
   const recovery = usePaperRecoveryDraft({ scope: addingNote ? scope : undefined, paperId: paper.arxivId, kind: 'append', base: { notes: paper.notes }, input: noteText, onRestore: setNoteText, onConfirmedPaper })
   useEffect(() => { if (recoverySelection) { setAddingNote(true); setTab('notes') } }, [recoverySelection?.id])
@@ -124,7 +146,7 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
         }
       }}
       className={cn(
-        'fixed inset-0 z-40 flex flex-col bg-background',
+        'fixed inset-0 z-40 flex flex-col bg-background text-foreground',
         fullscreen ? 'z-50' : 'm-4 rounded-lg border border-border shadow-2xl overflow-hidden'
       )}
     >
@@ -167,10 +189,20 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
       {source && <p role="status" className="border-b border-border p-2 text-xs break-words">{evidenceSourceLabels[source.status]} · PDF物理页 {source.requestedPage ?? '未填写'} · 请按页码定位；未自动确认跳转位置。</p>}
       <div className="flex flex-1 min-h-0">
         {/* PDF 区域 */}
-        <div className="flex-1 min-w-0 bg-muted/30">
-          {paper.pdfPath ? <iframe
+        <div className="flex-1 min-w-0 min-h-0 bg-muted/30 flex flex-col">
+          {paper.pdfPath && <div className="flex flex-wrap gap-2 border-b border-border p-2 text-xs">
+            <button aria-pressed={readerMode === 'native'} className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void changeReaderMode('native')}>原阅读</button>
+            <button aria-pressed={readerMode === 'enhanced'} disabled={!scope} className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void changeReaderMode('enhanced')}>增强阅读</button>
+          </div>}
+          {paper.pdfPath && readerMode === 'enhanced' && scope ? <div className="min-h-0 flex-1">
+            {readerLoadError ? <div className="p-3 text-sm"><p role="alert">{readerLoadError}</p><button className="rounded border px-2 py-1" onClick={() => setReaderAttempt(value => value + 1)}>重试加载增强阅读</button></div>
+              : EnhancedReader ? <EnhancedReader key={sourceIdentity} scope={scope} paperId={paper.arxivId} url={pdfUrl}
+                initialPage={readerPosition?.mode === 'enhanced' ? readerPosition.page : undefined} initialScale={readerPosition?.scale}
+                onPosition={position => { const next: LibraryReadingPosition = { ...position, mode: 'enhanced', paperId: paper.arxivId, touchedAt: Date.now() }; setReaderPosition(next); onReadingPositionChange?.(next) }} />
+                : <p role="status" className="p-3 text-sm">正在加载增强阅读组件…</p>}
+          </div> : paper.pdfPath ? <iframe
             src={pdfUrl}
-            className="h-full w-full"
+            className="min-h-0 flex-1 w-full"
             title={paper.title}
           /> : <p className="p-4 text-sm text-muted-foreground">尚无本地PDF，可先整理证据草稿。</p>}
         </div>
