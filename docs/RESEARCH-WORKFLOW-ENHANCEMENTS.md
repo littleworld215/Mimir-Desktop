@@ -63,3 +63,6 @@ pnpm exec playwright test --config playwright.benchmarks.config.ts --workers=1 -
 新目录包用于隔离合成验收，不覆盖旧安装、原配置、快捷方式或真实科研空间。日常更新仍需正常保存退出、先备份、独立目录部署和可回退入口。
 
 本轮不代替I5真实模型/跨机器、I6其余异常矩阵、I10系统通知/自启、macOS或真实T2I课题试用。新上下文静态复核、自动运行与用户真实使用分别登记，不能互相代替。
+
+
+2026-10-30部署状态：日常版已备份优先更新至research-workflow-01，旧安装和原配置/空间/入口备份保留；新版用户实际窗口确认待回复；不借用旧版确认。实际证据与回退方法见[部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-research-workflow-20261030.md)。

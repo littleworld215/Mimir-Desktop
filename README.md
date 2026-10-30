@@ -1,8 +1,12 @@
 # Mimir Desktop
 
 <!-- RESEARCH-WORKFLOW-CURRENT -->
-2026-10-30 F1：六项科研体验贯通与候选收口。真实PDF选区逐字进入未保存证据，人工保存后贯通矩阵、问题、固定版本素材、原生新文件导出及重启找回；证据v2不改写素材固定v1。末尾一次非撰写方静态复核发现2项Important/1项Minor，已集中修复并回归，不冒充独立运行QA。 类型/默认全量/构建exit0：2789通过、9既有跳过（2798项、313文件、216.30秒）；开发Electron8/8（1.3m，零CLI重试）。 本轮九任务的源码及Windows合成候选验证已完成；日常安装未切换，真实课题及I5/I6/I10等既有条件验收继续待验。日常安装和真实科研资料保持。
+2026-10-30 F1：六项科研体验贯通与候选收口。真实PDF选区逐字进入未保存证据，人工保存后贯通矩阵、问题、固定版本素材、原生新文件导出及重启找回；证据v2不改写素材固定v1。末尾一次非撰写方静态复核发现2项Important/1项Minor，已集中修复并回归，不冒充独立运行QA。 类型/默认全量/构建exit0：2789通过、9既有跳过（2798项、313文件、216.30秒）；开发Electron8/8（1.3m，零CLI重试）。 本轮九任务源码及合成候选已验证，日常版已备份优先更新；当前窗口确认和其它条件验收分别登记。
 <!-- END-RESEARCH-WORKFLOW-CURRENT -->
+
+<!-- RESEARCH-WORKFLOW-DEPLOYED -->
+2026-10-30六项科研优化已备份优先部署至research-workflow-01（产品34b8976）。564文件摘要一致，安装合成28/28、旧新版互斥2/2均零重试exit0；私有原始备份、正式整空间归档23条目及独立验包通过。原配置只读入口检查、Windows Shell两入口正常启动复用同一窗口和写锁归属通过；部署核对时注册与科研业务文件保持，公开会议缓存/审计/Chromium运行差异单列。新版用户实际窗口确认待回复；不借用旧版确认。旧安装和全部备份保留，I5/I6/I10及真实T2I条件验收不变。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-research-workflow-20261030.md)。
+<!-- /RESEARCH-WORKFLOW-DEPLOYED -->
 
 科研工作流操作说明：[浏览恢复、增强PDF摘录、T2I填写框架、固定版本素材与常用标签](docs/RESEARCH-WORKFLOW-ENHANCEMENTS.md)。
 
