@@ -5,8 +5,10 @@ import { ActiveAssetFilters } from './ActiveAssetFilters'
 import type { AssetCategory } from '../../../../shared/assetsContracts'
 import { controlClass } from './assetsUi'
 import { searchInputError } from './assetSearchInput'
+import { FrequentTags } from './FrequentTags'
+import type { WorkspaceRequest } from '../../../../shared/assetsContracts'
 
-export function AssetFilters({ query, tags, categories = [], disabled, onChange }: { query: AssetListQuery; categories?: AssetCategory[]; tags: AssetTag[]; disabled: boolean; onChange: (patch: AssetListQuery) => Promise<void> }) {
+export function AssetFilters({ query, tags, categories = [], disabled, onChange, scope }: { query: AssetListQuery; categories?: AssetCategory[]; tags: AssetTag[]; disabled: boolean; onChange: (patch: AssetListQuery) => Promise<void>; scope?: WorkspaceRequest }) {
   const [draft, setDraft] = useState(query.q ?? ''), [composing, setComposing] = useState(false)
   const [tagSearch,setTagSearch]=useState('')
   const visibleTags=tags.filter(tag=>(query.tagIds??[]).includes(tag.id)||(query.excludeTagIds??[]).includes(tag.id)||tag.name.toLocaleLowerCase().includes(tagSearch.trim().toLocaleLowerCase()))
@@ -30,6 +32,7 @@ export function AssetFilters({ query, tags, categories = [], disabled, onChange 
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => { cancel(); setDraft(''); setComposing(false); void onChange({ view: 'all', q: undefined, searchIn: 'all', sort: undefined, kind: undefined, updatedAfter: undefined, excludeTagIds: [], ids: undefined, category: undefined, storageType: undefined, tagIds: [], tagMode: 'and', archived: 'exclude' }) }}>清空筛选</Button>
     </div>
     <ActiveAssetFilters query={query} tags={tags} categories={categories} disabled={disabled} onRemove={patch=>{if(Object.prototype.hasOwnProperty.call(patch,'q'))cancel();void onChange(patch)}} />
+    {scope && <FrequentTags key={JSON.stringify([scope.workspaceId,scope.spaceEpoch])} scope={scope} tags={tags} query={query} disabled={disabled} onChange={onChange} />}
     {inputError && <p role="alert" className="text-sm text-destructive">{inputError}</p>}
     <select aria-label="取用范围" className={selectClass} disabled={disabled} value={query.view ?? 'all'} onChange={e => void onChange({ view: e.target.value as AssetListQuery['view'] })}><option value="all">全部资产</option><option value="favorites">收藏</option><option value="recent">最近使用</option></select><details><summary className="cursor-pointer text-sm">更多筛选</summary><div className="mt-2 flex flex-wrap gap-2">
       <select aria-label="归档范围" className={selectClass} disabled={disabled} value={query.archived ?? 'exclude'} onChange={e => void onChange({ archived: e.target.value as AssetListQuery['archived'] })}><option value="exclude">未归档</option><option value="only">已归档</option><option value="include">含归档</option></select>

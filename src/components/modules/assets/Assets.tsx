@@ -134,7 +134,7 @@ export function Assets(): React.JSX.Element {
         </div>
       </div>
     </section>
-    <AssetFilters key={data.scope?data.scope.workspaceId+data.scope.spaceEpoch:'pending'} categories={data.categories} query={data.query} tags={data.tags} disabled={disabled} onChange={filter} />
+    <AssetFilters key={data.scope?data.scope.workspaceId+data.scope.spaceEpoch:'pending'} scope={data.scope ?? undefined} categories={data.categories} query={data.query} tags={data.tags} disabled={disabled} onChange={filter} />
     {data.loading && <p role="status" className="text-sm text-muted-foreground">正在读取资产…</p>}
     <main className="flex min-h-96 shrink-0 flex-1 flex-col gap-4 overflow-y-auto lg:min-h-0 lg:shrink lg:grid lg:grid-cols-[190px_280px_minmax(0,1fr)]">
       <aside className={data.selected ? 'hidden overflow-auto lg:block' : 'max-h-56 shrink-0 overflow-auto lg:max-h-none'}><details open className="lg:contents"><summary className="cursor-pointer text-sm lg:hidden">分类（选择后包含子树）</summary><CategoryTree key={data.scope?data.scope.workspaceId+data.scope.spaceEpoch:'pending'} categories={data.categories} current={data.query.category} disabled={disabled} onSelect={code => void filter({ category: code })} onEdit={category => void open({ kind: 'category', category })} /></details></aside>
