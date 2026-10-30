@@ -4,6 +4,59 @@ import { seedResearchWorkflow } from '../fixtures/researchWorkflow'
 import { gotoModule } from '../helpers/nav'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { evidencePdf } from '../fixtures/libraryEvidence'
+
+test('来源改绑另一篇PDF后只原生查看，返回当前文献后才可摘录且不串来源', async () => {
+  let root = '', paperIds: string[] = []
+  const otherQuote = 'Distinct second document B'
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => {
+    const fixture = seedResearchWorkflow(seed); root = fixture.root; paperIds = fixture.paperIds
+    const pdfPath = join(root, 'papers', encodeURIComponent(paperIds[1]!) + '.pdf')
+    writeFileSync(pdfPath, evidencePdf(otherQuote))
+    ;(fixture.seed.spaceData['library:papers'] as Record<string, { pdfPath?: string }>)[paperIds[1]!]!.pdfPath = pdfPath
+    return fixture.seed
+  } })
+  try {
+    await gotoModule(ctx.page, 'library')
+    await ctx.page.locator('button[title="合成科研闭环"]').click()
+    await ctx.page.getByRole('button', { name: '证据卡：闭环文献1', exact: true }).click()
+    const reader = ctx.page.getByRole('dialog', { name: '文献阅读器', exact: true })
+    await reader.getByRole('button', { name: '新建证据卡', exact: true }).click()
+    await reader.getByLabel('原文摘录', { exact: true }).fill('人工旧输入')
+    await reader.getByLabel('研究问题', { exact: true }).fill('跨文献来源回归')
+    await reader.getByRole('button', { name: '保存证据', exact: true }).click()
+    await expect(reader.getByText(/编辑已同步/)).toBeVisible()
+    await reader.getByLabel('来源文献', { exact: true }).selectOption(paperIds[1]!)
+    await reader.getByRole('button', { name: '保存证据', exact: true }).click()
+    await expect(reader.getByText(/编辑已同步/)).toBeVisible()
+    await reader.getByRole('button', { name: '增强阅读', exact: true }).click()
+    await expect(reader.locator('.enhanced-pdf-text span').first()).toHaveText('Synthetic fairness evidence')
+    await reader.getByText('打开原文', { exact: true }).click()
+    await expect(reader.locator('iframe')).toHaveAttribute('src', `mimir-pdf://paper/${encodeURIComponent(paperIds[1]!)}.pdf`)
+    await expect(reader.getByRole('button', { name: '增强阅读', exact: true })).toBeDisabled()
+    await expect(reader.getByRole('button', { name: '摘录为证据', exact: true })).toHaveCount(0)
+    await reader.getByRole('button', { name: '返回当前文献PDF', exact: true }).click()
+    await reader.getByRole('button', { name: '增强阅读', exact: true }).click()
+    const text = reader.locator('.enhanced-pdf-text span').first()
+    await expect(text).toHaveText('Synthetic fairness evidence')
+    const box = await text.boundingBox(); expect(box).not.toBeNull()
+    await ctx.page.mouse.move(box!.x + 0.5, box!.y + box!.height / 2); await ctx.page.mouse.down()
+    await ctx.page.mouse.move(box!.x + box!.width - 0.5, box!.y + box!.height / 2, { steps: 12 }); await ctx.page.mouse.up()
+    const selected = await ctx.page.evaluate(() => document.getSelection()?.toString())
+    expect(selected).toBe('Synthetic fairness evidence'); expect(selected).not.toBe(otherQuote)
+    await reader.getByRole('button', { name: '摘录为证据', exact: true }).click()
+    await expect(reader.getByLabel('原文摘录', { exact: true })).toHaveValue(selected!)
+    await expect(reader.getByLabel('来源文献', { exact: true })).toHaveValue(paperIds[0]!)
+    await reader.getByLabel('研究问题', { exact: true }).fill('返回后正确来源')
+    await reader.getByRole('button', { name: '保存证据', exact: true }).click()
+    await expect(reader.getByText(/编辑已同步/)).toBeVisible()
+    const cards = JSON.parse(readFileSync(join(root, '.mimir/library/evidence.json'), 'utf8')).cards
+    expect(cards).toHaveLength(2)
+    expect(cards.map((card: any) => card.versions.at(-1))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ paperId: paperIds[0], quote: selected }), expect.objectContaining({ paperId: paperIds[1], quote: '人工旧输入' })
+    ]))
+  } finally { await ctx.cleanup() }
+})
 
 function actionPdf() {
   const first = 'BT /F1 14 Tf 40 780 Td (Synthetic active PDF) Tj ET\n', blank = 'q Q\n'

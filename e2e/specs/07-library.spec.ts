@@ -12,6 +12,7 @@
 import { makeTest, expect } from '../fixtures/app'
 import { gotoModule } from '../helpers/nav'
 import type { SeedData } from '../fixtures/seed'
+import { realpathSync } from 'node:fs'
 
 /** 预置项目 id（与 seed 里论文的 projectIds 对应）。 */
 const PROJECT_ID = 'e2e-project-0001'
@@ -67,9 +68,15 @@ function seedLibrary(seed: SeedData): SeedData {
   }
 }
 
-const test = makeTest({ transformSeed: seedLibrary })
+const test = makeTest({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seedLibrary })
 
 test.describe('文献库', () => {
+  test('启动目标与显式候选标识一致', async ({ electronApp }) => {
+    const actual=await electronApp.evaluate(({app})=>({path:process.execPath,packaged:app.isPackaged,electron:process.versions.electron}))
+    expect(actual.electron).toBeTruthy()
+    expect(actual.packaged).toBe(Boolean(process.env.MIMIR_E2E_PACKAGED))
+    if(process.env.MIMIR_E2E_PACKAGED)expect(realpathSync(actual.path)).toBe(realpathSync(process.env.MIMIR_E2E_PACKAGED))
+  })
   test.beforeEach(async ({ page }) => {
     await page.route(
       (url) => url.protocol === 'https:' || url.protocol === 'http:',

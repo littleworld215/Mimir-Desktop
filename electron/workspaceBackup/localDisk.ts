@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 const VOLUME_PROBE = `
 $ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 try {
   Add-Type -TypeDefinition @'
 using System;

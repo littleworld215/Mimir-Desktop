@@ -35,3 +35,10 @@ it('原生探针失败不得按盘符猜测或默认为本机磁盘', async () =
   const { assertWindowsLocalDisk } = await moduleUnderTest()
   expect(() => assertWindowsLocalDisk('C:\\synthetic', () => { throw Error('PROBE_FAILED') })).toThrow('PROBE_FAILED')
 })
+it('中文祖先路径经真实stdin传递仍可识别本机卷，不损坏JSON转义', async () => {
+  const { assertWindowsLocalDisk } = await moduleUnderTest()
+  if (process.platform !== 'win32') { expect(() => assertWindowsLocalDisk('/tmp')).toThrow(); return }
+  const root = mkdtempSync(join(process.cwd(), '.superpowers/卷探针-')); roots.push(root)
+  expect(() => assertWindowsLocalDisk(root)).not.toThrow()
+  expect(readdirSync(root)).toEqual([])
+})

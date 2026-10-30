@@ -68,17 +68,17 @@ test('真实文件队列并发取消反馈与实际收尾、健康检查仅批�
    const picked=await window.electronAPI!.showOpenDialog({properties:['openFile']}) as {canceled:boolean;filePaths:string[]};if(picked.canceled||picked.filePaths[0]!==second)throw Error('FILE_PICK_MISMATCH')
    const version=await api.importFile({...first.scope,assetId:first.assetId,sourcePath:second,expectedRevision:current.asset.revision,expectedCurrentVersionId:current.asset.currentVersionId});if(!version.ok)throw Error(version.message)
    for(let index=0;index<60;index++){const created=await api.create({...first.scope,input:{name:`Empty ${index}`,category:'inbox',storageType:'file'}});if(!created.ok)throw Error(created.message)}
-   let cancelFeedbackMs=0
+   let dispatchSchedulingMs=0
    const start=performance.now(),task=api.inspectFileHealth(first.scope)
-   await Promise.resolve();cancelFeedbackMs=performance.now()-start
+   await Promise.resolve();dispatchSchedulingMs=performance.now()-start
    const result=await task,actualSettledMs=performance.now()-start
    if(!result.ok||result.batch.digestBaseline!=='not-established'||result.batch.items.length!==50||!result.batch.nextCursor)throw Error('HEALTH_BATCH_MISMATCH')
    const versions=await api.listVersions({...first.scope,assetId:first.assetId});if(!versions.ok||versions.page.total!==2)throw Error('VERSION_MISMATCH')
-   return {cancelFeedbackMs,actualSettledMs,items:result.batch.items.length,openable:result.batch.items.filter(row=>row.status==='openable').length}
+   return {dispatchSchedulingMs,actualSettledMs,items:result.batch.items.length,openable:result.batch.items.filter(row=>row.status==='openable').length}
   },{first,second})
   expect(health.openable).toBe(2)
   cases.push({caseId:'cancel-diagnostics',operation:'folder-scan',count:5,bytes:5*1024**2,samplesMs:[first.scanMs],statistics:statistics([first.scanMs]),cancelFeedbackMs:first.cancelFeedbackMs,actualSettledMs:first.actualSettledMs,errorCode:first.errorCode,origin:'feedback from concurrent cancel IPC; settled from one-file import IPC start; no claim of interrupting synchronous scan/current copy'})
-  cases.push({caseId:'health-cancel-diagnostic',operation:'file-health',count:61,totalFileVersions:2,checkedItems:health.items,samplesMs:[health.actualSettledMs],statistics:statistics([health.actualSettledMs]),cancelFeedbackMs:health.cancelFeedbackMs,actualSettledMs:health.actualSettledMs,cancelModel:'renderer intent stops subsequent batches only; actual current batch awaited; no backend abort API'})
+  cases.push({caseId:'health-batch-diagnostic',operation:'file-health',count:61,totalFileVersions:2,checkedItems:health.items,samplesMs:[health.actualSettledMs],statistics:statistics([health.actualSettledMs]),dispatchSchedulingMs:health.dispatchSchedulingMs,actualSettledMs:health.actualSettledMs,measurementScope:'microtask scheduling and actual current batch only; no stop intent or UI cancellation action measured; no backend abort API'})
  }finally{await ctx.cleanup()}
 })
 test.afterAll(()=>{

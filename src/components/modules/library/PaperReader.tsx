@@ -46,6 +46,13 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
   useEffect(() => { boundary.current.alive = true; return () => { boundary.current.alive = false } }, [])
   useEffect(() => { savingRef.current = false; setSaving(false) }, [scope?.workspaceId, scope?.spaceEpoch, paper.arxivId])
   const [tab, setTab] = useState(initialTab), [pdfUrl, setPdfUrl] = useState(pdfUrlOf(paper.arxivId)), [source, setSource] = useState<SourceOpenResult>()
+  const readerSource = useRef({ url: pdfUrl, generation: 0 })
+  const currentDocument = pdfUrl.split('#')[0] === pdfUrlOf(paper.arxivId)
+  const sourceGeneration = readerSource.current.generation
+  function replacePdfUrl(url: string) {
+    readerSource.current = { url, generation: readerSource.current.generation + 1 }
+    setPdfUrl(url)
+  }
   const [readerMode, setReaderMode] = useState<'native' | 'enhanced'>('native')
   const [EnhancedReader, setEnhancedReader] = useState<ComponentType<EnhancedPdfReaderProps>>()
   const [readerLoadError, setReaderLoadError] = useState(''), [readerAttempt, setReaderAttempt] = useState(0)
@@ -53,8 +60,8 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
   const sourceIdentity = JSON.stringify([scope?.workspaceId, scope?.spaceEpoch, paper.arxivId, paper.pdfPath])
   const previousSource = useRef(sourceIdentity)
   const [pendingExcerpt, setPendingExcerpt] = useState<PdfExcerpt>()
-  async function receiveExcerpt(excerpt: PdfExcerpt) {
-    if (!scope || excerpt.paperId !== paper.arxivId || excerpt.scope.workspaceId !== scope.workspaceId || excerpt.scope.spaceEpoch !== scope.spaceEpoch) return
+  async function receiveExcerpt(excerpt: PdfExcerpt, generation: number) {
+    if (readerSource.current.generation !== generation || readerSource.current.url.split('#')[0] !== pdfUrlOf(paper.arxivId) || !scope || excerpt.paperId !== paper.arxivId || excerpt.scope.workspaceId !== scope.workspaceId || excerpt.scope.spaceEpoch !== scope.spaceEpoch) return
     setPendingExcerpt(excerpt)
     const key = boundary.current.key
     if (tab !== 'evidence' && await requestEvidenceLeave() && boundary.current.alive && boundary.current.key === key) setTab('evidence')
@@ -62,7 +69,7 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
   useEffect(() => {
     if (previousSource.current === sourceIdentity) return
     previousSource.current = sourceIdentity
-    setReaderMode('native'); setReaderPosition(undefined); setPdfUrl(pdfUrlOf(paper.arxivId)); setSource(undefined); setPendingExcerpt(undefined)
+    setReaderMode('native'); setReaderPosition(undefined); replacePdfUrl(pdfUrlOf(paper.arxivId)); setSource(undefined); setPendingExcerpt(undefined)
   }, [sourceIdentity])
   useEffect(() => {
     if (readerMode !== 'enhanced' || EnhancedReader) return
@@ -72,6 +79,7 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
     return () => { alive = false }
   }, [readerMode, EnhancedReader, readerAttempt])
   async function changeReaderMode(next: 'native' | 'enhanced') {
+    if (next === 'enhanced' && !currentDocument) return
     if (readerMode !== next && await requestEvidenceLeave()) setReaderMode(next)
   }
   const container = useRef<HTMLDivElement>(null)
@@ -200,14 +208,15 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
         <div className="flex-1 min-w-0 min-h-0 bg-muted/30 flex flex-col">
           {paper.pdfPath && <div className="flex flex-wrap gap-2 border-b border-border p-2 text-xs">
             <button aria-pressed={readerMode === 'native'} className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void changeReaderMode('native')}>原阅读</button>
-            <button aria-pressed={readerMode === 'enhanced'} disabled={!scope} className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void changeReaderMode('enhanced')}>增强阅读</button>
+            <button aria-pressed={readerMode === 'enhanced'} disabled={!scope || !currentDocument} className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void changeReaderMode('enhanced')}>增强阅读</button>
+            {!currentDocument && <><span role="status">当前来源属于其他文献，仅原生查看；返回当前文献后可增强摘录。</span><button className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { replacePdfUrl(pdfUrlOf(paper.arxivId)); setSource(undefined); setReaderMode('native') }}>返回当前文献PDF</button></>}
             {pendingExcerpt && tab !== 'evidence' && <button className="rounded border px-2 py-1" onClick={() => void changeTab('evidence')}>查看待接收PDF摘录</button>}
           </div>}
-          {paper.pdfPath && readerMode === 'enhanced' && scope ? <div className="min-h-0 flex-1">
+          {paper.pdfPath && readerMode === 'enhanced' && currentDocument && scope ? <div className="min-h-0 flex-1">
             {readerLoadError ? <div className="p-3 text-sm"><p role="alert">{readerLoadError}</p><button className="rounded border px-2 py-1" onClick={() => setReaderAttempt(value => value + 1)}>重试加载增强阅读</button></div>
-              : EnhancedReader ? <EnhancedReader key={sourceIdentity} scope={scope} paperId={paper.arxivId} url={pdfUrl}
+              : EnhancedReader ? <EnhancedReader key={`${sourceIdentity}:${sourceGeneration}`} scope={scope} paperId={paper.arxivId} url={pdfUrl}
                 initialPage={readerPosition?.mode === 'enhanced' ? readerPosition.page : undefined} initialScale={readerPosition?.scale}
-                onPosition={position => { const next: LibraryReadingPosition = { ...position, mode: 'enhanced', paperId: paper.arxivId, touchedAt: Date.now() }; setReaderPosition(next); onReadingPositionChange?.(next) }} onExcerpt={excerpt => void receiveExcerpt(excerpt)} />
+                onPosition={position => { if (readerSource.current.generation !== sourceGeneration) return; const next: LibraryReadingPosition = { ...position, mode: 'enhanced', paperId: paper.arxivId, touchedAt: Date.now() }; setReaderPosition(next); onReadingPositionChange?.(next) }} onExcerpt={excerpt => void receiveExcerpt(excerpt, sourceGeneration)} />
                 : <p role="status" className="p-3 text-sm">正在加载增强阅读组件…</p>}
           </div> : paper.pdfPath ? <iframe
             src={pdfUrl}
@@ -219,7 +228,7 @@ export function PaperReader({ scope, onConfirmedPaper, recoverySelection, paper,
         {/* 阅读笔记侧栏 */}
         <div className={cn('shrink-0 border-l border-border bg-card flex flex-col min-h-0 min-w-0', tab === 'evidence' ? 'w-[52%] min-w-[300px]' : 'w-72')}>
           <div role="tablist" aria-label="文献阅读侧栏" className="flex gap-2 border-b border-border px-3 py-2"><button role="tab" aria-selected={tab === 'notes'} onClick={() => void changeTab('notes')} className="rounded px-2 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring">阅读笔记</button><button role="tab" aria-selected={tab === 'evidence'} onClick={() => void changeTab('evidence')} className="rounded px-2 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring">证据卡</button></div>
-          {tab === 'evidence' ? <div className="min-h-0 flex-1 overflow-y-auto"><EvidencePanel paperId={paper.arxivId} projectId={projectId} scope={scope} papers={papers} projects={projects} excerpt={pendingExcerpt} onExcerptAccepted={id => setPendingExcerpt(previous => previous?.id === id ? undefined : previous)} onOpenSource={result => { setSource(result); if (result.pdfUrl) setPdfUrl(result.pdfUrl) }} /></div> : <>
+          {tab === 'evidence' ? <div className="min-h-0 flex-1 overflow-y-auto"><EvidencePanel paperId={paper.arxivId} projectId={projectId} scope={scope} papers={papers} projects={projects} excerpt={pendingExcerpt} onExcerptAccepted={id => setPendingExcerpt(previous => previous?.id === id ? undefined : previous)} onOpenSource={result => { setSource(result); if (result.pdfUrl) { replacePdfUrl(result.pdfUrl); if (result.pdfUrl.split('#')[0] !== pdfUrlOf(paper.arxivId)) setReaderMode('native') } }} /></div> : <>
           <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
             <span className="text-[11px] font-medium text-muted-foreground">阅读笔记</span>
             <Button
