@@ -5,7 +5,7 @@
 <!-- END-RESEARCH-WORKFLOW-CURRENT -->
 
 <!-- RESEARCH-WORKFLOW-DEPLOYED -->
-2026-10-30六项科研优化已备份优先部署至research-workflow-01（产品34b8976）。564文件摘要一致，安装合成28/28、旧新版互斥2/2均零重试exit0；私有原始备份、正式整空间归档23条目及独立验包通过。原配置只读入口检查、Windows Shell两入口正常启动复用同一窗口和写锁归属通过；部署核对时注册与科研业务文件保持，公开会议缓存/审计/Chromium运行差异单列。新版用户实际窗口确认待回复；不借用旧版确认。旧安装和全部备份保留，I5/I6/I10及真实T2I条件验收不变。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-research-workflow-20261030.md)。
+2026-10-30六项科研优化已备份优先部署至research-workflow-01（产品34b8976）。564文件摘要一致，安装合成28/28、旧新版互斥2/2均零重试exit0；私有原始备份、正式整空间归档23条目及独立验包通过。原配置只读入口检查、Windows Shell两入口正常启动复用同一窗口和写锁归属通过；部署核对时注册与科研业务文件保持，公开会议缓存/审计/Chromium运行差异单列。用户已直接确认本次六项科研优化版正常显示、可以操作。旧安装和全部备份保留，I5/I6/I10及真实T2I条件验收不变。 [部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-research-workflow-20261030.md)。
 <!-- /RESEARCH-WORKFLOW-DEPLOYED -->
 
 科研工作流操作说明：[浏览恢复、增强PDF摘录、T2I填写框架、固定版本素材与常用标签](docs/RESEARCH-WORKFLOW-ENHANCEMENTS.md)。
