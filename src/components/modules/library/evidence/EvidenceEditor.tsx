@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { registerEvidenceEditor } from '@/lib/evidenceEditGuard'
 import type { EvidenceCardReply, EvidenceFields, EvidenceResult, EvidenceVersion } from '../../../../../shared/libraryEvidenceContracts'
+import { EvidenceTemplatePicker } from './EvidenceTemplatePicker'
+import { evidenceTemplateHints, type EvidenceTemplateId } from '@/lib/evidenceTemplates'
 
 export const evidenceControl = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 export function evidenceFields(paperId: string, projectIds: string[], initial?: EvidenceVersion): EvidenceFields {
@@ -21,6 +23,8 @@ export function EvidenceEditor({ paperId, projectIds, initial, initialFields, re
   const actions = useRef({ save, onSaved }); actions.current = { save, onSaved }
   const externalBusyRef = useRef(externalBusy); externalBusyRef.current = externalBusy
   const disabled = busy || externalBusy
+  const [templateMode, setTemplateMode] = useState<EvidenceTemplateId>('general')
+  const hints = evidenceTemplateHints(templateMode)
   formRef.current = form
   const dirty = JSON.stringify(form) !== base.current
   function change<K extends keyof EvidenceFields>(key: K, value: EvidenceFields[K]) {
@@ -48,10 +52,11 @@ export function EvidenceEditor({ paperId, projectIds, initial, initialFields, re
     const remove = registerEvidenceEditor({ isDirty: () => JSON.stringify(formRef.current) !== base.current, isBusy: () => busyRef.current || externalBusyRef.current, save: () => saveRef.current(), discard })
     return () => { active.current = false; remove() }
   }, [])
-  const text = (key: 'question' | 'claim' | 'quote' | 'method' | 'datasetOrMaterial' | 'finding' | 'limitation' | 'comment', label: string, limit: number) => <label className="block space-y-1" key={key}><span className="text-xs font-medium">{label} <span className="text-muted-foreground">{Array.from(form[key]).length}/{limit}</span></span><textarea aria-label={label} className={`${evidenceControl} min-h-[72px] resize-y`} rows={key === 'quote' ? 6 : 3} value={form[key]} disabled={disabled} onChange={e => change(key, e.target.value)} /></label>
+  const text = (key: 'question' | 'claim' | 'quote' | 'method' | 'datasetOrMaterial' | 'finding' | 'limitation' | 'comment', label: string, limit: number) => <label className="block space-y-1" key={key}><span className="text-xs font-medium">{label} <span className="text-muted-foreground">{Array.from(form[key]).length}/{limit}</span></span><textarea aria-label={label} placeholder={hints[key]} className={`${evidenceControl} min-h-[72px] resize-y`} rows={key === 'quote' ? 6 : 3} value={form[key]} disabled={disabled} onChange={e => change(key, e.target.value)} />{hints[key] && <span className="block whitespace-pre-wrap text-xs text-muted-foreground">填写提示：{hints[key]}</span>}</label>
   return <form className="space-y-4 p-3" onSubmit={e => { e.preventDefault(); void persist() }} onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void persist() } }}>
     <p className="text-xs text-muted-foreground" aria-live="polite">文档修订 {revision} · {busy ? '保存中…' : dirty ? '未保存' : '编辑已同步'} · 修改人工内容后恢复为草稿</p>
     {error && <p role="alert" className="text-sm text-destructive whitespace-pre-wrap break-words">{error}</p>}
+    <EvidenceTemplatePicker fields={form} mode={templateMode} disabled={disabled} onModeChange={setTemplateMode} onApply={next => { if (!busyRef.current && !externalBusyRef.current) { formRef.current = next; setForm(next) } }} />
     <fieldset className="space-y-2" disabled={disabled}><legend className="font-medium text-sm">原文与来源</legend>
       {papers.length > 0 && <label className="block text-xs">来源文献<select aria-label="来源文献" className={evidenceControl} value={form.paperId} onChange={e => change('paperId', e.target.value)}>{!papers.some(p => p.arxivId === form.paperId) && <option value={form.paperId}>已移除文献 · {form.paperId}</option>}{papers.map(p => <option key={p.arxivId} value={p.arxivId}>{p.title}</option>)}</select></label>}
       {text('question', '研究问题', 2000)}{text('quote', '原文摘录', 20000)}
