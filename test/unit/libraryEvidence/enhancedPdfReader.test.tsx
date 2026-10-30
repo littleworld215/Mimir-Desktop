@@ -79,3 +79,23 @@ it('加载失败显示可重试反馈，不假报完成或丢失原阅读入口'
   fireEvent.click(screen.getByRole('button', { name: '重试增强阅读' }))
   await screen.findByText('synthetic page text')
 })
+
+it('重复点击同一未改变选区只发一次，翻页立即使旧候选失效', async () => {
+  const excerpt = vi.fn()
+  render(<EnhancedPdfReader {...base} onExcerpt={excerpt} />)
+  await screen.findByText('synthetic page text')
+  const root = document.querySelector<HTMLElement>('.enhanced-pdf-text')!
+  const selection = document.getSelection()!; selection.selectAllChildren(root)
+  fireEvent(document, new Event('selectionchange'))
+  const button = screen.getByRole('button', { name: '摘录为证据' })
+  fireEvent.click(button)
+  fireEvent.mouseUp(document)
+  fireEvent.click(button)
+  expect(excerpt).toHaveBeenCalledTimes(1)
+  selection.removeAllRanges(); fireEvent(document, new Event('selectionchange'))
+  selection.selectAllChildren(root); fireEvent(document, new Event('selectionchange'))
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+  await waitFor(() => expect(base.onPosition).toHaveBeenCalledWith({ page: 2, scale: 1 }))
+  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(excerpt).toHaveBeenCalledTimes(1)
+})

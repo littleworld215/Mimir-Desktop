@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { launchApp } from '../fixtures/launch'
 import { seedResearchWorkflow } from '../fixtures/researchWorkflow'
 import { gotoModule } from '../helpers/nav'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 function actionPdf() {
@@ -20,6 +20,53 @@ function actionPdf() {
   bytes += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
   return bytes
 }
+
+test('实际文字选择进入未保存证据，显式保存才产生未核对历史', async () => {
+  let root = ''
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => { const fixture = seedResearchWorkflow(seed); root = fixture.root; return fixture.seed } })
+  try {
+    await gotoModule(ctx.page, 'library')
+    await ctx.page.locator('button[title="合成科研闭环"]').click()
+    await ctx.page.getByRole('button', { name: '证据卡：闭环文献1', exact: true }).click()
+    const reader = ctx.page.getByRole('dialog', { name: '文献阅读器', exact: true })
+    await reader.getByRole('button', { name: '增强阅读', exact: true }).click()
+    await reader.getByRole('button', { name: '新建证据卡', exact: true }).click()
+    await reader.getByLabel('原文摘录', { exact: true }).fill('原有未保存输入')
+    const text = reader.locator('.enhanced-pdf-text span').first()
+    await expect(text).toBeVisible()
+    const box = await text.boundingBox()
+    expect(box).not.toBeNull()
+    await ctx.page.mouse.move(box!.x + 0.5, box!.y + box!.height / 2)
+    await ctx.page.mouse.down()
+    await ctx.page.mouse.move(box!.x + box!.width - 0.5, box!.y + box!.height / 2, { steps: 12 })
+    await ctx.page.mouse.up()
+    const quote = await ctx.page.evaluate(() => document.getSelection()?.toString())
+    expect(quote).toContain('Synthetic fairness evidence')
+    const endpoints = await text.evaluate(element => {
+      const root = element.closest('.enhanced-pdf-text')!, selection = document.getSelection()!
+      return { anchorInside: root.contains(selection.anchorNode), focusInside: root.contains(selection.focusNode), commonInside: root.contains(selection.getRangeAt(0).commonAncestorContainer), anchor: selection.anchorNode?.nodeName, focus: selection.focusNode?.nodeName }
+    })
+    expect(await reader.getByRole('button', { name: '摘录为证据', exact: true }).isEnabled(), JSON.stringify(endpoints)).toBe(true)
+    await reader.getByRole('button', { name: '摘录为证据', exact: true }).click()
+    const leave = ctx.page.getByRole('dialog', { name: '存在未保存的研究资料编辑', exact: true })
+    await leave.getByRole('button', { name: '留在这里', exact: true }).click()
+    await expect(reader.getByLabel('原文摘录', { exact: true })).toHaveValue('原有未保存输入')
+    await reader.getByRole('button', { name: '接收PDF摘录为新卡', exact: true }).click()
+    await leave.getByRole('button', { name: '丢弃后离开', exact: true }).click()
+    await expect(reader.getByLabel('原文摘录', { exact: true })).toHaveValue(quote!)
+    await expect(reader.getByLabel('PDF物理起始页', { exact: true })).toHaveValue('1')
+    const file = join(root, '.mimir/library/evidence.json')
+    expect(existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')).cards.length : 0).toBe(0)
+    await reader.getByLabel('研究问题', { exact: true }).fill('选区合成问题')
+    await reader.getByRole('button', { name: '保存证据', exact: true }).click()
+    await expect(reader.getByText(/编辑已同步/)).toBeVisible()
+    const stored = JSON.parse(readFileSync(file, 'utf8')).cards
+    expect(stored).toHaveLength(1)
+    expect(stored[0].versions[0]).toMatchObject({ quote, locator: { pageStart: 1, pageEnd: 1 }, reviewState: 'draft', documentBinding: null })
+    await reader.getByRole('button', { name: '原阅读', exact: true }).click()
+    await expect(reader.locator('iframe')).toHaveCount(1)
+  } finally { await ctx.cleanup() }
+})
 
 test('双页与扫描页、动作不执行、窄窗深浅主题及已完成页恢复', async () => {
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => {
@@ -40,7 +87,7 @@ test('双页与扫描页、动作不执行、窄窗深浅主题及已完成页�
     }
     const reader = await open()
     await reader.getByRole('button', { name: '增强阅读', exact: true }).click()
-    await expect(reader.locator('[data-pdf-page="1"]')).toBeVisible()
+    await expect(reader.locator('.enhanced-pdf-surface[data-pdf-page="1"]')).toBeVisible()
     for (const theme of ['light', 'dark']) {
       await ctx.page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), theme === 'dark')
       await expect(reader.getByRole('button', { name: '原阅读', exact: true })).toBeVisible()
@@ -57,14 +104,14 @@ test('双页与扫描页、动作不执行、窄窗深浅主题及已完成页�
       expect(contrast, `${theme}阅读模式按钮对比度`).toBeGreaterThanOrEqual(4.5)
     }
     await reader.getByRole('button', { name: '下一页', exact: true }).click()
-    await expect(reader.locator('[data-pdf-page="2"]')).toBeVisible()
+    await expect(reader.locator('.enhanced-pdf-surface[data-pdf-page="2"]')).toBeVisible()
     await expect(reader.getByText(/没有可用文字层/)).toBeVisible()
     await expect(reader.getByRole('button', { name: '下一页', exact: true })).toBeDisabled()
     await reader.getByRole('button', { name: '关闭', exact: true }).click()
     const reopened = await open()
     await expect(reopened.locator('iframe')).toHaveCount(1)
     await reopened.getByRole('button', { name: '增强阅读', exact: true }).click()
-    await expect(reopened.locator('[data-pdf-page="2"]')).toBeVisible()
+    await expect(reopened.locator('.enhanced-pdf-surface[data-pdf-page="2"]')).toBeVisible()
     expect(external).toEqual([])
     expect(await reopened.locator('a[href],.annotationLayer,.xfaLayer').count()).toBe(0)
   } finally { await ctx.cleanup() }
@@ -81,7 +128,7 @@ test('增强模式显式启动本地worker，画布与可选文字层呈现同�
     const reader = ctx.page.getByRole('dialog', { name: '文献阅读器', exact: true })
     await expect(reader.locator('iframe')).toHaveCount(1)
     await reader.getByRole('button', { name: '增强阅读', exact: true }).click()
-    const surface = reader.locator('[data-pdf-page="1"]')
+    const surface = reader.locator('.enhanced-pdf-surface[data-pdf-page="1"]')
     await expect(surface).toBeVisible()
     await expect(surface.locator('.enhanced-pdf-text')).toContainText('Synthetic fairness evidence')
     const layout = await surface.evaluate(element => {

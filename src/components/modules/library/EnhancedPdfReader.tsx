@@ -4,6 +4,7 @@ import type { PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import { loadReaderPdf, readerCanvasSize, type ReaderPdfHandle } from '@/lib/pdfReaderDocument'
 import type { EvidenceScope } from '../../../../shared/libraryEvidenceContracts'
 import type { PdfExcerpt } from '@/lib/pdfReaderTypes'
+import { capturePdfExcerpt } from '@/lib/pdfSelection'
 import './enhancedPdfReader.css'
 
 export interface EnhancedPdfReaderProps {
@@ -26,6 +27,38 @@ export function EnhancedPdfReader(props: EnhancedPdfReaderProps) {
   const [page, setPage] = useState(1), [pageInput, setPageInput] = useState('1'), [scale, setScale] = useState(1)
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [noText, setNoText] = useState(false)
   const host = useRef<HTMLDivElement>(null)
+  const [candidate, setCandidate] = useState<{ excerpt: PdfExcerpt; range: Range }>(), [selectionError, setSelectionError] = useState('')
+  const submitted = useRef('')
+  const submittedSelection = useRef<{ excerpt: PdfExcerpt; range: Range }>()
+  useEffect(() => {
+    const capture = () => {
+      if (!latest.current.onExcerpt) return
+      const root = host.current?.querySelector<HTMLElement>('.enhanced-pdf-text[data-render-id]'), selection = document.getSelection()
+      if (!root) { setCandidate(undefined); return }
+      try {
+        const excerpt = capturePdfExcerpt(root, { scope: latest.current.scope, paperId: latest.current.paperId, renderId: root.dataset.renderId!, page: Number(root.dataset.pdfPage) }, selection)
+        setSelectionError('')
+        if (!excerpt) { setCandidate(undefined); submittedSelection.current = undefined; return }
+        const range = selection!.getRangeAt(0).cloneRange()
+        const consumed = submittedSelection.current
+        if (consumed?.excerpt.renderId === excerpt.renderId && consumed.excerpt.quote === excerpt.quote && consumed.range.compareBoundaryPoints(Range.START_TO_START, range) === 0 && consumed.range.compareBoundaryPoints(Range.END_TO_END, range) === 0) { setCandidate(undefined); return }
+        setCandidate(previous => previous?.excerpt.renderId === excerpt.renderId && previous.excerpt.quote === excerpt.quote ? previous : { excerpt, range })
+      } catch (failure) { setCandidate(undefined); setSelectionError(failure instanceof Error ? failure.message : '选区不可用，请重新选择。') }
+    }
+    document.addEventListener('selectionchange', capture)
+    document.addEventListener('mouseup', capture)
+    document.addEventListener('keyup', capture)
+    return () => { document.removeEventListener('selectionchange', capture); document.removeEventListener('mouseup', capture); document.removeEventListener('keyup', capture) }
+  }, [identity])
+  function submitExcerpt() {
+    if (!candidate || submitted.current === candidate.excerpt.id) return
+    const { excerpt, range } = candidate, root = host.current?.querySelector<HTMLElement>('.enhanced-pdf-text[data-render-id]')
+    if (!root?.isConnected || root.dataset.renderId !== excerpt.renderId || !root.contains(range.commonAncestorContainer) || range.toString() !== excerpt.quote || excerpt.scope.workspaceId !== scope.workspaceId || excerpt.scope.spaceEpoch !== scope.spaceEpoch || excerpt.paperId !== paperId) { setCandidate(undefined); setSelectionError('原选区已失效，请在当前页重新选择。'); return }
+    submitted.current = excerpt.id
+    submittedSelection.current = candidate
+    latest.current.onExcerpt?.(excerpt)
+    setCandidate(undefined)
+  }
   useEffect(() => {
     let alive = true, loaded: ReaderPdfHandle | undefined
     const controller = new AbortController()
@@ -46,6 +79,7 @@ export function EnhancedPdfReader(props: EnhancedPdfReaderProps) {
 
   useEffect(() => {
     host.current?.replaceChildren()
+    setCandidate(undefined); setSelectionError('')
     if (!active || active.identity !== identity) return
     let alive = true, rendering: RenderTask | undefined, text: TextLayer | undefined, pdfPage: PDFPageProxy | undefined
     const root = host.current
@@ -76,7 +110,9 @@ export function EnhancedPdfReader(props: EnhancedPdfReaderProps) {
         const pending = [rendering.promise, text.render()]
         try { await Promise.all(pending) } catch (failure) { cancel(); await Promise.allSettled(pending); throw failure }
         if (!alive || !root?.isConnected) return
-        surface.dataset.pdfPage = String(page); surface.dataset.renderId = crypto.randomUUID()
+        const renderId = crypto.randomUUID()
+        surface.dataset.pdfPage = String(page); surface.dataset.renderId = renderId
+        Object.assign(layer.dataset, { renderId, pdfPage: String(page), pdfPaperId: paperId, workspaceId: scope.workspaceId, spaceEpoch: scope.spaceEpoch })
         surface.append(canvas, layer); root.replaceChildren(surface)
         setNoText(!content.items.some(item => 'str' in item && item.str.trim().length > 0))
         setLoading(false); latest.current.onPosition({ page, scale })
@@ -101,10 +137,12 @@ export function EnhancedPdfReader(props: EnhancedPdfReaderProps) {
       <span>/ {currentDocument?.numPages ?? '—'}</span>
       <button className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" disabled={!currentDocument || page >= currentDocument.numPages} onClick={() => move(page + 1)}>下一页</button>
       <label>缩放 <select aria-label="PDF缩放" className="rounded border bg-background p-1" disabled={!currentDocument} value={scale} onChange={event => { const value = Number(event.target.value); if (scales.includes(value)) setScale(value) }}>{scales.map(value => <option key={value} value={value}>{value * 100}%</option>)}</select></label>
+      {props.onExcerpt && <button className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" disabled={!candidate || loading} onPointerDown={event => event.preventDefault()} onMouseDown={event => event.preventDefault()} onClick={submitExcerpt}>摘录为证据</button>}
     </div>
     {loading && <p role="status" className="p-2 text-sm">正在加载当前物理页…</p>}
     {error && <div className="p-2 text-sm"><p role="alert">{error}</p><button className="rounded border px-2 py-1 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setAttempt(value => value + 1)}>重试增强阅读</button></div>}
     {noText && !loading && <p role="status" className="p-2 text-sm">此页没有可用文字层，可能为扫描页；不会自动OCR，可使用原阅读器。</p>}
+    {selectionError && <p role="alert" className="p-2 text-sm">{selectionError}</p>}
     <div className="min-h-0 flex-1 overflow-auto p-2" tabIndex={0} aria-label="PDF页面滚动区域"><div ref={host} /></div>
   </section>
 }

@@ -10,13 +10,14 @@ export function evidenceFields(paperId: string, projectIds: string[], initial?: 
 interface Props {
   paperId: string; projectIds: string[]; initial?: EvidenceVersion; revision: number
   externalBusy?: boolean
+  initialFields?: EvidenceFields
   papers?: { arxivId: string; title: string }[]; projects?: { id: string; title: string }[]
   save(input: EvidenceFields): Promise<EvidenceResult<EvidenceCardReply>>
   onSaved?(reply: EvidenceCardReply): void; onCancel?(): void
 }
-export function EvidenceEditor({ paperId, projectIds, initial, revision, externalBusy = false, papers = [], projects = [], save, onSaved, onCancel }: Props) {
-  const [form, setForm] = useState(() => evidenceFields(paperId, projectIds, initial)), [busy, setBusy] = useState(false), [error, setError] = useState('')
-  const base = useRef(JSON.stringify(form)), active = useRef(true), busyRef = useRef(false), formRef = useRef(form)
+export function EvidenceEditor({ paperId, projectIds, initial, initialFields, revision, externalBusy = false, papers = [], projects = [], save, onSaved, onCancel }: Props) {
+  const [form, setForm] = useState<EvidenceFields>(() => initial || !initialFields ? evidenceFields(paperId, projectIds, initial) : { ...initialFields, projectIds: [...initialFields.projectIds], locator: { ...initialFields.locator } }), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const base = useRef(JSON.stringify(evidenceFields(paperId, projectIds, initial))), active = useRef(true), busyRef = useRef(false), formRef = useRef(form)
   const actions = useRef({ save, onSaved }); actions.current = { save, onSaved }
   const externalBusyRef = useRef(externalBusy); externalBusyRef.current = externalBusy
   const disabled = busy || externalBusy

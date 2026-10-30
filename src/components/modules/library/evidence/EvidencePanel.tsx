@@ -3,8 +3,10 @@ import { Button } from '@/components/ui/button'
 import { hasEvidenceWork, registerEvidenceEditor, requestEvidenceLeave } from '@/lib/evidenceEditGuard'
 import { initialEvidenceFilter, libraryEvidenceApi } from '@/lib/libraryEvidenceApi'
 import type { EvidenceCard, EvidenceCardReply, EvidenceCardSummary, EvidenceScope, SourceInspection, SourceOpenResult } from '../../../../../shared/libraryEvidenceContracts'
-import { EvidenceEditor } from './EvidenceEditor'
+import { EvidenceEditor, evidenceFields } from './EvidenceEditor'
 import { EvidenceHistory } from './EvidenceHistory'
+import type { PdfExcerpt } from '@/lib/pdfReaderTypes'
+import type { EvidenceFields } from '../../../../../shared/libraryEvidenceContracts'
 
 export const evidenceSourceLabels = { unchecked: '本轮尚未检查', available: '上次检查匹配', unbound: '未绑定PDF', missing: 'PDF缺失', changed: '来源版本变化', detached: '来源文献已移除', unauthorized: '来源未授权或不是PDF' }
 interface Props {
@@ -12,12 +14,30 @@ interface Props {
   papers?: { arxivId: string; title: string }[]; projects?: { id: string; title: string }[]
   onOpenSource(source: SourceOpenResult): void
   initialCardId?: string
+  excerpt?: PdfExcerpt
+  onExcerptAccepted?(id: string): void
 }
-export function EvidencePanel({ paperId, projectId, scope, papers, projects, onOpenSource, initialCardId }: Props) {
+export function EvidencePanel({ paperId, projectId, scope, papers, projects, onOpenSource, initialCardId, excerpt, onExcerptAccepted }: Props) {
   const [cards, setCards] = useState<EvidenceCardSummary[]>([]), [selected, setSelected] = useState<EvidenceCard | null | undefined>()
   const [revision, setRevision] = useState(0), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [archived, setArchived] = useState(false), [inspection, setInspection] = useState<SourceInspection>()
   const scopeRef = useRef<EvidenceScope>(), generation = useRef(0), busyRef = useRef(false), newButton = useRef<HTMLButtonElement>(null)
   const selectedRef = useRef(selected); selectedRef.current = selected
+  const [excerptForm, setExcerptForm] = useState<{ id: string; fields: EvidenceFields }>()
+  const received = useRef(new Set<string>()), receiving = useRef(false), pendingExcerpt = useRef(excerpt); pendingExcerpt.current = excerpt
+  async function acceptExcerpt() {
+    const candidate = pendingExcerpt.current, accepted = scopeRef.current, token = generation.current
+    if (!candidate || !accepted || loading || receiving.current || received.current.has(candidate.id)) return
+    if (candidate.paperId !== paperId || candidate.scope.workspaceId !== accepted.workspaceId || candidate.scope.spaceEpoch !== accepted.spaceEpoch) { setError('摘录所属空间或文献已变化，请重新选择。'); return }
+    receiving.current = true
+    try {
+      if (!await requestEvidenceLeave()) return
+      if (generation.current !== token || pendingExcerpt.current?.id !== candidate.id || scopeRef.current !== accepted) return
+      const fields = { ...evidenceFields(paperId, projectId ? [projectId] : []), quote: candidate.quote, locator: { pageStart: candidate.page, pageEnd: candidate.page } }
+      received.current.add(candidate.id); setExcerptForm({ id: candidate.id, fields }); setSelected(null); setInspection(undefined); setError('')
+      onExcerptAccepted?.(candidate.id)
+    } finally { receiving.current = false }
+  }
+  useEffect(() => { if (excerpt && !loading) void acceptExcerpt() }, [excerpt?.id, loading, paperId, scope?.workspaceId, scope?.spaceEpoch])
   useEffect(() => registerEvidenceEditor({ isDirty: () => false, isBusy: () => busyRef.current, save: async () => !busyRef.current, discard: () => {} }), [])
   async function load(token: number) {
     setLoading(true); setError(''); setSelected(undefined); setInspection(undefined)
@@ -48,7 +68,7 @@ export function EvidencePanel({ paperId, projectId, scope, papers, projects, onO
     finally { if (generation.current === token) setLoading(false) }
   }
   useEffect(() => {
-    const token = ++generation.current; scopeRef.current = undefined; setCards([]); busyRef.current = false; setBusy(false)
+    const token = ++generation.current; scopeRef.current = undefined; setCards([]); busyRef.current = false; setBusy(false); setExcerptForm(undefined)
     void load(token)
     return () => { generation.current += 1 }
   }, [paperId, projectId, scope?.workspaceId, scope?.spaceEpoch, initialCardId])
@@ -61,7 +81,7 @@ export function EvidencePanel({ paperId, projectId, scope, papers, projects, onO
   }
   async function choose(id?: string) {
     if (!await requestEvidenceLeave()) return
-    setError(''); setInspection(undefined)
+    setError(''); setInspection(undefined); setExcerptForm(undefined)
     const token = ++generation.current
     busyRef.current = true; setBusy(true)
     try { if (id) await openCard(id, token); else setSelected(null) }
@@ -106,9 +126,11 @@ export function EvidencePanel({ paperId, projectId, scope, papers, projects, onO
     <div className="flex flex-wrap items-center gap-2 border-b border-border p-3"><Button ref={newButton} disabled={loading || busy || !scopeRef.current} onClick={() => void choose()}>新建证据卡</Button><Button variant="outline" disabled={busy} onClick={async () => { if (await requestEvidenceLeave()) await load(++generation.current) }}>重新加载</Button><label className="text-xs"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} /> 包含归档</label></div>
     {loading && <p role="status" className="p-3 text-sm text-muted-foreground">正在读取证据…</p>}
     {error && <p role="alert" className="p-3 text-sm text-destructive break-words">{error}</p>}
+    {excerpt && !received.current.has(excerpt.id) && <div className="p-3 text-sm"><p>有PDF摘录待接收；原输入与候选保留。</p><Button variant="outline" disabled={loading || busy} onClick={() => void acceptExcerpt()}>接收PDF摘录为新卡</Button></div>}
+    {excerptForm && selected === null && <p role="status" className="px-3 text-sm">PDF摘录尚未保存；需核对原文与页码，不提供跨崩溃恢复保证。</p>}
     {!loading && <div className="space-y-1 p-3">{cards.filter(c => archived || !c.archived).map(c => <Button className="h-auto w-full justify-start text-left whitespace-normal" variant="outline" key={c.cardId} onClick={() => void choose(c.cardId)}><span className="break-words">{c.question || '未填写研究问题'} · v{c.version} · {c.archived ? '已归档' : c.reviewState === 'checked' ? '用户已核对' : '草稿'} · {evidenceSourceLabels[c.sourceStatus]}</span></Button>)}{cards.length === 0 && <p className="text-xs text-muted-foreground">暂无证据卡。手动摘录原文，保留不同判断与来源；不会自动转换阅读笔记。</p>}</div>}
     {selected && <div className="space-y-2 border-t border-border p-3"><p className="text-xs break-words">{current?.paperSnapshot.title} · v{selected.currentVersion} · {current?.reviewState === 'checked' ? '用户已核对（不代表科研事实验证）' : '草稿'}{current?.archived ? ' · 已归档' : ''}</p><p className="text-xs text-muted-foreground">{evidenceSourceLabels[inspection?.status ?? (current?.documentBinding ? 'unchecked' : 'unbound')]}{inspection?.checkedAt ? ` · 上次检查 ${inspection.checkedAt}` : ''}</p><div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy} onClick={() => void sourceAction('inspect')}>检查来源</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('confirm')}>我已核对原文与页码</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('open')}>打开原文</Button><Button variant="outline" disabled={busy} onClick={() => void sourceAction('archive')}>{current?.archived ? '取消归档' : '归档证据'}</Button></div></div>}
-    {selected !== undefined && scopeRef.current && <EvidenceEditor key={selected ? `editor:${selected.id}:${selected.currentVersion}` : `new:${paperId}`} externalBusy={busy} paperId={paperId} projectIds={projectId ? [projectId] : []} papers={papers} projects={projects} initial={current} revision={revision} save={input => {
+    {selected !== undefined && scopeRef.current && <EvidenceEditor key={selected ? `editor:${selected.id}:${selected.currentVersion}` : `new:${paperId}:${excerptForm?.id ?? ''}`} externalBusy={busy} paperId={paperId} projectIds={projectId ? [projectId] : []} papers={papers} projects={projects} initial={current} initialFields={selected === null ? excerptForm?.fields : undefined} revision={revision} save={input => {
       const accepted = scopeRef.current!
       return selected ? libraryEvidenceApi().update({ scope: accepted, cardId: selected.id, expectedRevision: revision, input }) : libraryEvidenceApi().create({ scope: accepted, expectedRevision: revision, input })
     }} onSaved={applied} onCancel={() => { setSelected(undefined); void load(++generation.current); newButton.current?.focus() }} />}
