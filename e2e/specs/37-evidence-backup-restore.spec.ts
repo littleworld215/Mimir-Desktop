@@ -33,7 +33,8 @@ for (const withAssets of [false, true]) test(`证据全历史真实备份恢复�
   const id = 'doi:10.1/恢复证据😀', title = '恢复后的合成证据'
   let paper: PaperRecord, project: ProjectRecord
   let db: Database.Database | undefined, restarted: ElectronApplication | undefined
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
+  // Only this isolated fixture explicitly accepts its own native-picker suggestions and scope preview.
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true, extraArgs: ['--workspace-maintenance'], transformSeed: seed => {
     root = seed.workspaces[0].path; workspaceId = seed.workspaces[0].id
     paper = { arxivId: id, title, authors: ['合成作者'], summary: '离线资料', url: 'https://example.org/synthetic', notes: '旧笔记完整保留', tags: [], projectIds: ['restore-project'], addedAt: '2026-10-17', pdfPath: join(root, 'papers', paperPdfFileName(id)) }
     project = { id: 'restore-project', title: '恢复课题', createdAt: '2026-10-17', updatedAt: '2026-10-17' }
