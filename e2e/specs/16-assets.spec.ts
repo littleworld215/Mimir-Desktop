@@ -3,9 +3,9 @@ import { gotoModule } from '../helpers/nav'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import Database from 'better-sqlite3'
-const test = makeTest({ transformSeed: seed => ({ ...seed, workspaces: [...seed.workspaces, { ...seed.workspaces[0]!, id: 'assets-space-B', name: '隔离空间B', path: join(seed.workspaces[0]!.path, '..', '隔离空间B') }] }) })
+const test = makeTest({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => ({ ...seed, workspaces: [...seed.workspaces, { ...seed.workspaces[0]!, id: 'assets-space-B', name: '隔离空间B', path: join(seed.workspaces[0]!.path, '..', '隔离空间B') }] }) })
 
-test('资产三形态、版本、分类标签、归档删除与退出取消的真实闭环', async ({ page, electronApp, launched }) => {
+test('资产三形态、版本、分类标签、归档删除与退出取消的真实闭环', async ({ page, electronApp, launched }, testInfo) => {
   test.setTimeout(180_000)
   await gotoModule(page, 'assets')
   await expect(page.getByRole('button', { name: '新建资产', exact: true }).first()).toBeEnabled()
@@ -56,6 +56,10 @@ test('资产三形态、版本、分类标签、归档删除与退出取消的�
   await page.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('button', { name: '丢弃后离开' }).click()
   // Category edit and tag governance are exercised through the actual UI.
+  // Narrow detail intentionally hides categories; return through the actual UI.
+  const backToList = detail.getByRole('button', { name: '返回列表', exact: true })
+  if (await backToList.isVisible()) await backToList.click()
+  await expect(page.getByRole('navigation', { name: '资产分类', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '新建分类', exact: true }).click()
   await page.getByLabel('分类名称').fill('E2E分类')
   await page.getByRole('button', { name: '保存分类', exact: true }).click()
@@ -114,7 +118,7 @@ test('资产三形态、版本、分类标签、归档删除与退出取消的�
   await expect(page.getByRole('button', { name: '返回列表' })).toBeVisible()
   await page.getByRole('button', { name: '返回列表' }).click()
   await page.evaluate(() => document.documentElement.classList.add('dark'))
-  await page.screenshot({ path: '../../.git/codex-integration/assets-ui-dark-narrow.png' })
+  await page.screenshot({ path: testInfo.outputPath('assets-ui-dark-narrow.png') })
   for (const module of ['library', 'paper', 'figures', 'ledger', 'meetings', 'servers', 'venues', 'chat'] as const) await gotoModule(page, module)
 })
 

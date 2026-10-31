@@ -5,6 +5,7 @@ import { AssetsStoreError, type AssetsContext } from './types'
 import { resolveWithinFiles } from './paths'
 
 type FileIO = Pick<typeof fileIO, 'lstat' | 'open'>
+const FILE_HEALTH_CONCURRENCY = 4
 interface Row { assetId: number; assetName: string; assetCode: string; archived: string | null; versionId: number | null; version: number | null; filePath: string | null }
 function bad(): never { throw new AssetsStoreError('BAD_REQUEST', '文件健康检查参数非法。') }
 function cursor(input: unknown): FileHealthCursor | undefined {
@@ -77,13 +78,31 @@ export async function inspectFileHealthBatch(ctx: AssetsContext, request: unknow
       ORDER BY a.id,COALESCE(v.id,0) LIMIT ?`, bound.upperVersionId, bound.upperAssetId, bound.assetId, bound.assetId, bound.versionId, FILE_HEALTH_BATCH_SIZE + 1)
     return { bound, rows }
   })
-  const items: FileHealthItem[] = []
-  for (const row of rows.slice(0, FILE_HEALTH_BATCH_SIZE)) {
-    ctx.assertCurrent()
-    const status = await inspect(ctx, row, io)
-    ctx.assertCurrent()
-    items.push({ assetId: row.assetId, assetName: row.assetName, assetCode: row.assetCode, archived: Boolean(row.archived), versionId: row.versionId, version: row.version, status })
+  const batchRows = rows.slice(0, FILE_HEALTH_BATCH_SIZE)
+  const items: FileHealthItem[] = new Array(batchRows.length)
+  let next = 0, failed = false, failure: unknown
+  async function worker(): Promise<void> {
+    while (!failed && next < batchRows.length) {
+      const index = next++, row = batchRows[index]
+      try {
+        ctx.assertCurrent()
+        const status = await inspect(ctx, row, io)
+        ctx.assertCurrent()
+        items[index] = { assetId: row.assetId, assetName: row.assetName, assetCode: row.assetCode, archived: Boolean(row.archived), versionId: row.versionId, version: row.version, status }
+      } catch (error) {
+        // A sibling may fail to close after space cancellation was observed.
+        // Preserve that cleanup failure rather than downgrade it to cancellation.
+        if (!failed || (failure instanceof AssetsStoreError && failure.code === 'SPACE_CHANGED' &&
+            error instanceof AssetsStoreError && error.code === 'FILE_UNAVAILABLE')) failure = error
+        failed = true
+      }
+    }
   }
+  // Keep every per-file guard. A failed worker stops new work; all started checks
+  // must finish their finally/close before manager.run can release this batch.
+  await Promise.all(Array.from({ length: Math.min(FILE_HEALTH_CONCURRENCY, batchRows.length) }, worker))
+  if (failed) throw failure
+  ctx.assertCurrent()
   const last = items[items.length - 1]
   return { checkedAt: new Date().toISOString(), digestBaseline: 'not-established', items, nextCursor: rows.length > FILE_HEALTH_BATCH_SIZE ? { ...bound, assetId: last.assetId, versionId: last.versionId ?? 0 } : null }
 }

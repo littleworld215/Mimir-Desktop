@@ -1,5 +1,9 @@
 # Mimir Desktop
 
+<!-- FILE-HEALTH-CONCURRENCY-CURRENT -->
+2026-10-31文件健康四路调度源码及Windows独立候选已验证：每批50及完整安全核验保持，失败排空且关闭失败不被空间中止掩盖。同数据三档正常路径中位耗时降低35%～38%，5,000资产/10,000版40.06秒→25.83秒，完整结果与合成源字节一致；不外推真实资料。完整单worker工程门exit0：2795通过/9既有跳过（2804项、313文件）；最终开发5/5、指定候选6/6均零自动重试。原失败及诊断保留，唯一静态Important已反例修复，非独立运行QA。日常安装未替换，I5/I6/I10条件验收保持。详见[本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-health-concurrency-20261031.md)。 操作说明见[文件健康检查](docs/ASSETS-FILE-HEALTH.md)。
+<!-- /FILE-HEALTH-CONCURRENCY-CURRENT -->
+
 <!-- RESEARCH-WORKFLOW-CURRENT -->
 2026-10-30 F1：六项科研体验贯通与候选收口。真实PDF选区逐字进入未保存证据，人工保存后贯通矩阵、问题、固定版本素材、原生新文件导出及重启找回；证据v2不改写素材固定v1。末尾一次非撰写方静态复核发现2项Important/1项Minor，已集中修复并回归，不冒充独立运行QA。 类型/默认全量/构建exit0：2789通过、9既有跳过（2798项、313文件、216.30秒）；开发Electron8/8（1.3m，零CLI重试）。 本轮九任务源码及合成候选已验证，日常版已备份优先更新；当前窗口确认和其它条件验收分别登记。
 <!-- END-RESEARCH-WORKFLOW-CURRENT -->

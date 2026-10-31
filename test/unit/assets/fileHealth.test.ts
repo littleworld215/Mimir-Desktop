@@ -120,3 +120,120 @@ it('真实文件在打开期间改变时报告变化，句柄不读任何内容�
   expect((await inspectFileHealthBatch(ctx, {}, { ...io, open })).items[0].status).toBe('changed')
   expect(read).not.toHaveBeenCalled(); expect(closed).toBe(true)
 })
+
+function signal() {
+  let release!: () => void
+  const promise = new Promise<void>(resolve => { release = resolve })
+  return { promise, release }
+}
+
+it('每批最多四个文件同时检查，历史版本不缓存任何路径或句柄核验', async () => {
+  const a = asset(), path = ordinary(a.id), gate = signal()
+  for (let n = 1; n <= 53; n++) version(a.id, path, n)
+  let active = 0, peak = 0, closed = 0, stats = 0
+  const lstat = vi.fn(io.lstat)
+  const open: typeof io.open = async (...args) => {
+    const handle = await io.open(...args), stat = handle.stat.bind(handle), close = handle.close.bind(handle)
+    active++; peak = Math.max(peak, active)
+    handle.stat = async () => { stats++; await gate.promise; return stat() }
+    handle.close = async () => { try { await close() } finally { active--; closed++ } }
+    return handle
+  }
+  const pending = inspectFileHealthBatch(ctx, {}, { lstat, open })
+  try {
+    await vi.waitFor(() => expect(active).toBe(4), { timeout: 1500 })
+  } finally { gate.release(); await pending }
+  const first = await pending
+  expect(peak).toBe(4); expect(active).toBe(0); expect(closed).toBe(50); expect(stats).toBe(50)
+  expect(lstat.mock.calls.filter(([file]) => file === join(ctx.layout.root, path))).toHaveLength(100)
+  expect(first.items.map(item => item.version)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1))
+  expect(first.items.every(item => item.status === 'openable')).toBe(true)
+  expect(first.nextCursor).toMatchObject({ versionId: first.items[49].versionId, upperVersionId: 53 })
+})
+
+it('较晚文件先结束时仍按资产与版本顺序返回全部状态', async () => {
+  const a = asset(), first = ordinary(a.id, 'first.bin'), second = ordinary(a.id, 'second.bin')
+  version(a.id, first, 1); version(a.id, second, 2); version(a.id, `files/${a.id}/missing.bin`, 3)
+  version(a.id, null, 4); version(a.id, 'files/999/no-owner.bin', 5)
+  const gate = signal(), laterClosed = signal(), completion: string[] = []
+  const open: typeof io.open = async (...args) => {
+    const handle = await io.open(...args), stat = handle.stat.bind(handle), close = handle.close.bind(handle)
+    const isFirst = args[0] === join(ctx.layout.root, first)
+    handle.stat = async () => { if (isFirst) await gate.promise; return stat() }
+    handle.close = async () => {
+      await close(); completion.push(isFirst ? 'first' : 'second')
+      if (!isFirst) laterClosed.release()
+    }
+    return handle
+  }
+  const pending = inspectFileHealthBatch(ctx, {}, { ...io, open })
+  try {
+    await vi.waitFor(() => expect(completion).toEqual(['second']), { timeout: 1500 })
+    await laterClosed.promise
+  } finally { gate.release(); await pending }
+  const result = await pending
+  expect(completion).toEqual(['second', 'first'])
+  expect(result.items.map(item => [item.version, item.status])).toEqual([
+    [1, 'openable'], [2, 'openable'], [3, 'missing'], [4, 'no_file'], [5, 'wrong_owner']
+  ])
+})
+
+it.each(['close', 'space'] as const)('%s失败停止派新且必须等另外三条真实句柄关闭后才拒绝', async kind => {
+  const a = asset(), path = ordinary(a.id)
+  for (let n = 1; n <= 9; n++) version(a.id, path, n)
+  const gates = Array.from({ length: 9 }, signal), closed: number[] = []
+  let started = 0, settled = false
+  const open: typeof io.open = async (...args) => {
+    const handle = await io.open(...args), stat = handle.stat.bind(handle), close = handle.close.bind(handle)
+    const index = started++
+    handle.stat = async () => { await gates[index].promise; return stat() }
+    handle.close = async () => {
+      await close(); closed.push(index)
+      if (index === 0 && kind === 'close') throw Error('close fault')
+    }
+    return handle
+  }
+  const pending = inspectFileHealthBatch(ctx, {}, { ...io, open })
+  const observed = pending.then(value => ({ value, error: undefined }), error => ({ value: undefined, error }))
+    .finally(() => { settled = true })
+  try {
+    await vi.waitFor(() => expect(started).toBe(4), { timeout: 1500 })
+    if (kind === 'space') epoch = 'A#2'
+    gates[0].release()
+    await vi.waitFor(() => expect(closed).toEqual([0]))
+    expect(settled).toBe(false); expect(started).toBe(4)
+  } finally { gates.forEach(gate => gate.release()); await observed }
+  const result = await observed
+  expect(result.error).toMatchObject({ code: kind === 'close' ? 'FILE_UNAVAILABLE' : 'SPACE_CHANGED' })
+  expect(result.value).toBeUndefined(); expect(started).toBe(4); expect(closed.sort()).toEqual([0, 1, 2, 3])
+})
+
+it.each(['space-first', 'close-first'] as const)('%s：空间切换等待全部检查，关闭失败不能被空间中止掩盖', async order => {
+  const a = asset(), path = ordinary(a.id)
+  for (let n = 1; n <= 9; n++) version(a.id, path, n)
+  const gates = Array.from({ length: 9 }, signal), closed: number[] = []
+  let started = 0, switched = false, switching: Promise<void> | undefined
+  const open: typeof io.open = async (...args) => {
+    const handle = await io.open(...args), stat = handle.stat.bind(handle), close = handle.close.bind(handle)
+    const index = started++
+    handle.stat = async () => { await gates[index].promise; return stat() }
+    handle.close = async () => { await close(); closed.push(index); if (index === 1) throw Error('close fault') }
+    return handle
+  }
+  const pending = manager.run(manager.context(), current => inspectFileHealthBatch(current, {}, { ...io, open }))
+  const observed = pending.then(value => ({ value, error: undefined }), error => ({ value: undefined, error }))
+  try {
+    await vi.waitFor(() => expect(started).toBe(4), { timeout: 1500 })
+    switching = manager.beforeSpaceSwitch().then(() => { switched = true })
+    for (const index of order === 'space-first' ? [0, 1] : [1, 0]) {
+      gates[index].release()
+      await vi.waitFor(() => expect(closed).toContain(index))
+      expect(switched).toBe(false); expect(db.open).toBe(true); expect(started).toBe(4)
+    }
+  } finally {
+    gates.forEach(gate => gate.release())
+    await observed; await switching
+  }
+  expect((await observed).error).toMatchObject({ code: 'FILE_UNAVAILABLE' })
+  expect(closed.sort()).toEqual([0, 1, 2, 3]); expect(db.open).toBe(false)
+})

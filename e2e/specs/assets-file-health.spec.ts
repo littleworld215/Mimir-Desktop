@@ -28,6 +28,11 @@ test('手动文件健康检查：无版本明确报告、无摘要基准、主�
     await expect(dialog.getByText(/在线检查时点/)).toBeVisible()
     await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(900, 760))
     await ctx.page.evaluate(() => document.documentElement.classList.add('dark'))
+    // Inherited color transitions can spawn child transitions on later frames.
+    // Measure the actual settled theme, retaining the original 4.5 threshold.
+    await ctx.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect.poll(() => ctx.page.evaluate(() => document.getAnimations().filter(animation =>
+      animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity).length)).toBe(0)
     const contrast = await dialog.getByRole('button', { name: '关闭报告', exact: true }).evaluate(element => {
       const rgb = (value: string) => value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(v => v / 255)
       const light = (values: number[]) => values.map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((sum, v, index) => sum + v * [0.2126, 0.7152, 0.0722][index], 0)
@@ -50,7 +55,7 @@ test('手动文件健康检查：无版本明确报告、无摘要基准、主�
   } finally { await ctx.cleanup() }
 })
 
-test('真实文件历史和归档可检查且不记使用，非主窗口拒绝健康接口', async () => {
+test('真实文件55版跨批检查归档且不记使用，非主窗口拒绝健康接口', async () => {
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED })
   try {
     await gotoModule(ctx.page, 'assets')
@@ -63,7 +68,7 @@ test('真实文件历史和归档可检查且不记使用，非主窗口拒绝�
       let a = await api.create({ ...scope.context, input: { name: '真实文件合成归档', category: 'inbox', storageType: 'file' } })
       if (!a.ok) throw Error(a.message)
       const selected = await window.electronAPI!.showOpenDialog({ properties: ['openFile'] }) as { filePaths: string[] }
-      for (let n = 0; n < 2; n++) {
+      for (let n = 0; n < 55; n++) {
         const imported = await api.importFile({ ...scope.context, assetId: a.asset.id, expectedRevision: a.asset.revision, sourcePath: selected.filePaths[0] })
         if (!imported.ok) throw Error(imported.message)
         a = imported
@@ -76,8 +81,10 @@ test('真实文件历史和归档可检查且不记使用，非主窗口拒绝�
     const report = ctx.page.getByRole('dialog', { name: '资产文件健康报告', exact: true })
     await report.getByRole('button', { name: '开始检查', exact: true }).click()
     await expect(report.getByText('检查完成', { exact: true })).toBeVisible()
-    await expect(report.getByRole('cell', { name: '可打开（内容未校验）', exact: true })).toHaveCount(2)
-    await expect(report.getByText(/已归档/)).toHaveCount(2)
+    await expect(report.getByText('已检查 55 条版本记录（无版本的文件资产计1条）；可打开 55，需关注 0。', { exact: true })).toBeVisible()
+    await expect(report.getByRole('cell', { name: '可打开（内容未校验）', exact: true })).toHaveCount(5)
+    await expect(report.getByText(/已归档/)).toHaveCount(5)
+    for (const n of [51, 52, 53, 54, 55]) await expect(report.getByRole('cell', { name: `v${n}`, exact: true })).toBeVisible()
     await report.getByRole('button', { name: '关闭报告', exact: true }).click()
     const after = await ctx.page.evaluate(async before => window.electronAPI!.assets.get({ ...before.scope, assetId: before.asset.id }), before)
     expect(after).toEqual({ ok: true, asset: before.asset })
