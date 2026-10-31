@@ -22,4 +22,4 @@
 
 ## 验证与发布
 
-四路调度已完成本批源码及Windows独立目录包验证；日常安装未替换，不自动部署。实际量测和验收范围见[本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-health-concurrency-20261031.md)。
+四路调度已完成源码、Windows独立候选及新实际目录的合成验证。日常更新遵循保存退出、受保护备份及独立验包、原配置只读核验、入口切换流程；当前安装和窗口确认以[部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-health-concurrency-20261031.md)为准，不能用候选通过替代真实资料验收。实际量测和验收范围见[本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-health-concurrency-20261031.md)。

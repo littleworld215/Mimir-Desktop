@@ -1,6 +1,12 @@
 # Mimir Desktop
 
+<!-- HEALTH-CONCURRENCY-INSTALL -->
+2026-10-31文件健康提速版安装跟踪：新目录health-concurrency-01已核对564文件，合成安装12/12、与research-workflow-01双向互斥2/2通过。用户已授权保存退出后部署；受保护原始备份、正式整空间包及独立验包、原配置只读检查已完成，未触发真实文件扫描或模型动作。日常入口切换、实际Windows Shell启动与本版本人工窗口确认以[部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-health-concurrency-20261031.md)为准；旧安装和备份保留。
+<!-- /HEALTH-CONCURRENCY-INSTALL -->
+
 <!-- FILE-HEALTH-CONCURRENCY-CURRENT -->
+源码/候选交付时点记录（历史）；当前日常部署以本页安装跟踪与部署记录为准。
+
 2026-10-31文件健康四路调度源码及Windows独立候选已验证：每批50及完整安全核验保持，失败排空且关闭失败不被空间中止掩盖。同数据三档正常路径中位耗时降低35%～38%，5,000资产/10,000版40.06秒→25.83秒，完整结果与合成源字节一致；不外推真实资料。完整单worker工程门exit0：2795通过/9既有跳过（2804项、313文件）；最终开发5/5、指定候选6/6均零自动重试。原失败及诊断保留，唯一静态Important已反例修复，非独立运行QA。日常安装未替换，I5/I6/I10条件验收保持。详见[本批证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-assets-health-concurrency-20261031.md)。 操作说明见[文件健康检查](docs/ASSETS-FILE-HEALTH.md)。
 <!-- /FILE-HEALTH-CONCURRENCY-CURRENT -->
 
