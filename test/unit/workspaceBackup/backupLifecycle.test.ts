@@ -81,34 +81,111 @@ it('独立验包的异步关闭失败必须传播，不能在end就宣告成功'
   await expect(verifyBackup(f.destination)).rejects.toThrow('synthetic close failure')
 })
 
-it('独立验包等待真实关闭回调，前一轮未确认关闭不开始下一轮', async () => {
+it.each([
+  { arrival: '普通回调', late: false, early: false },
+  { arrival: '驱动窗口结束后才到达的回调', late: true, early: false },
+  { arrival: '调用方提前结束时仍排空晚到回调', late: true, early: true }
+])('独立验包等待真实关闭回调，前一轮未确认关闭不开始下一轮（$arrival）', async ({ late, early }) => {
   const { createBackup } = await import('../../../electron/workspaceBackup/packer')
   const { verifyBackup } = await import('../../../electron/workspaceBackup/verify')
   const f = fixture()
   await createBackup(f.request)
   const open = fs.open, close = fs.close
-  let pending = 0, openedWhileClosing = false
+  let pending = 0, openedWhileClosing = false, closeCalls = 0, releaseFutureCloses = false
+  const deliveries = new Set<Promise<void>>()
+  let allowLateArrival = false, lateCallbackObserved = false, lateDelivery: (() => void) | undefined
+  let notifyFirstHeld!: () => void
+  const firstHeld = new Promise<void>(resolve => { notifyFirstHeld = resolve })
+  let simulateEarlyDone!: () => void
+  const earlyDone = new Promise<void>(resolve => { simulateEarlyDone = resolve })
+  const earlyObservationFailure = Error('synthetic premature result while close callback is pending')
+  const beginLateArrival = () => {
+    allowLateArrival = true
+    const deliver = lateDelivery; lateDelivery = undefined
+    deliver?.()
+  }
   vi.spyOn(fs, 'open').mockImplementation((...args: any[]) => {
     if (pending > 0) openedWhileClosing = true
     return (open as (...values: any[]) => any)(...args)
   })
   vi.spyOn(fs, 'close').mockImplementation((fd, callback) => {
     pending++
-    close(fd, error => {
-      const release = () => { pending--; callback(error) }
-      callbacks.push(release)
-    })
+    const delayArrival = ++closeCalls === 2 && late
+    let completeDelivery!: () => void, released = false
+    const delivered = new Promise<void>(resolve => { completeDelivery = resolve })
+    deliveries.add(delivered)
+    const finishDelivery = () => { deliveries.delete(delivered); completeDelivery() }
+    try {
+      close(fd, error => {
+        const release = () => {
+          if (released) return
+          released = true; pending--
+          try { callback(error) } finally { finishDelivery() }
+        }
+        const deliver = () => {
+          if (releaseFutureCloses) release()
+          else { callbacks.push(release); notifyFirstHeld() }
+        }
+        if (!delayArrival) { deliver(); return }
+        lateCallbackObserved = true
+        if (early) simulateEarlyDone()
+        const schedule = () => { setTimeout(deliver, 150) }
+        if (allowLateArrival) schedule()
+        else lateDelivery = schedule
+      })
+    } catch (error) {
+      if (!released) { released = true; pending--; finishDelivery() }
+      throw error
+    }
   })
   let settled = false
-  const verifying = verifyBackup(f.destination).finally(() => { settled = true })
+  const actualVerifying = verifyBackup(f.destination)
+  void actualVerifying.catch(() => {})
+  // 仅模拟调用方过早完成；真实verify仍运行，留作失败反例的独立收尾。
+  const verifying = (early ? Promise.race([actualVerifying, earlyDone]) : actualVerifying).finally(() => { settled = true })
   void verifying.catch(() => {})
-  await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
-  // 手动放行每个真实close回调；不能用未执行回调的end事件代替它。
-  for (let round = 0; round < 10 && !settled; round++) {
-    for (const callback of callbacks.splice(0)) callback()
-    await new Promise(resolve => setTimeout(resolve, 10))
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  const exercise = async () => {
+    try {
+      await Promise.race([firstHeld, verifying.then(() => { throw Error('验包未等待扣住的关闭回调') })])
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(openedWhileClosing).toBe(false)
+      // 先扣住并检查第一轮关闭，再持续放行；后续回调不依赖固定轮询窗口。
+      releaseFutureCloses = true
+      for (const callback of callbacks.splice(0)) callback()
+      beginLateArrival()
+      await Promise.race([verifying, new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(Error('关闭回调驱动器遗漏了晚到回调')), 5000)
+      })])
+      if (early) {
+        expect(pending).toBeGreaterThan(0)
+        throw earlyObservationFailure
+      }
+      expect(openedWhileClosing).toBe(false)
+      expect(pending).toBe(0)
+      if (late) expect(lateCallbackObserved).toBe(true)
+    } finally {
+      if (deadline) clearTimeout(deadline)
+      releaseFutureCloses = true
+      beginLateArrival()
+      for (const callback of callbacks.splice(0)) callback()
+      await verifying.catch(() => {})
+      // 即使调用方错误地提前完成，也必须等真实close回执完成交付。
+      while (deliveries.size > 0) await Promise.all([...deliveries])
+    }
   }
-  await verifying
-  expect(openedWhileClosing).toBe(false)
-  expect(pending).toBe(0)
+  try {
+    if (early) {
+      await expect(exercise()).rejects.toBe(earlyObservationFailure)
+      expect(pending).toBe(0)
+    } else await exercise()
+  } finally {
+    // RED仍不能留下真实I/O；该兜底不替代对exercise自身收尾状态的断言。
+    releaseFutureCloses = true
+    beginLateArrival()
+    for (const callback of callbacks.splice(0)) callback()
+    await actualVerifying.catch(() => {})
+  }
+  if (early) await actualVerifying
 })

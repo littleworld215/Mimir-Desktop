@@ -22,7 +22,9 @@ function hashes(root: string): Record<string, string> {
 for (const withAssets of [false, true]) test(`研究全历史维护备份恢复、固定引用与重启PDF（${withAssets ? '真实WAL' : '无资产库'}）`, async () => {
   test.setTimeout(180_000)
   let f!: ReturnType<typeof seedResearch>, db: Database.Database | undefined, restarted: Awaited<ReturnType<typeof reopenEvidenceApp>> | undefined
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, extraArgs: ['--workspace-maintenance'], transformSeed: seed => { f = seedResearch(seed); return f.seed } })
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED,
+    maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true,
+    extraArgs: ['--workspace-maintenance'], transformSeed: seed => { f = seedResearch(seed); return f.seed } })
   try {
     if (process.env.MIMIR_E2E_PACKAGED) await ctx.app.evaluate((_e, cwd) => process.chdir(cwd), ctx.tempHome.root)
     const dbPath = join(f.root, '.mimir/assets/assets.db')
@@ -81,7 +83,9 @@ for (const withAssets of [false, true]) test(`研究全历史维护备份恢复�
 for (const state of ['missing', 'corrupt', 'newer', 'evidence-missing']) test(`真实维护报告与恢复：研究文件${state}`, async () => {
   test.setTimeout(120_000)
   let f!: ReturnType<typeof seedResearch>
-  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, extraArgs: ['--workspace-maintenance'], transformSeed: seed => { f = seedResearch(seed); return f.seed } })
+  const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED,
+    maintenanceRestoreSuggestions: true, maintenanceRestoreScope: true,
+    extraArgs: ['--workspace-maintenance'], transformSeed: seed => { f = seedResearch(seed); return f.seed } })
   try {
     if (process.env.MIMIR_E2E_PACKAGED) await ctx.app.evaluate((_e, cwd) => process.chdir(cwd), ctx.tempHome.root)
     const path = join(f.root, '.mimir/library/research.json')
@@ -103,7 +107,7 @@ for (const state of ['missing', 'corrupt', 'newer', 'evidence-missing']) test(`�
     expect(JSON.stringify(result.doctor)).not.toContain('合成损坏正文')
     expect(JSON.stringify(result.doctor)).not.toContain(f.root)
     if (state === 'evidence-missing') expect(check?.detail).toContain('证据文件缺失（EVIDENCE_MISSING）')
-    expect(result.restored.ok).toBe(state === 'missing' || state === 'evidence-missing')
+    expect(result.restored.ok, JSON.stringify(result.restored)).toBe(state === 'missing' || state === 'evidence-missing')
     if (state !== 'missing' && state !== 'evidence-missing') {
       expect(result.restored).toMatchObject({ ok: false, code: 'RECHECK_FAILED' })
       expect(JSON.parse(readFileSync(registryPath, 'utf8'))).toEqual(registryBefore)
