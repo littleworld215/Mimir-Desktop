@@ -375,13 +375,13 @@ killall Dock && killall Finder
 
 | 范围 | 当前状态 |
 | --- | --- |
-| 弹窗主题切换 | 稳定配色正常；隐式属性过渡中存在低对比度计算样式，修复短设计已批准，待实施 |
+| 弹窗主题切换 | 源码修复及本机合成主题/科研闭环验证通过，开合与减少动效保留；日常安装待后续候选部署 |
 | 通知场景测试退出 | 真实草稿忙碌时会拒绝离开；原超时与500ms草稿延迟相邻，唯一原因尚未确认，收尾改进已批准，待第二批实施 |
 | 真实使用验收 | 真实模型、第二台Windows/macOS、真人通知/登录自启及指定T2I文献试用仍有待验范围；不以模拟测试或已完成的窗口确认代替 |
 | 保留设计、暂不实施 | 外置PDF/项目/聊天产物选入备份按用户裁决暂不实施，不能假设空间外资料已包含 |
 | 候选未排期 | OCR、语义检索、批量AI草稿和加密不是已实现能力，也不是本轮已排期交付 |
 
-原始失败、隔离诊断和证据边界见[当前诊断](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-desktop-open-findings-20261110.md)。科研使用不等于开展模型实验；实验仍由用户按需要自行安排。
+默认弹窗[修复证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-dialog-theme-20261110.md)；原始失败、隔离诊断和证据边界见[当前诊断](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-desktop-open-findings-20261110.md)。科研使用不等于开展模型实验；实验仍由用户按需要自行安排。
 
 ## 参与开发
 
