@@ -127,4 +127,4 @@ docs: README 同步 Harness 层 / 模型自动发现 / 插件桥接三项能力
 
 ## License
 
-贡献的代码将按本仓库的 [MIT License](./LICENSE) 授权。
+本仓库的许可证标注为 [GPL-3.0-only](./LICENSE)，与 `package.json` 的 `license` 字段一致；历史 MIT 表述不作为本仓库的许可证说明。

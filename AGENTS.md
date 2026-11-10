@@ -19,7 +19,7 @@ pnpm typecheck && pnpm test && pnpm build
 
 - 本仓库当前的工作**仅供用户个人自用**；**永不推回官方 upstream**（`hxhy00/Mimir-Desktop`）；**可以提交到用户自有仓库**（自己的 fork 或其它自有远端）。
 - **远端已配置**：`origin` = 用户自有 fork（`git@github.com:littleworld215/Mimir-Desktop.git`）；`upstream` = 官方（`hxhy00/Mimir-Desktop`，仅参考、**不推送**）。提交/推送走 `origin`。
-- **许可事实**：本仓库 `README.md` / `CONTRIBUTING.md` / `DEVELOPMENT.md` 声明 **MIT**，但 `package.json` 的 `license` 字段与 `LICENSE` 文件实际是 **`GPL-3.0-only`**（**本仓库自身不一致**）。整合产物为 GPL-3.0 衍生；个人自用范围内不受分发条款约束。
+- **许可事实**：本仓库 `package.json` 的 `license` 字段与 `LICENSE` 文件实际是 **`GPL-3.0-only`**；README、贡献与开发说明按此对齐，历史 MIT 文字不作为本仓库的许可证依据。整合产物为 GPL-3.0 衍生；个人自用范围内不受分发条款约束。
 - 因此：**不要**向官方 upstream 推送；提交只进自有仓库。
 
 ## 当前任务：把「科研资产库」整合进本仓库

@@ -1,5 +1,7 @@
 # Mimir Desktop
 
+本自有fork是一站式科研工作台，以科研空间组织文献、证据、写作素材、资产、科研计划与Agent协作。当前个人部署和已知问题见[当前安装与使用](#当前安装与使用)及[待优化与未完成验收](#待优化与未完成验收)；下方带日期的更新保留为历史，不代表完整项目已终验。
+
 <!-- HEALTH-CONCURRENCY-INSTALL -->
 2026-10-31文件健康提速版安装跟踪：新目录health-concurrency-01已核对564文件，合成安装12/12、与research-workflow-01双向互斥2/2通过。用户已授权保存退出后部署；受保护原始备份、正式整空间包及独立验包、原配置只读检查已完成，未触发真实文件扫描或模型动作。日常入口切换、实际Windows Shell启动与本版本人工窗口确认以[部署与回退](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-health-concurrency-20261031.md)为准；旧安装和备份保留。
 <!-- /HEALTH-CONCURRENCY-INSTALL -->
@@ -103,9 +105,11 @@
 
 ## 当前安装与使用
 
-当前使用桌面或开始菜单的“Mimir 科研工作台”，两处均指向 `C:/Users/11488/Mimir-Research-Releases/20261028-journal-01/Mimir.exe`；旧G08与完整保护副本保留。源码交付、当前安装及真人观察分别登记，以下保留各批次历史。
+2026-11-10只读核对：桌面和开始菜单的“Mimir 科研工作台”均指向`%USERPROFILE%/Mimir-Research-Releases/20261031-health-concurrency-01/Mimir.exe`（产品`4b6a60e`）。`%USERPROFILE%`表示本机用户目录；本次没有修改入口或启动应用。旧安装及保护副本保留，部署和回退见[当前部署记录](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-deployment-health-concurrency-20261031.md)。
 
-当前使用桌面或开始菜单的“Mimir 科研工作台”，两处均指向 `C:/Users/11488/Mimir-Research-Releases/20261028-journal-01/Mimir.exe`；旧G08与完整保护副本保留。源码交付、当前安装及真人验收分别登记，以下为历史记录。
+最近源码交付仅包含测试和说明：重启研究导航已修复，开发与实际安装的同五项各5/5、零用例重试；完整工程门2797通过/9既有跳过，类型检查及构建退出0。此为指定快照的证据，不是独立运行QA或完整项目终验。见[导航证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-research-navigation-20261109.md)与[验收总索引](https://github.com/littleworld215/research-asset-library/blob/main/docs/ACCEPTANCE-STATUS.md)。
+
+历史安装（2026-10-28）：`20261028-journal-01`曾是当时的日常版本；它不再是本次核对的入口目标。以下各批次记录只代表其对应日期。
 
 测试设施续项（2026-10-23）：普通Vitest的真实日志出口已定向唯一临时目录，保留文件和控制台日志；3项反例通过，一次静态复核Important已修正并复查，最终完整类型/测试/构建均exit0，2235通过/9既有跳过（262文件2244项），日志哨兵摘要不变。生产代码、日常安装6645129及科研资料不变。开发验证约定见[日志隔离](DEVELOPMENT.md#vitest日志隔离2026-10-23)。
 
@@ -246,6 +250,8 @@ I6整科研空间离线备份/新空间恢复实施中。源码增加显式启�
 
 ## 下载安装
 
+本节保留上游发行版说明；自有fork的科研整合功能和个人部署以[当前安装与使用](#当前安装与使用)为准，采用独立版本目录及对应备份/回退记录。
+
 到 [**Releases**](https://github.com/hxhy00/Mimir-Desktop/releases) 页面下载对应系统的安装包：
 
 | 系统 | 下载 |
@@ -288,7 +294,10 @@ xattr -cr /Applications/Mimir.app
 | 模块 | 一句话说明 |
 |---|---|
 | **对话** | 自然语言总入口：查文献、写笔记、编译论文、做 PPT 都在这说 |
-| **文献库** | arXiv + 网页双来源搜索、PDF 阅读、笔记、BibTeX、订阅 |
+| **总览** | 今日待办、逾期事项、本周日程及活跃科研项目摘要，可进入相应列表 |
+| **科研计划** | 方向、项目/看板、待办/周期、日程、自定义记录、恢复草稿与格式交换 |
+| **资产库** | 分类标签、全文/短词检索、版本与文件、参见、收藏/取用、模板/任务包及显式AI草稿 |
+| **文献库** | 搜索、PDF/笔记、来源日期与回收恢复、证据卡/矩阵、问题分组及固定版本写作素材 |
 | **论文** | LaTeX 多文件编辑 + 真实编译 + 错误一键 AI 修复 |
 | **实验** | 实验记录、指标可视化、训练进度 |
 | **图表** | 图片管理、从 PDF 提图、LaTeX 引用同步 |
@@ -300,8 +309,8 @@ xattr -cr /Applications/Mimir.app
 Agent 侧的关键能力：
 
 - **子代理委派**：复杂任务自动派给「研究员 / 写作编辑 / 实验管理员」等专业角色，过程可见
-- **上下文治理**：长对话自动摘要压缩，按真实 token 计量，不会聊着聊着失忆或爆预算
-- **权限与安全**：沙箱档位 + 批准卡，写盘前必过确认；控制平面永远硬拒绝
+- **上下文治理**：长对话支持摘要压缩，并按实际 token 用量管理上下文预算
+- **权限与安全**：沙箱档位、批准卡和路径守卫共同限制操作；外部 MCP 写请求另有独立单次确认
 - **产物验收**：生成的文件以卡片形式出现在气泡下方，一键打开
 - **多会话并行**：A 会话生成时切到 B 会话继续聊，互不阻塞
 - **语音输入**：本地离线识别（SenseVoice）或浏览器引擎
@@ -311,7 +320,7 @@ Agent 侧的关键能力：
 ## 从源码运行
 
 ```bash
-# 环境要求：Node.js ≥ 22，包管理器 pnpm
+# Windows已验证环境：Node.js 22.x、pnpm 9；原生测试使用对应Node ABI
 pnpm install        # 安装依赖
 pnpm dev            # 开发模式
 pnpm build          # 构建产物
@@ -362,6 +371,18 @@ killall Dock && killall Finder
 
 ---
 
+## 待优化与未完成验收
+
+| 范围 | 当前状态 |
+| --- | --- |
+| 弹窗主题切换 | 稳定配色正常；隐式属性过渡中存在低对比度计算样式，修复短设计已批准，待实施 |
+| 通知场景测试退出 | 真实草稿忙碌时会拒绝离开；原超时与500ms草稿延迟相邻，唯一原因尚未确认，收尾改进已批准，待第二批实施 |
+| 真实使用验收 | 真实模型、第二台Windows/macOS、真人通知/登录自启及指定T2I文献试用仍有待验范围；不以模拟测试或已完成的窗口确认代替 |
+| 保留设计、暂不实施 | 外置PDF/项目/聊天产物选入备份按用户裁决暂不实施，不能假设空间外资料已包含 |
+| 候选未排期 | OCR、语义检索、批量AI草稿和加密不是已实现能力，也不是本轮已排期交付 |
+
+原始失败、隔离诊断和证据边界见[当前诊断](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-desktop-open-findings-20261110.md)。科研使用不等于开展模型实验；实验仍由用户按需要自行安排。
+
 ## 参与开发
 
 架构设计、构建避坑、测试体系、权限安全模型等工程细节见 **[DEVELOPMENT.md](./DEVELOPMENT.md)**。
@@ -370,7 +391,9 @@ killall Dock && killall Finder
 
 - [dsh-Mimir-Academic-research](https://github.com/1692775560/dsh-Mimir-Academic-research) —— 本项目的前身：以 DeepSeek Harness 为宿主的科研工作台插件。Mimir Desktop 是其工程化重写的独立桌面版。
 
-## 科研资产整合进度（自有 fork，2026-10-08）
+## 科研资产整合历史快照（自有 fork，2026-10-08）
+
+本节保留当时的I5预览与运行边界。后续开发真人七步等完成项及包内剩余范围，以[当前验收索引](https://github.com/littleworld215/research-asset-library/blob/main/docs/ACCEPTANCE-STATUS.md)为准。
 
 本轮I5-05C自动回归矩阵见来源仓库[阶段证据](https://github.com/littleworld215/research-asset-library/blob/main/docs/verification-integration-i5-matrix-20261008.md)：完整测试1086通过、9既有跳过；历史资产/AI/MCP主批次27/27（开发19、包内8），0重试；双ABI SQLite按Node→Electron→Node各7/7，目录包26044项审计通过。包内MCP补验2/2通过，合计开发19/19、包内10/10（29/29），0重试；真实交互、跨机器SMB、持续压力、真实模型和独立运行QA仍待，I5未验收。
 
