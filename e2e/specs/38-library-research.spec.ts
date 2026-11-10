@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { launchApp } from '../fixtures/launch'
 import { seedResearch, researchQuote, captureResearchViews, researchEvidenceDirectory } from '../fixtures/libraryResearch'
 import { reopenEvidenceApp } from '../fixtures/libraryEvidence'
-import { gotoModule } from '../helpers/nav'
+import { gotoModule, gotoResearchWritingMaterials } from '../helpers/nav'
 
 test('十篇二十卡、问题选卡、素材排序/历史/选定更新、完整导出与重启', async () => {
   test.setTimeout(240_000)
@@ -126,9 +126,7 @@ test('十篇二十卡、问题选卡、素材排序/历史/选定更新、完整
     const before = readFileSync(path)
     restarted = await reopenEvidenceApp(ctx)
     await gotoModule(restarted.page, 'library')
-    const openResearch = restarted.page.getByRole('button', { name: '研究问题与写作素材', exact: true })
-    if (await openResearch.isVisible()) await openResearch.click()
-    await restarted.page.getByRole('button', { name: '写作素材', exact: true }).click()
+    await gotoResearchWritingMaterials(restarted.page)
     await restarted.page.getByRole('button', { name: '打开素材包 真实界面写作素材', exact: true }).click()
     await expect(restarted.page.getByLabel('素材包标题', { exact: true })).toHaveValue('真实界面写作素材')
     expect(readFileSync(path)).toEqual(before)

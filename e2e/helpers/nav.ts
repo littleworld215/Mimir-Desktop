@@ -7,7 +7,7 @@
  * - 模块标题：所有模块统一用 `.module-title` 类（见各模块 header），是最稳的锚点，
  *   不依赖具体文案改动 → 用 `page.locator('.module-title')` 拿当前模块标题文本。
  */
-import { expect, type Page } from '@playwright/test'
+import { errors, expect, type Page } from '@playwright/test'
 
 /** ModuleId → 侧栏可见文案（对照 src/components/layout/Sidebar.tsx navGroups）。 */
 export const MODULE_LABELS = {
@@ -48,4 +48,24 @@ export async function currentModuleTitle(page: Page): Promise<string> {
 /** 断言当前处于某模块（按标题文本匹配）。 */
 export async function expectModule(page: Page, titleContains: string): Promise<void> {
   await expect(page.locator('.module-title').first()).toContainText(titleContains)
+}
+
+export async function gotoResearchWritingMaterials(page: Page): Promise<void> {
+  const entry = page.getByRole('button', { name: '研究问题与写作素材', exact: true })
+  const writing = page.getByRole('button', { name: '写作素材', exact: true })
+  const ready = page.getByRole('button', { name: '新建素材包', exact: true })
+  const budget = 30_000
+  const deadline = performance.now() + budget
+  // 恢复还可能复用入口节点并改变点击语义；所有状态等待共用原30秒动作预算。
+  await expect.poll(async () => {
+    if (await ready.isVisible()) return true
+    const remaining = deadline - performance.now()
+    if (remaining <= 0) return false
+    try {
+      await entry.or(writing).first().click({ timeout: Math.min(1000, remaining) })
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) throw error
+    }
+    return ready.isVisible()
+  }, { timeout: budget, intervals: [0, 100, 250], message: '研究导航未进入写作素材就绪状态' }).toBe(true)
 }
