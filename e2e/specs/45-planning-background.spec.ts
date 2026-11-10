@@ -1,14 +1,59 @@
 import { test, expect } from '@playwright/test'
+import type { ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launchApp } from '../fixtures/launch'
 import { gotoModule } from '../helpers/nav'
 import { emptyPlanningInput } from '../../shared/researchPlanningDefaults'
 import { localPlanningDate } from '../../shared/researchPlanningDates'
+import { cleanupPlanningContext } from '../helpers/planningCleanup'
+
+async function finishPlanningContext(ctx: Awaited<ReturnType<typeof launchApp>>, electronProcess: ChildProcess, bodyFailure?: unknown) {
+  let attempts = 0, refused = 0
+  try {
+    await cleanupPlanningContext({
+      discard: async () => {
+        if (ctx.page.isClosed()) return true
+        attempts++
+        const allowed = await ctx.page.evaluate(async () => await window.mimirRequestEvidenceLeave?.('discard') ?? false)
+        if (!allowed) refused++
+        return allowed
+      },
+      close: async () => {
+        if (electronProcess.exitCode !== null || electronProcess.signalCode !== null) return
+        await ctx.app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 2 })
+        await ctx.app.close()
+      },
+      exitedNormally: () => electronProcess.exitCode === 0 && electronProcess.signalCode === null,
+      release: () => ctx.tempHome.cleanup()
+    })
+    expect(electronProcess.exitCode).toBe(0)
+    expect(electronProcess.signalCode).toBeNull()
+    await test.info().attach('planning-cleanup', {
+      body: JSON.stringify({ completed: true, attempts, refused, exitCode: electronProcess.exitCode }),
+      contentType: 'application/json'
+    })
+  } catch (error) {
+    const detail = error as { code?: string; stage?: string }
+    const failures = bodyFailure === undefined ? [error] : [bodyFailure, error]
+    try {
+      await test.info().attach('planning-cleanup-failure', {
+        body: JSON.stringify({ completed: false, code: detail?.code, stage: detail?.stage, attempts, refused,
+          pid: electronProcess.pid, temporaryUserData: ctx.paths.userData,
+          operationMayStillBePending: detail?.code === 'PLANNING_CLEANUP_TIMEOUT' }),
+        contentType: 'application/json'
+      })
+    } catch (attachmentError) { failures.push(attachmentError) }
+    if (failures.length > 1) throw new AggregateError(failures, 'Planning assertion and/or cleanup failed; evidence retained')
+    throw error
+  }
+}
 
 test('科研计划后台：默认关闭、实际托盘隐藏/重显，显式退出仍保护未保存输入', async () => {
   test.setTimeout(180_000)
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED })
+  const electronProcess = ctx.app.process()
+  let bodyFailure: unknown
   try {
     await gotoModule(ctx.page, 'settings')
     await ctx.page.getByRole('main').getByRole('button', { name: '科研计划', exact: true }).click()
@@ -41,13 +86,15 @@ test('科研计划后台：默认关闭、实际托盘隐藏/重显，显式退�
     await expect.poll(() => ctx.page.locator('html').evaluate(element => element.classList.contains('dark'))).toBe(true)
     await ctx.page.screenshot({ animations: 'disabled', path: join(directory, 'batch5-background-dark-800.png') })
     expect(await ctx.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  } finally { await ctx.cleanup() }
+  } catch (error) { bodyFailure = error; throw error } finally { await finishPlanningContext(ctx, electronProcess, bodyFailure) }
 })
 
 test('科研计划后台：原生通知适配假呈现、成功去重及真实页面点击/取消保护', async () => {
   test.setTimeout(180_000)
   let root = ''
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => { root = seed.workspaces[0]!.path; return seed } })
+  const electronProcess = ctx.app.process()
+  let bodyFailure: unknown
   try {
     await ctx.app.evaluate(({ Notification, app }) => {
       ;(globalThis as any).__i10Notices = []
@@ -76,12 +123,14 @@ test('科研计划后台：原生通知适配假呈现、成功去重及真实�
     await expect(ctx.page.getByLabel('正文', { exact: true })).toHaveValue('通知切换不能丢失此输入')
     expect(JSON.parse(readFileSync(file, 'utf8')).deliveries.map((d: { itemId: string }) => d.itemId).sort()).toEqual(items.sort())
     expect(await ctx.app.evaluate(() => (globalThis as any).__i10StartupWrites)).toBe(0)
-  } finally { await ctx.cleanup() }
+  } catch (error) { bodyFailure = error; throw error } finally { await finishPlanningContext(ctx, electronProcess, bodyFailure) }
 })
 
 test('科研计划后台：空间切换后旧通知无效，新空间不继承旧空间去重状态', async () => {
   test.setTimeout(180_000)
   const ctx = await launchApp({ executablePath: process.env.MIMIR_E2E_PACKAGED, transformSeed: seed => ({ ...seed, workspaces: [...seed.workspaces, { ...seed.workspaces[0]!, id: 'second-space', name: '第二合成空间', path: join(seed.workspaces[0]!.path, '../第二合成空间') }] }) })
+  const electronProcess = ctx.app.process()
+  let bodyFailure: unknown
   try {
     await ctx.app.evaluate(({ Notification }) => {
       ;(globalThis as any).__i10Notices = []
@@ -98,5 +147,5 @@ test('科研计划后台：空间切换后旧通知无效，新空间不继承�
     await gotoModule(ctx.page, 'planning')
     const state = await ctx.page.evaluate(async () => { const api = window.electronAPI!.researchPlanning, b = await api.bootstrap({}); if (!b.ok) throw Error('bootstrap'); const list = await api.list({ scope: b.scope, filter: {}, page: 1 }); return list })
     expect(state).toMatchObject({ ok: true, total: 0 })
-  } finally { await ctx.cleanup() }
+  } catch (error) { bodyFailure = error; throw error } finally { await finishPlanningContext(ctx, electronProcess, bodyFailure) }
 })
